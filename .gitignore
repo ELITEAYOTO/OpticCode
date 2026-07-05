@@ -1,0 +1,44 @@
+# Rust
+/target/
+**/*.rs.bk
+
+# Local model/data artifacts
+/models/*
+!/models/.gitkeep
+/data/*
+!/data/.gitkeep
+
+# RAG/index artifacts
+*.sqlite
+*.sqlite3
+*.db
+*.db-shm
+*.db-wal
+/qdrant/
+/tantivy/
+/embeddings/
+
+# Logs and temporary files
+*.log
+*.tmp
+*.temp
+/.tmp/
+/tmp/
+
+# Windows/editor noise
+Thumbs.db
+Desktop.ini
+.DS_Store
+.vscode/
+.idea/
+
+# Java builds for local benchmark projects
+**/target/
+**/build/
+**/.gradle/
+
+# Environment files
+.env
+.env.*
+!.env.example
+
