@@ -35,6 +35,7 @@ Mesures initiales sur la machine :
 | `plan`, chaud, profil+memoire sans RAG, 80 tokens | 4.05 s | prompt 10 969 caracteres |
 | `run-rag-comparison.ps1`, RAG avec expansion, 50 tokens | 2.85-4.53 s | prompt 11 961 caracteres |
 | `run-rag-comparison.ps1`, sans RAG, 50 tokens | 2.81-2.86 s | prompt 10 969 caracteres |
+| `plan`, chaud, RAG trie docs/skills, 30 tokens | 1.84 s | prompt 11 926 caracteres |
 
 Conclusion :
 
@@ -68,6 +69,7 @@ Mesure importante du 2026-07-06 :
 - Ollama charge actuellement le modele avec un contexte actif de 4096 tokens, suffisant pour le mini projet.
 - le premier branchement RAG ajoute peu de contexte sur une requete ciblee, mais la qualite doit etre mesuree sur plusieurs prompts.
 - l'expansion de requete RAG augmente le rappel sur les termes francais/legacy, avec environ +1 000 caracteres sur le test court.
+- le tri docs/skills avant code interne n'a pas de cout notable ; il modifie surtout la qualite du contexte injecte.
 
 ## Optimisations prioritaires
 

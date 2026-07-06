@@ -178,6 +178,7 @@ Etat actuel :
 - RAG branche dans `ask` et `plan` avec `--no-rag`, `--rag-index`, `--rag-limit` ;
 - script `run-rag-comparison.ps1` ajoute pour comparer avec/sans RAG ;
 - expansion de requete RAG ajoutee pour les synonymes legacy francais/anglais ;
+- tri RAG ajoute pour privilegier `docs/` et `skills/` avant le code interne ;
 - compilation et tests OK.
 
 Livrable :

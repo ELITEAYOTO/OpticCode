@@ -519,3 +519,20 @@ Raison :
 - les demandes utilisateur peuvent etre en francais alors que les sources sont souvent en anglais ou en noms Bukkit ;
 - la recherche stricte multi-mots reduit le bruit, mais elle a besoin de synonymes courts ;
 - cette approche reste deterministe et mesurable avant d'ajouter embeddings ou Tantivy.
+
+### D-035 - Prioriser les sources RAG lisibles avant le code interne
+
+Statut : valide provisoirement.
+
+Decision :
+
+- trier les chunks injectes dans `ask` et `plan` par type de source ;
+- privilegier `opticcode:docs/` puis `opticcode:skills/` ;
+- garder les sources plugin et resource-pack utiles ;
+- placer `opticcode:crates/` apres les documents metier.
+
+Raison :
+
+- le code interne d'OpticCode peut contenir les memes regles que la documentation, mais il est moins lisible pour le modele ;
+- pour repondre a une question Minecraft legacy, une regle documentee est souvent plus utile qu'une implementation Rust ;
+- le tri est applique au contexte RAG injecte, sans casser `rag-search` qui reste un outil de diagnostic brut.

@@ -291,12 +291,7 @@ pub fn load_rag_context(index_dir: &Path, query: &str, limit: usize) -> Result<R
         }
     }
 
-    hits.sort_by(|left, right| {
-        right
-            .score
-            .cmp(&left.score)
-            .then_with(|| left.source.cmp(&right.source))
-    });
+    sort_rag_hits_for_prompt(&mut hits);
     hits.truncate(limit);
 
     Ok(RagContext {
@@ -561,6 +556,37 @@ fn expand_rag_queries(query: &str) -> Vec<String> {
     queries
 }
 
+fn sort_rag_hits_for_prompt(hits: &mut [RagContextHit]) {
+    hits.sort_by(|left, right| {
+        rag_source_priority(&left.source)
+            .cmp(&rag_source_priority(&right.source))
+            .then_with(|| right.score.cmp(&left.score))
+            .then_with(|| left.source.cmp(&right.source))
+    });
+}
+
+fn rag_source_priority(source: &str) -> u8 {
+    if source.starts_with("opticcode:docs/") {
+        0
+    } else if source.starts_with("opticcode:skills/") {
+        1
+    } else if source.starts_with("plugin:") {
+        2
+    } else if source.starts_with("resource-pack:assets/minecraft/lang/") {
+        3
+    } else if source.starts_with("resource-pack:") {
+        4
+    } else if source.starts_with("pandaspigot:") && source.contains(".patch") {
+        5
+    } else if source.starts_with("pandaspigot:") {
+        6
+    } else if source.starts_with("opticcode:crates/") {
+        7
+    } else {
+        8
+    }
+}
+
 fn normalized_id(value: Option<&str>) -> Option<&str> {
     value
         .map(str::trim)
@@ -583,8 +609,9 @@ fn truncate_memory(value: &str, max_chars: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::{
-        build_plan_prompt, build_prompt, expand_rag_queries, format_rag_context, MemoryContext,
-        MemoryEntry, ProfileContext, RagContext, RagContextHit,
+        build_plan_prompt, build_prompt, expand_rag_queries, format_rag_context,
+        sort_rag_hits_for_prompt, MemoryContext, MemoryEntry, ProfileContext, RagContext,
+        RagContextHit,
     };
     use std::path::PathBuf;
 
@@ -708,5 +735,38 @@ mod tests {
         assert!(queries.contains(&"spade".to_string()));
         assert!(queries.contains(&"mob_spawner".to_string()));
         assert!(queries.contains(&"nether_stalk".to_string()));
+    }
+
+    #[test]
+    fn prioritizes_docs_and_skills_over_internal_code_for_rag() {
+        let mut hits = vec![
+            RagContextHit {
+                source: "opticcode:crates/opticcode-tools/src/lib.rs".to_string(),
+                score: 20,
+                preview: "internal implementation".to_string(),
+            },
+            RagContextHit {
+                source: "opticcode:skills/profiles/minecraft-java-1.8/profile.md".to_string(),
+                score: 6,
+                preview: "profile rule".to_string(),
+            },
+            RagContextHit {
+                source: "opticcode:docs/minecraft-legacy-rules.md".to_string(),
+                score: 5,
+                preview: "documented rule".to_string(),
+            },
+        ];
+
+        sort_rag_hits_for_prompt(&mut hits);
+
+        assert_eq!(hits[0].source, "opticcode:docs/minecraft-legacy-rules.md");
+        assert_eq!(
+            hits[1].source,
+            "opticcode:skills/profiles/minecraft-java-1.8/profile.md"
+        );
+        assert_eq!(
+            hits[2].source,
+            "opticcode:crates/opticcode-tools/src/lib.rs"
+        );
     }
 }

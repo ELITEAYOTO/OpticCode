@@ -234,11 +234,43 @@ Interpretation provisoire :
 - le premier `prompt_eval` a montre un pic isole, a confirmer sur plus de runs ;
 - le debit de generation reste stable.
 
+## Priorite des sources injectees
+
+Statut : ajoute.
+
+Le tri utilise pour `ask` et `plan` favorise maintenant les sources dans cet ordre :
+
+1. `opticcode:docs/`
+2. `opticcode:skills/`
+3. `plugin:`
+4. `resource-pack:assets/minecraft/lang/`
+5. `resource-pack:`
+6. `pandaspigot:` patches
+7. `pandaspigot:`
+8. `opticcode:crates/`
+
+Important : `rag-search` reste volontairement brut pour diagnostiquer l'index. Le tri priorise seulement le contexte envoye au modele.
+
+Verification :
+
+```text
+spade -> docs et profil avant code interne dans le prompt RAG
+```
+
+Mesure chaude rapide apres ce changement :
+
+```text
+prompt_chars: 11926
+client_seconds: 1.84
+prompt_eval_seconds: 0.04
+eval_count: 30
+eval_tokens_per_second: 25.10
+```
+
 ## Prochaine etape
 
 Ameliorer encore la requete RAG :
 
 - afficher les requetes RAG utilisees en mode debug ;
 - eviter les doublons proches entre docs/profil/code ;
-- ponderer les sources `docs` et `skills` au-dessus du code interne ;
 - mesurer de nouveau avec plus de prompts.

@@ -40,6 +40,7 @@ Le prototype sait deja :
 - construire et interroger un premier index RAG JSONL local ;
 - injecter le RAG dans `ask` et `plan` avec `--no-rag` ;
 - enrichir les requetes RAG avec des synonymes legacy.
+- prioriser les docs et profils avant le code interne dans le contexte RAG.
 
 Il ne sait pas encore :
 
@@ -147,7 +148,7 @@ cargo test --workspace
 Resultat :
 
 ```text
-OK - 24 tests passes
+OK - 25 tests passes
 ```
 
 ### Inspection locale
