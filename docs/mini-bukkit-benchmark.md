@@ -41,6 +41,7 @@ Points legacy volontairement presents :
 
 ```powershell
 cargo run -q -- inspect --path benchmarks/mini-bukkit-plugin
+cargo run -q -- analyze-java --path benchmarks/mini-bukkit-plugin
 cargo run -q -- search Material.SULPHUR --path benchmarks/mini-bukkit-plugin --limit 10
 cargo run -q -- plan "Verifier ce plugin Bukkit 1.8.8 et proposer les risques avant compilation" --path benchmarks/mini-bukkit-plugin
 .\scripts\run-mini-benchmark.ps1
@@ -77,6 +78,26 @@ Resultat :
 - retrouve `Material.SULPHUR` dans `JoinListener.java` ;
 - retrouve la note correspondante dans le README du benchmark ;
 - temps observe : moins d'une seconde apres compilation Rust.
+
+### Analyse Java/Bukkit
+
+Commande :
+
+```powershell
+cargo run -q -- analyze-java --path benchmarks/mini-bukkit-plugin
+```
+
+Resultat :
+
+- Maven detecte ;
+- Java source/target 1.8 ;
+- dependance `spigot-api:1.8.8-R0.1-SNAPSHOT` en `provided` ;
+- `plugin.yml` detecte ;
+- main class detectee ;
+- commande `/coins` detectee ;
+- `CoinsCommand.java` detecte comme `CommandExecutor` ;
+- `JoinListener.java` detecte comme listener ;
+- aucun risque detecte.
 
 ### Compilation Maven
 

@@ -260,3 +260,19 @@ Raison :
 - les futures comparaisons Ollama / llama.cpp / prompts doivent etre reproductibles ;
 - recopier les chiffres a la main devient vite source d'erreurs ;
 - JSON est suffisant avant de construire un vrai runner benchmark.
+
+### D-020 - Analyse Java deterministe avant patch
+
+Statut : valide provisoirement.
+
+Decision :
+
+- ajouter `analyze-java` avant `patch` ;
+- analyser Maven, `plugin.yml`, classes Java, commandes et listeners sans LLM ;
+- utiliser cette analyse comme base pour les futurs prompts et outils de build.
+
+Raison :
+
+- OpticCode doit comprendre un projet Bukkit avant de le modifier ;
+- une analyse deterministe est plus rapide et plus fiable qu'un appel modele ;
+- cela reduira le contexte necessaire pour les futures generations.

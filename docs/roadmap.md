@@ -163,6 +163,7 @@ Etat actuel :
 - mode bref disponible via `--brief` ;
 - limite de generation disponible via `--max-tokens` ;
 - mini projet benchmark Bukkit Java 8 ajoute ;
+- commande `analyze-java` fonctionnelle ;
 - compilation et tests OK.
 
 Livrable :
@@ -170,10 +171,11 @@ Livrable :
 - `docs/phase-4-mvp.md`
 - `docs/mini-bukkit-benchmark.md`
 - `docs/optimization-notes.md`
+- `docs/java-project-intelligence.md`
 
 ## Phase 5 - Tools code et Java legacy
 
-Statut : a faire.
+Statut : demarree.
 
 Objectif :
 
@@ -189,6 +191,11 @@ Priorite metier :
 - Bukkit/Spigot 1.8.8 ;
 - compatibilite PandaSpigot ;
 - eviter les API modernes.
+
+Etat actuel :
+
+- `analyze-java` detecte Maven, `pom.xml`, `plugin.yml`, commandes, listeners et risques simples ;
+- prochaine commande cible : `build`.
 
 ## Phase 6 - RAG local
 

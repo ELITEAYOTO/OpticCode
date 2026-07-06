@@ -66,6 +66,7 @@ Il sert a tester OpticCode sur une structure proche d'un plugin legacy.
 ```powershell
 cargo run -q -- inspect --path .
 cargo run -q -- context --path benchmarks/mini-bukkit-plugin
+cargo run -q -- analyze-java --path benchmarks/mini-bukkit-plugin
 cargo run -q -- search Material.SULPHUR --path . --limit 5
 cargo run -q -- ask "Reponds en une phrase : quelle regle Bukkit 1.8.8 dois-tu respecter pour gunpowder ?" --path .
 cargo run -q -- plan "Ajouter une commande /coins dans un plugin Bukkit 1.8.8" --path . --metrics
@@ -76,4 +77,4 @@ cargo run -q -- inspect --path benchmarks/mini-bukkit-plugin
 
 ## Prochaine etape
 
-Preparer un mini projet Bukkit Java 8 de benchmark, puis ajouter la generation de patch texte non applique.
+Ajouter une commande `build`, puis resumer les erreurs Maven/Gradle avant la generation de patch texte non applique.

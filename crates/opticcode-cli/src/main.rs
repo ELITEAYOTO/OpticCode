@@ -3,7 +3,9 @@ use std::path::PathBuf;
 use anyhow::Result;
 use clap::{Parser, Subcommand};
 use opticcode_core::{AskOptions, GenerateMetrics, OpticCode, PlanOptions};
-use opticcode_tools::{build_project_context, inspect_workspace, search_workspace};
+use opticcode_tools::{
+    analyze_java_project, build_project_context, inspect_workspace, search_workspace,
+};
 use serde::Serialize;
 use std::io::{self, Write};
 
@@ -29,6 +31,10 @@ enum Command {
         limit: usize,
     },
     Context {
+        #[arg(long, default_value = ".")]
+        path: PathBuf,
+    },
+    AnalyzeJava {
         #[arg(long, default_value = ".")]
         path: PathBuf,
     },
@@ -99,6 +105,10 @@ async fn main() -> Result<()> {
         Command::Context { path } => {
             let context = build_project_context(&path)?;
             println!("{}", context.to_display_string());
+        }
+        Command::AnalyzeJava { path } => {
+            let analysis = analyze_java_project(&path)?;
+            println!("{}", analysis.to_display_string());
         }
         Command::Ask {
             prompt,

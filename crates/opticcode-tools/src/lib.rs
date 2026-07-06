@@ -3,6 +3,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
+use serde_yaml::Value;
 use walkdir::{DirEntry, WalkDir};
 
 const MAX_INSPECT_FILES: usize = 2_000;
@@ -41,6 +42,63 @@ pub struct FileSnippet {
     pub path: PathBuf,
     pub content: String,
     pub truncated: bool,
+}
+
+#[derive(Debug, Clone)]
+pub struct JavaProjectAnalysis {
+    pub root: PathBuf,
+    pub build_tool: BuildTool,
+    pub maven: Option<MavenAnalysis>,
+    pub plugin: Option<PluginYmlAnalysis>,
+    pub java_files: Vec<JavaFileAnalysis>,
+    pub risks: Vec<String>,
+    pub build_command: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BuildTool {
+    Maven,
+    Gradle,
+    Unknown,
+}
+
+#[derive(Debug, Clone)]
+pub struct MavenAnalysis {
+    pub group_id: Option<String>,
+    pub artifact_id: Option<String>,
+    pub version: Option<String>,
+    pub source: Option<String>,
+    pub target: Option<String>,
+    pub dependencies: Vec<MavenDependency>,
+}
+
+#[derive(Debug, Clone)]
+pub struct MavenDependency {
+    pub group_id: Option<String>,
+    pub artifact_id: Option<String>,
+    pub version: Option<String>,
+    pub scope: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct PluginYmlAnalysis {
+    pub name: Option<String>,
+    pub version: Option<String>,
+    pub main: Option<String>,
+    pub has_api_version: bool,
+    pub commands: Vec<String>,
+    pub permissions: Vec<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct JavaFileAnalysis {
+    pub path: PathBuf,
+    pub package_name: Option<String>,
+    pub class_name: Option<String>,
+    pub is_command_executor: bool,
+    pub is_listener: bool,
+    pub imports: Vec<String>,
+    pub risks: Vec<String>,
 }
 
 pub fn inspect_workspace(root: &Path) -> Result<WorkspaceReport> {
@@ -148,6 +206,277 @@ pub fn build_project_context_with_limits(
     })
 }
 
+pub fn analyze_java_project(root: &Path) -> Result<JavaProjectAnalysis> {
+    let root = fs::canonicalize(root)
+        .with_context(|| format!("failed to resolve workspace path: {}", root.display()))?;
+    let pom_path = root.join("pom.xml");
+    let gradle_path = root.join("build.gradle");
+    let gradle_kts_path = root.join("build.gradle.kts");
+    let plugin_yml_path = root.join("src/main/resources/plugin.yml");
+    let plugin_yaml_path = root.join("src/main/resources/plugin.yaml");
+
+    let build_tool = if pom_path.exists() {
+        BuildTool::Maven
+    } else if gradle_path.exists() || gradle_kts_path.exists() {
+        BuildTool::Gradle
+    } else {
+        BuildTool::Unknown
+    };
+
+    let maven = if pom_path.exists() {
+        let content = fs::read_to_string(&pom_path)
+            .with_context(|| format!("failed to read {}", pom_path.display()))?;
+        Some(parse_pom(&content)?)
+    } else {
+        None
+    };
+
+    let plugin = if plugin_yml_path.exists() {
+        let content = fs::read_to_string(&plugin_yml_path)
+            .with_context(|| format!("failed to read {}", plugin_yml_path.display()))?;
+        Some(parse_plugin_yml(&content)?)
+    } else if plugin_yaml_path.exists() {
+        let content = fs::read_to_string(&plugin_yaml_path)
+            .with_context(|| format!("failed to read {}", plugin_yaml_path.display()))?;
+        Some(parse_plugin_yml(&content)?)
+    } else {
+        None
+    };
+
+    let mut java_files = Vec::new();
+    for entry in WalkDir::new(&root)
+        .into_iter()
+        .filter_entry(should_enter)
+        .filter_map(Result::ok)
+    {
+        if !entry.file_type().is_file()
+            || entry.path().extension().and_then(|v| v.to_str()) != Some("java")
+        {
+            continue;
+        }
+
+        let content = match fs::read_to_string(entry.path()) {
+            Ok(value) => value,
+            Err(_) => continue,
+        };
+        java_files.push(parse_java_file(&root, entry.path(), &content));
+    }
+
+    let mut risks = collect_project_risks(build_tool, maven.as_ref(), plugin.as_ref(), &java_files);
+    risks.sort();
+    risks.dedup();
+
+    let build_command = match build_tool {
+        BuildTool::Maven => Some("mvn -q -DskipTests package".to_string()),
+        BuildTool::Gradle => Some("gradle build".to_string()),
+        BuildTool::Unknown => None,
+    };
+
+    Ok(JavaProjectAnalysis {
+        root,
+        build_tool,
+        maven,
+        plugin,
+        java_files,
+        risks,
+        build_command,
+    })
+}
+
+fn parse_pom(content: &str) -> Result<MavenAnalysis> {
+    let doc = roxmltree::Document::parse(content).context("failed to parse pom.xml")?;
+    let root = doc.root_element();
+    let properties = child(root, "properties");
+
+    let source = properties
+        .and_then(|node| child_text(node, "maven.compiler.source"))
+        .or_else(|| properties.and_then(|node| child_text(node, "java.version")));
+    let target = properties
+        .and_then(|node| child_text(node, "maven.compiler.target"))
+        .or_else(|| source.clone());
+
+    let mut dependencies = Vec::new();
+    if let Some(deps_node) = child(root, "dependencies") {
+        for dep in deps_node
+            .children()
+            .filter(|node| node.is_element() && node.tag_name().name() == "dependency")
+        {
+            dependencies.push(MavenDependency {
+                group_id: child_text(dep, "groupId"),
+                artifact_id: child_text(dep, "artifactId"),
+                version: child_text(dep, "version"),
+                scope: child_text(dep, "scope"),
+            });
+        }
+    }
+
+    Ok(MavenAnalysis {
+        group_id: child_text(root, "groupId"),
+        artifact_id: child_text(root, "artifactId"),
+        version: child_text(root, "version"),
+        source,
+        target,
+        dependencies,
+    })
+}
+
+fn parse_plugin_yml(content: &str) -> Result<PluginYmlAnalysis> {
+    let value: Value = serde_yaml::from_str(content).context("failed to parse plugin.yml")?;
+
+    Ok(PluginYmlAnalysis {
+        name: yaml_string(&value, "name"),
+        version: yaml_string(&value, "version"),
+        main: yaml_string(&value, "main"),
+        has_api_version: yaml_has_key(&value, "api-version"),
+        commands: yaml_mapping_keys(&value, "commands"),
+        permissions: yaml_mapping_keys(&value, "permissions"),
+    })
+}
+
+fn parse_java_file(root: &Path, path: &Path, content: &str) -> JavaFileAnalysis {
+    let imports = content
+        .lines()
+        .filter_map(|line| line.trim().strip_prefix("import "))
+        .filter_map(|line| line.trim_end_matches(';').split_whitespace().next())
+        .map(ToOwned::to_owned)
+        .collect::<Vec<_>>();
+
+    let package_name = content
+        .lines()
+        .find_map(|line| line.trim().strip_prefix("package "))
+        .map(|line| line.trim_end_matches(';').trim().to_string());
+
+    let class_name = content.lines().find_map(extract_class_name);
+    let is_command_executor = content.contains("CommandExecutor");
+    let is_listener = content.contains("Listener") && content.contains("@EventHandler");
+
+    let mut risks = Vec::new();
+    if content.contains("Material.GUNPOWDER") {
+        risks.push(
+            "Uses Material.GUNPOWDER; Bukkit 1.8.8 usually expects Material.SULPHUR.".to_string(),
+        );
+    }
+    if content.contains("record ") {
+        risks.push("Contains `record`, not compatible with Java 8.".to_string());
+    }
+    if content.contains(" var ") || content.contains("\nvar ") {
+        risks.push("Contains `var`, not compatible with Java 8 local variable syntax.".to_string());
+    }
+    if imports
+        .iter()
+        .any(|item| item.starts_with("net.kyori.adventure"))
+    {
+        risks.push("Uses Adventure API imports, likely not Bukkit 1.8.8 native.".to_string());
+    }
+    if imports
+        .iter()
+        .any(|item| item.starts_with("org.bukkit.persistence"))
+    {
+        risks.push("Uses PersistentDataContainer API, not available in Bukkit 1.8.8.".to_string());
+    }
+
+    JavaFileAnalysis {
+        path: to_relative(root, path),
+        package_name,
+        class_name,
+        is_command_executor,
+        is_listener,
+        imports,
+        risks,
+    }
+}
+
+impl JavaProjectAnalysis {
+    pub fn to_display_string(&self) -> String {
+        let mut out = String::new();
+        out.push_str(&format!("Project: {}\n", self.root.display()));
+        out.push_str(&format!("Build tool: {}\n", self.build_tool));
+
+        if let Some(maven) = &self.maven {
+            out.push_str("\nMaven:\n");
+            out.push_str(&format!("- groupId: {}\n", optional(&maven.group_id)));
+            out.push_str(&format!("- artifactId: {}\n", optional(&maven.artifact_id)));
+            out.push_str(&format!("- version: {}\n", optional(&maven.version)));
+            out.push_str(&format!("- source: {}\n", optional(&maven.source)));
+            out.push_str(&format!("- target: {}\n", optional(&maven.target)));
+            out.push_str("- dependencies:\n");
+            for dependency in &maven.dependencies {
+                out.push_str(&format!(
+                    "  - {}:{}:{} scope={}\n",
+                    optional(&dependency.group_id),
+                    optional(&dependency.artifact_id),
+                    optional(&dependency.version),
+                    optional(&dependency.scope)
+                ));
+            }
+        }
+
+        if let Some(plugin) = &self.plugin {
+            out.push_str("\nplugin.yml:\n");
+            out.push_str(&format!("- name: {}\n", optional(&plugin.name)));
+            out.push_str(&format!("- version: {}\n", optional(&plugin.version)));
+            out.push_str(&format!("- main: {}\n", optional(&plugin.main)));
+            out.push_str(&format!(
+                "- api-version present: {}\n",
+                yes_no(plugin.has_api_version)
+            ));
+            out.push_str(&format!("- commands: {}\n", list_or_none(&plugin.commands)));
+            out.push_str(&format!(
+                "- permissions: {}\n",
+                list_or_none(&plugin.permissions)
+            ));
+        } else {
+            out.push_str("\nplugin.yml: not found\n");
+        }
+
+        let command_executors = self
+            .java_files
+            .iter()
+            .filter(|file| file.is_command_executor)
+            .collect::<Vec<_>>();
+        let listeners = self
+            .java_files
+            .iter()
+            .filter(|file| file.is_listener)
+            .collect::<Vec<_>>();
+
+        out.push_str("\nJava:\n");
+        out.push_str(&format!("- files: {}\n", self.java_files.len()));
+        out.push_str("- command executors:\n");
+        for file in command_executors {
+            out.push_str(&format!("  - {}\n", file.path.display()));
+        }
+        out.push_str("- listeners:\n");
+        for file in listeners {
+            out.push_str(&format!("  - {}\n", file.path.display()));
+        }
+
+        out.push_str("\nRisks:\n");
+        if self.risks.is_empty() {
+            out.push_str("- none detected\n");
+        } else {
+            for risk in &self.risks {
+                out.push_str(&format!("- {risk}\n"));
+            }
+        }
+
+        out.push_str("\nSuggested build command:\n");
+        out.push_str(&format!("- {}\n", optional(&self.build_command)));
+
+        out
+    }
+}
+
+impl std::fmt::Display for BuildTool {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            BuildTool::Maven => write!(formatter, "Maven"),
+            BuildTool::Gradle => write!(formatter, "Gradle"),
+            BuildTool::Unknown => write!(formatter, "unknown"),
+        }
+    }
+}
+
 pub fn search_workspace(root: &Path, pattern: &str, limit: usize) -> Result<Vec<SearchHit>> {
     let root = fs::canonicalize(root)
         .with_context(|| format!("failed to resolve workspace path: {}", root.display()))?;
@@ -194,6 +523,130 @@ pub fn search_workspace(root: &Path, pattern: &str, limit: usize) -> Result<Vec<
     }
 
     Ok(hits)
+}
+
+fn collect_project_risks(
+    build_tool: BuildTool,
+    maven: Option<&MavenAnalysis>,
+    plugin: Option<&PluginYmlAnalysis>,
+    java_files: &[JavaFileAnalysis],
+) -> Vec<String> {
+    let mut risks = Vec::new();
+
+    if build_tool == BuildTool::Unknown {
+        risks.push("No Maven or Gradle build file detected.".to_string());
+    }
+
+    if let Some(maven) = maven {
+        if maven.source.as_deref() != Some("1.8") && maven.source.as_deref() != Some("8") {
+            risks.push("Maven source level is not explicitly Java 8.".to_string());
+        }
+        if maven.target.as_deref() != Some("1.8") && maven.target.as_deref() != Some("8") {
+            risks.push("Maven target level is not explicitly Java 8.".to_string());
+        }
+
+        let has_bukkit_dependency = maven.dependencies.iter().any(|dependency| {
+            dependency
+                .artifact_id
+                .as_deref()
+                .is_some_and(|artifact| artifact.contains("bukkit") || artifact.contains("spigot"))
+        });
+        if !has_bukkit_dependency {
+            risks.push("No Bukkit/Spigot dependency detected in pom.xml.".to_string());
+        }
+    }
+
+    if let Some(plugin) = plugin {
+        if plugin.has_api_version {
+            risks.push(
+                "plugin.yml contains api-version; this is not expected for Bukkit 1.8.8."
+                    .to_string(),
+            );
+        }
+        if plugin.main.is_none() {
+            risks.push("plugin.yml does not declare a main class.".to_string());
+        }
+    } else {
+        risks.push("plugin.yml not found under src/main/resources.".to_string());
+    }
+
+    for file in java_files {
+        for risk in &file.risks {
+            risks.push(format!("{}: {}", file.path.display(), risk));
+        }
+    }
+
+    risks
+}
+
+fn child<'a, 'input>(
+    node: roxmltree::Node<'a, 'input>,
+    name: &str,
+) -> Option<roxmltree::Node<'a, 'input>> {
+    node.children()
+        .find(|child| child.is_element() && child.tag_name().name() == name)
+}
+
+fn child_text(node: roxmltree::Node<'_, '_>, name: &str) -> Option<String> {
+    child(node, name)
+        .and_then(|node| node.text())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned)
+}
+
+fn yaml_string(value: &Value, key: &str) -> Option<String> {
+    value
+        .get(Value::String(key.to_string()))
+        .and_then(Value::as_str)
+        .map(ToOwned::to_owned)
+}
+
+fn yaml_has_key(value: &Value, key: &str) -> bool {
+    value.get(Value::String(key.to_string())).is_some()
+}
+
+fn yaml_mapping_keys(value: &Value, key: &str) -> Vec<String> {
+    value
+        .get(Value::String(key.to_string()))
+        .and_then(Value::as_mapping)
+        .map(|mapping| {
+            mapping
+                .keys()
+                .filter_map(Value::as_str)
+                .map(ToOwned::to_owned)
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default()
+}
+
+fn extract_class_name(line: &str) -> Option<String> {
+    let trimmed = line.trim();
+    let marker = if trimmed.contains(" class ") {
+        " class "
+    } else if trimmed.starts_with("class ") {
+        "class "
+    } else {
+        return None;
+    };
+    let after = trimmed.split_once(marker)?.1;
+    after
+        .split(|character: char| !character.is_alphanumeric() && character != '_')
+        .next()
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned)
+}
+
+fn optional(value: &Option<String>) -> &str {
+    value.as_deref().unwrap_or("unknown")
+}
+
+fn list_or_none(values: &[String]) -> String {
+    if values.is_empty() {
+        "none".to_string()
+    } else {
+        values.join(", ")
+    }
 }
 
 impl ProjectContext {
@@ -380,7 +833,10 @@ fn top_extensions(extensions: &BTreeMap<String, usize>, limit: usize) -> Vec<(&s
 
 #[cfg(test)]
 mod tests {
-    use super::{context_priority, is_probably_text, truncate_chars};
+    use super::{
+        context_priority, is_probably_text, parse_java_file, parse_plugin_yml, parse_pom,
+        truncate_chars,
+    };
     use std::path::Path;
 
     #[test]
@@ -405,5 +861,65 @@ mod tests {
         let (content, truncated) = truncate_chars("abcdef", 3);
         assert_eq!(content, "abc");
         assert!(truncated);
+    }
+
+    #[test]
+    fn parses_maven_java_8_properties() {
+        let pom = r#"
+            <project>
+              <groupId>dev.test</groupId>
+              <artifactId>demo</artifactId>
+              <version>1.0</version>
+              <properties>
+                <maven.compiler.source>1.8</maven.compiler.source>
+                <maven.compiler.target>1.8</maven.compiler.target>
+              </properties>
+              <dependencies>
+                <dependency>
+                  <groupId>org.spigotmc</groupId>
+                  <artifactId>spigot-api</artifactId>
+                  <version>1.8.8-R0.1-SNAPSHOT</version>
+                  <scope>provided</scope>
+                </dependency>
+              </dependencies>
+            </project>
+        "#;
+
+        let parsed = parse_pom(pom).expect("pom should parse");
+
+        assert_eq!(parsed.source.as_deref(), Some("1.8"));
+        assert_eq!(parsed.target.as_deref(), Some("1.8"));
+        assert_eq!(parsed.dependencies.len(), 1);
+    }
+
+    #[test]
+    fn parses_plugin_yml_commands() {
+        let plugin = r#"
+name: Demo
+version: 1.0
+main: dev.test.DemoPlugin
+commands:
+  coins:
+    description: Coins
+"#;
+
+        let parsed = parse_plugin_yml(plugin).expect("plugin.yml should parse");
+
+        assert_eq!(parsed.main.as_deref(), Some("dev.test.DemoPlugin"));
+        assert_eq!(parsed.commands, vec!["coins"]);
+        assert!(!parsed.has_api_version);
+    }
+
+    #[test]
+    fn detects_java_command_executor_and_listener() {
+        let file = parse_java_file(
+            Path::new("root"),
+            Path::new("root/src/Test.java"),
+            "package dev.test;\nimport org.bukkit.command.CommandExecutor;\npublic class Test implements CommandExecutor { @EventHandler public void onJoin() {} }",
+        );
+
+        assert_eq!(file.package_name.as_deref(), Some("dev.test"));
+        assert_eq!(file.class_name.as_deref(), Some("Test"));
+        assert!(file.is_command_executor);
     }
 }
