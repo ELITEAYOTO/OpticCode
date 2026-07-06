@@ -1,7 +1,8 @@
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::process::Command as ProcessCommand;
 
-use anyhow::{bail, Result};
+use anyhow::{bail, Context, Result};
 use clap::{Parser, Subcommand};
 use opticcode_core::{
     load_memory_for_workspace, load_profile_for_workspace, load_rag_context, parse_keep_alive,
@@ -110,6 +111,8 @@ enum Command {
         copy_to: Option<PathBuf>,
         #[arg(long)]
         undo: Option<String>,
+        #[arg(long)]
+        allow_external: bool,
         #[arg(long)]
         yes: bool,
     },
@@ -293,6 +296,7 @@ async fn main() -> Result<()> {
             dry_run,
             copy_to,
             undo,
+            allow_external,
             yes,
         } => {
             if let Some(run_id) = undo {
@@ -302,7 +306,7 @@ async fn main() -> Result<()> {
                 if !yes {
                     bail!("apply --undo requires --yes");
                 }
-                ensure_apply_path_is_inside_current_workspace(&path)?;
+                ensure_apply_path_allowed(&path, allow_external, ExternalApplyMode::Undo)?;
                 let result = undo_apply_run(&path, &run_id)?;
                 println!("{}", result.to_display_string());
                 if !result.success() {
@@ -319,7 +323,7 @@ async fn main() -> Result<()> {
                 }
                 apply_java_legacy_patch_to_copy(&path, &copy_to)?
             } else if yes {
-                ensure_apply_path_is_inside_current_workspace(&path)?;
+                ensure_apply_path_allowed(&path, allow_external, ExternalApplyMode::Apply)?;
                 apply_java_legacy_patch_in_place(&path)?
             } else {
                 bail!("real apply requires --yes; use --dry-run or --copy-to <path> --yes");
@@ -422,15 +426,85 @@ async fn main() -> Result<()> {
     Ok(())
 }
 
-fn ensure_apply_path_is_inside_current_workspace(path: &Path) -> Result<()> {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ExternalApplyMode {
+    Apply,
+    Undo,
+}
+
+fn ensure_apply_path_allowed(
+    path: &Path,
+    allow_external: bool,
+    mode: ExternalApplyMode,
+) -> Result<()> {
     let workspace = fs::canonicalize(std::env::current_dir()?)?;
     let target = fs::canonicalize(path)?;
 
-    if !target.starts_with(&workspace) {
+    if target.starts_with(&workspace) {
+        return Ok(());
+    }
+
+    if !allow_external {
         bail!(
-            "real apply is currently limited to the current workspace: {} is outside {}",
+            "real apply is currently limited to the current workspace: {} is outside {}; add --allow-external only for an explicit external Git project",
             target.display(),
             workspace.display()
+        );
+    }
+
+    ensure_external_git_project(&target)?;
+    if mode == ExternalApplyMode::Apply {
+        ensure_external_tracked_files_clean(&target)?;
+    }
+
+    Ok(())
+}
+
+fn ensure_external_git_project(target: &Path) -> Result<()> {
+    let output = ProcessCommand::new("git")
+        .args(["rev-parse", "--is-inside-work-tree"])
+        .current_dir(target)
+        .output()
+        .with_context(|| format!("failed to check Git project: {}", target.display()))?;
+
+    if !output.status.success() || String::from_utf8_lossy(&output.stdout).trim() != "true" {
+        bail!(
+            "external apply requires a Git worktree: {}",
+            target.display()
+        );
+    }
+
+    Ok(())
+}
+
+fn ensure_external_tracked_files_clean(target: &Path) -> Result<()> {
+    let output = ProcessCommand::new("git")
+        .args(["status", "--porcelain"])
+        .current_dir(target)
+        .output()
+        .with_context(|| {
+            format!(
+                "failed to check external Git working tree: {}",
+                target.display()
+            )
+        })?;
+
+    if !output.status.success() {
+        bail!(
+            "failed to check external Git working tree: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        );
+    }
+
+    let status = String::from_utf8_lossy(&output.stdout);
+    let blocking_status = status
+        .lines()
+        .filter(|line| !line.starts_with("?? .opticcode/"))
+        .collect::<Vec<_>>();
+    if !blocking_status.is_empty() {
+        bail!(
+            "external apply requires a clean Git working tree before apply; commit, stash, or remove current changes first:\n{}",
+            blocking_status.join("\n")
         );
     }
 

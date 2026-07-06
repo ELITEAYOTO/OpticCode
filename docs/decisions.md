@@ -789,3 +789,23 @@ Raison :
 - le patch journalise est suffisant pour un rollback Git simple ;
 - `git apply --check -R` evite d'appliquer un rollback non applicable ;
 - cette brique rend safe apply beaucoup plus credible avant toute discussion sur les projets externes.
+
+### D-050 - Apply externe seulement avec autorisation explicite
+
+Statut : valide provisoirement.
+
+Decision :
+
+- conserver le refus par defaut des chemins hors workspace courant ;
+- ajouter `--allow-external` pour autoriser explicitement un projet externe ;
+- exiger que la cible externe soit un worktree Git ;
+- exiger un `git status --porcelain` propre avant un apply externe ;
+- tolerer seulement `.opticcode/` comme trace locale non suivie ;
+- autoriser `apply --undo <run-id> --yes --allow-external` sans exiger Git propre, car l'undo sert a retirer les modifications de l'apply.
+
+Raison :
+
+- tes vrais projets externes peuvent ne pas avoir de backup immediat ;
+- un repo Git propre donne un point de comparaison clair avant modification ;
+- `--allow-external` rend l'intention impossible a confondre avec un test interne ;
+- l'undo doit rester possible meme quand l'apply a rendu le repo sale.

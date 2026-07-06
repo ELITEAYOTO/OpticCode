@@ -53,10 +53,11 @@ Le prototype sait deja :
 - journaliser une application reussie dans `.opticcode/apply-log.jsonl`.
 - sauvegarder le patch de rollback dans `.opticcode/runs/<run-id>/patch.diff`.
 - annuler une application avec `apply --undo <run-id> --yes`.
+- autoriser explicitement un projet externe avec `--allow-external` si le repo Git est propre.
 
 Il ne sait pas encore :
 
-- appliquer un patch reel sur des projets externes ;
+- appliquer un patch reel sur un projet externe non Git ou deja sale ;
 - indexer avec Tantivy ;
 - parser Java avec Tree-sitter ;
 - utiliser une memoire persistante.
@@ -92,6 +93,7 @@ cargo run -q -- apply --path benchmarks/mini-bukkit-plugin --dry-run
 cargo run -q -- apply --path benchmarks/mini-bukkit-plugin --copy-to benchmarks/runs/apply-test --yes
 cargo run -q -- apply --path benchmarks/mini-bukkit-plugin --yes
 cargo run -q -- apply --path benchmarks/runs/apply-test --undo <run-id> --yes
+cargo run -q -- apply --path C:\path\to\external-git-project --yes --allow-external
 cargo run -q -- profile --path benchmarks/mini-bukkit-plugin --profile minecraft-java-1.8
 cargo run -q -- memory --path benchmarks/mini-bukkit-plugin --profile minecraft-java-1.8
 cargo run -q -- pack-scan --path "C:\Users\timot\Desktop\RAG-1.8-Minecraft\1.8-JavaDoc\resource-pack-1.8\LegacyPack" --limit 25

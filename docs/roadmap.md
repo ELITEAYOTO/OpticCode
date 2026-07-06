@@ -238,16 +238,17 @@ Etat actuel :
 - `apply --path <dossier> --yes` ajoute pour appliquer reellement dans le workspace courant uniquement ;
 - journal `.opticcode/apply-log.jsonl` et patch rollback `.opticcode/runs/<run-id>/patch.diff` ajoutes apres apply reussi ;
 - `apply --undo <run-id> --yes` ajoute pour annuler un apply depuis le patch sauvegarde ;
+- `--allow-external` ajoute pour autoriser explicitement un apply hors workspace courant sur repo Git propre ;
 - `ask` et `plan` peuvent charger le profil `minecraft-java-1.8` ;
 - `analyze-java` compare les commandes declarees avec `getCommand(...)` ;
 - table legacy initiale ajoutee : gunpowder, nether wart, spawners, pelles/spades et quelques mobs ;
 - `ask` et `plan` chargent une memoire global/profil par defaut ;
 - `run-mini-benchmark.ps1` append des runs JSONL comparables ;
-- prochaine cible : definir les conditions d'elargissement aux projets externes.
+- prochaine cible : tester sur une copie locale d'un vrai plugin avant tout dossier personnel original.
 
 ## Phase 5.1 - Safe Apply
 
-Statut : demarree, application reelle limitee au workspace courant avec journal et undo.
+Statut : demarree, application reelle limitee par defaut au workspace courant, externe possible avec verrou explicite.
 
 Objectif :
 
@@ -257,6 +258,7 @@ Objectif :
 - autoriser une premiere application reelle uniquement dans le workspace courant ;
 - journaliser chaque application reussie ;
 - annuler une application avec `apply --undo <run-id> --yes` ;
+- autoriser un projet externe seulement avec `--allow-external` et Git propre ;
 - refuser toute modification silencieuse ;
 - preparer rollback simple.
 
@@ -267,8 +269,9 @@ Ordre :
 3. Application reelle avec `--yes` dans le workspace courant. Fait.
 4. Journal + rollback manuel. Fait.
 5. Commande `apply --undo <run-id>`. Fait.
-6. Verification build optionnelle.
-7. Regles d'elargissement hors workspace courant.
+6. Regles d'elargissement hors workspace courant. Fait via `--allow-external`.
+7. Verification build optionnelle.
+8. Test sur copie locale d'un vrai plugin.
 
 Livrable :
 

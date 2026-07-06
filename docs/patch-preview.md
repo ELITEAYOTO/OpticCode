@@ -117,7 +117,19 @@ Commande application reelle limitee au workspace courant :
 cargo run -q -- apply --path benchmarks/mini-bukkit-plugin --yes
 ```
 
-Ce mode refuse les chemins externes pour l'instant. PandaSpigot et les plugins personnels restent en lecture seule ou en mode copie tant que les conditions d'elargissement hors workspace courant ne sont pas decidees.
+Ce mode refuse les chemins externes par defaut. Pour un projet externe, il faut ajouter `--allow-external`, et la cible doit etre un repo Git propre.
+
+Commande externe explicite :
+
+```powershell
+cargo run -q -- apply --path C:\path\to\external-git-project --yes --allow-external
+```
+
+Refus attendus :
+
+- chemin externe sans `--allow-external` ;
+- chemin externe non Git ;
+- repo externe avec changements existants.
 
 Journal rollback :
 

@@ -220,9 +220,9 @@ Error: real apply is currently limited to the current workspace
 
 Limite volontaire :
 
-- ce mode ne doit pas encore etre utilise sur PandaSpigot ou tes plugins externes ;
-- pour les projets externes, utiliser encore `--copy-to <path> --yes` ;
-- l'application externe attend une decision explicite d'elargissement hors workspace courant.
+- le mode par defaut reste limite au workspace courant ;
+- les projets externes doivent passer par `--allow-external` ;
+- `--copy-to <path> --yes` reste le mode recommande pour les premiers essais sur PandaSpigot ou les plugins personnels.
 
 ## Phase SA-4 - Rollback simple
 
@@ -285,6 +285,42 @@ Validation effectuee :
 Approche plus tard :
 
 - backups fichier par fichier pour projets non Git.
+
+## Phase SA-4.5 - Apply externe explicite
+
+Statut : terminee sur copies temporaires Git externes.
+
+Objectif :
+
+- autoriser un apply hors workspace courant seulement avec une intention explicite ;
+- refuser les dossiers externes non Git ;
+- refuser les repos externes avec modifications existantes ;
+- permettre undo externe avec le meme verrou explicite.
+
+Commandes :
+
+```powershell
+cargo run -q -- apply --path C:\path\to\external-git-project --yes --allow-external
+cargo run -q -- apply --path C:\path\to\external-git-project --undo <run-id> --yes --allow-external
+```
+
+Conditions :
+
+- `--yes` reste obligatoire ;
+- `--allow-external` est obligatoire hors workspace courant ;
+- la cible externe doit etre un worktree Git ;
+- avant apply, le `git status --porcelain` doit etre propre ;
+- `.opticcode/` est tolere comme trace locale OpticCode ;
+- undo externe ne demande pas un Git propre, car il sert a annuler l'apply.
+
+Validation effectuee :
+
+- chemin externe sans `--allow-external` refuse ;
+- chemin externe non Git refuse ;
+- repo Git externe propre accepte ;
+- apply externe cree le log et le patch rollback ;
+- `apply --undo` externe restaure le fichier ;
+- repo Git externe sale refuse avant apply.
 
 ## Phase SA-5 - Integration agent
 
@@ -353,7 +389,8 @@ Ne doit pas montrer de modification dans `benchmarks/mini-bukkit-plugin`.
 5. Activer application reelle avec confirmation stricte dans le workspace courant. Fait.
 6. Ajouter rollback/log local avant d'autoriser les projets externes. Fait pour journal + rollback manuel.
 7. Ajouter `apply --undo <run-id>` avant d'elargir aux vrais projets externes. Fait.
-8. Decider les conditions d'elargissement aux projets externes, probablement avec copie obligatoire ou Git propre.
+8. Decider les conditions d'elargissement aux projets externes. Fait via `--allow-external` + Git propre.
+9. Tester sur une copie locale de projet reel avant tout vrai dossier personnel.
 
 ## Risques
 
@@ -363,6 +400,7 @@ Ne doit pas montrer de modification dans `benchmarks/mini-bukkit-plugin`.
 - patch applicable au check mais fragile apres extraction ;
 - build Maven lent ou dependant du cache local ;
 - modification accidentelle d'un projet externe.
+- repo externe deja sale avant patch.
 
 Mitigation :
 
@@ -371,3 +409,4 @@ Mitigation :
 - ne jamais suivre les symlinks comme cible d'application ;
 - utiliser `git apply --check` avant application ;
 - separer preview, dry-run et apply reel.
+- exiger `--allow-external` et Git propre pour les chemins externes.

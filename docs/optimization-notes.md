@@ -434,6 +434,30 @@ Rollback apply : succes
 Undo applied.
 ```
 
+### 15. Apply externe explicite
+
+Statut : ajoute.
+
+Commande :
+
+```powershell
+cargo run -q -- apply --path C:\path\to\external-git-project --yes --allow-external
+```
+
+Garde-fous :
+
+- refus par defaut hors workspace courant ;
+- `--allow-external` obligatoire ;
+- repo Git obligatoire ;
+- working tree propre obligatoire avant apply ;
+- undo externe autorise avec `--undo <run-id> --yes --allow-external`.
+
+Interpretation :
+
+- le cout est quasi nul ;
+- le gain est un controle de risque, pas un gain tokens/s ;
+- un repo deja sale est refuse avant que le patch soit genere/applique.
+
 ## Plan optimisation court terme
 
 1. Ajouter metriques LLM dans la sortie de debug. Fait.
@@ -450,4 +474,5 @@ Undo applied.
 12. Concevoir `safe apply` avec confirmation explicite. Fait pour dry-run, copie, et workspace courant.
 13. Ajouter rollback/log local avant projets externes. Fait pour journal + rollback manuel.
 14. Ajouter `apply --undo <run-id>`. Fait.
-15. Definir les conditions d'elargissement hors workspace courant. Prochaine cible.
+15. Definir les conditions d'elargissement hors workspace courant. Fait via `--allow-external`.
+16. Tester sur une copie locale d'un vrai plugin. Prochaine cible.
