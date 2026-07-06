@@ -586,3 +586,20 @@ Raison :
 - certaines requetes elargies comme `DIAMOND_SPADE` peuvent matcher des configs contenant beaucoup de `DIAMOND_*` sans rapport avec Bukkit legacy ;
 - un hit faible sans concept metier ajoute du bruit au prompt ;
 - le filtre garde les exemples utiles plugin/resource-pack quand ils mentionnent vraiment une regle ou un nom legacy.
+
+### D-039 - Afficher les requetes qui produisent chaque hit RAG
+
+Statut : valide provisoirement.
+
+Decision :
+
+- conserver le `chunk_id` dans le contexte RAG debug ;
+- conserver les requetes elargies qui ont produit chaque hit ;
+- fusionner les requetes quand le meme chunk est retrouve plusieurs fois ;
+- afficher `matched_queries` dans `rag-debug` et `--rag-debug`.
+
+Raison :
+
+- le score seul n'explique pas pourquoi un chunk a ete selectionne ;
+- savoir si un hit vient de `spade`, `MOB_SPAWNER` ou `nether_stalk` aide a corriger les synonymes ;
+- cela rend le RAG auditable sans appel modele supplementaire.

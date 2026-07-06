@@ -182,6 +182,7 @@ Etat actuel :
 - debug RAG ajoute pour afficher les requetes elargies et chunks injectes ;
 - deduplication RAG ajoutee pour reduire les repetitions internes OpticCode ;
 - filtre anti-bruit RAG ajoute pour ignorer les hits faibles sans concept legacy ;
+- `matched_queries` ajoute au debug RAG pour expliquer chaque hit ;
 - compilation et tests OK.
 
 Livrable :

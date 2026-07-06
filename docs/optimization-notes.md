@@ -72,6 +72,7 @@ Mesure importante du 2026-07-06 :
 - le tri docs/skills avant code interne n'a pas de cout notable ; il modifie surtout la qualite du contexte injecte.
 - la deduplication RAG reduit les repetitions internes OpticCode avant injection au modele.
 - le filtre anti-bruit supprime les hits faibles sans concept legacy detecte.
+- `rag-debug` affiche maintenant `chunk` et `matched_queries`, utile pour diagnostiquer la qualite sans relancer Qwen.
 
 ## Optimisations prioritaires
 

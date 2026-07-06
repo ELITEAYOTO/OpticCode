@@ -287,7 +287,8 @@ Le debug affiche :
 
 - l'index utilise ;
 - les requetes RAG elargies ;
-- les chunks réellement injectes dans le prompt.
+- les chunks réellement injectes dans le prompt ;
+- les requetes elargies qui ont produit chaque chunk.
 
 Exemple observe :
 
@@ -305,6 +306,13 @@ Injected hits:
 - opticcode:docs/minecraft-legacy-rules.md
 - opticcode:skills/profiles/minecraft-java-1.8/profile.md
 - plugin:src/main/java/me/krunsh/kspawner/data/PlayerSpawnerData.java
+```
+
+Le debug affiche aussi :
+
+```text
+chunk: 2024feecdafcac5f:0
+matched_queries: DIAMOND_SPADE, NETHER_STALK, WOOD_SPADE, nether wart, nether_stalk, spade
 ```
 
 ## Deduplication RAG
@@ -366,10 +374,14 @@ Debug apres filtre :
 
 ```text
 Injected hits:
-- opticcode:docs/minecraft-legacy-rules.md
-- plugin:src/main/java/me/krunsh/kspawner/data/PlayerSpawnerData.java
-- resource-pack:assets/minecraft/lang/en_US.lang
-- resource-pack:assets/minecraft/lang/en_CA.lang
+source: opticcode:docs/minecraft-legacy-rules.md
+matched_queries: DIAMOND_SPADE, NETHER_STALK, WOOD_SPADE, nether wart, nether_stalk, spade
+
+source: plugin:src/main/java/me/krunsh/kspawner/data/PlayerSpawnerData.java
+matched_queries: spawner
+
+source: resource-pack:assets/minecraft/lang/en_US.lang
+matched_queries: nether wart, shovel
 ```
 
 Limite restante :
@@ -381,5 +393,5 @@ Limite restante :
 
 Ameliorer encore la requete RAG :
 
-- afficher un score detaille par requete elargie ;
+- afficher un score detaille par requete elargie, pas seulement la liste des requetes ;
 - mesurer de nouveau avec plus de prompts.

@@ -71,7 +71,9 @@ pub struct RagContext {
 #[derive(Debug, Clone)]
 pub struct RagContextHit {
     pub source: String,
+    pub chunk_id: String,
     pub score: usize,
+    pub matched_queries: Vec<String>,
     pub preview: String,
 }
 
@@ -276,19 +278,26 @@ pub fn load_rag_context(index_dir: &Path, query: &str, limit: usize) -> Result<R
     }
 
     let limit = limit.clamp(1, MAX_RAG_HITS);
-    let mut seen = BTreeSet::new();
     let mut hits = Vec::new();
     let queries = expand_rag_queries(query);
 
     for expanded_query in &queries {
         for hit in search_rag_index(index_dir, expanded_query, limit)? {
-            let key = format!("{}:{}", hit.document_path, hit.chunk_id);
-            if !seen.insert(key) {
+            if let Some(existing) = hits.iter_mut().find(|existing: &&mut RagContextHit| {
+                existing.source == hit.document_path && existing.chunk_id == hit.chunk_id
+            }) {
+                existing.score = existing.score.max(hit.score);
+                if !existing.matched_queries.contains(expanded_query) {
+                    existing.matched_queries.push(expanded_query.clone());
+                    existing.matched_queries.sort();
+                }
                 continue;
             }
             hits.push(RagContextHit {
                 source: hit.document_path,
+                chunk_id: hit.chunk_id,
                 score: hit.score,
+                matched_queries: vec![expanded_query.clone()],
                 preview: hit.preview,
             });
         }
@@ -362,7 +371,16 @@ impl RagContext {
         } else {
             for hit in &self.hits {
                 out.push_str(&format!("\nsource: {}\n", hit.source));
+                out.push_str(&format!("chunk: {}\n", hit.chunk_id));
                 out.push_str(&format!("score: {}\n", hit.score));
+                out.push_str(&format!(
+                    "matched_queries: {}\n",
+                    if hit.matched_queries.is_empty() {
+                        "none".to_string()
+                    } else {
+                        hit.matched_queries.join(", ")
+                    }
+                ));
                 out.push_str(&hit.preview);
                 if !hit.preview.ends_with('\n') {
                     out.push('\n');
@@ -822,7 +840,9 @@ mod tests {
             queries: vec!["nether wart".to_string(), "nether_stalk".to_string()],
             hits: vec![RagContextHit {
                 source: "resource-pack:assets/minecraft/lang/en_US.lang".to_string(),
+                chunk_id: "lang:0".to_string(),
                 score: 12,
+                matched_queries: vec!["nether wart".to_string()],
                 preview: "tile.netherStalk.name=Nether Wart".to_string(),
             }],
         };
@@ -846,7 +866,9 @@ mod tests {
             queries: vec!["spade".to_string()],
             hits: vec![RagContextHit {
                 source: "plugin:big.java".to_string(),
+                chunk_id: "big:0".to_string(),
                 score: 1,
+                matched_queries: vec!["spade".to_string()],
                 preview: "a".repeat(6_000),
             }],
         };
@@ -872,13 +894,16 @@ mod tests {
             queries: vec!["spade".to_string()],
             hits: vec![RagContextHit {
                 source: "opticcode:docs/minecraft-legacy-rules.md".to_string(),
+                chunk_id: "rules:0".to_string(),
                 score: 6,
+                matched_queries: vec!["spade".to_string()],
                 preview: "WOOD_SPADE".to_string(),
             }],
         };
         let display = rag.to_display_string();
 
         assert!(display.contains("Expanded queries"));
+        assert!(display.contains("matched_queries: spade"));
         assert!(display.contains("spade"));
         assert!(display.contains("WOOD_SPADE"));
     }
@@ -888,17 +913,23 @@ mod tests {
         let mut hits = vec![
             RagContextHit {
                 source: "opticcode:crates/opticcode-tools/src/lib.rs".to_string(),
+                chunk_id: "crates:0".to_string(),
                 score: 20,
+                matched_queries: vec!["spade".to_string()],
                 preview: "internal implementation".to_string(),
             },
             RagContextHit {
                 source: "opticcode:skills/profiles/minecraft-java-1.8/profile.md".to_string(),
+                chunk_id: "skills:0".to_string(),
                 score: 6,
+                matched_queries: vec!["spade".to_string()],
                 preview: "profile rule".to_string(),
             },
             RagContextHit {
                 source: "opticcode:docs/minecraft-legacy-rules.md".to_string(),
+                chunk_id: "docs:0".to_string(),
                 score: 5,
+                matched_queries: vec!["spade".to_string()],
                 preview: "documented rule".to_string(),
             },
         ];
@@ -921,12 +952,16 @@ mod tests {
         let mut hits = vec![
             RagContextHit {
                 source: "opticcode:docs/mini-bukkit-benchmark.md".to_string(),
+                chunk_id: "bench:0".to_string(),
                 score: 20,
+                matched_queries: vec!["SULPHUR".to_string()],
                 preview: "Material.SULPHUR benchmark".to_string(),
             },
             RagContextHit {
                 source: "opticcode:docs/minecraft-legacy-rules.md".to_string(),
+                chunk_id: "rules:0".to_string(),
                 score: 1,
+                matched_queries: vec!["SULPHUR".to_string()],
                 preview: "Material.SULPHUR rule".to_string(),
             },
         ];
@@ -941,17 +976,23 @@ mod tests {
         let mut hits = vec![
             RagContextHit {
                 source: "opticcode:docs/minecraft-legacy-rules.md".to_string(),
+                chunk_id: "rules:0".to_string(),
                 score: 10,
+                matched_queries: vec!["SULPHUR".to_string()],
                 preview: "Material.GUNPOWDER -> Material.SULPHUR".to_string(),
             },
             RagContextHit {
                 source: "opticcode:crates/opticcode-tools/src/lib.rs".to_string(),
+                chunk_id: "crates:0".to_string(),
                 score: 30,
+                matched_queries: vec!["SULPHUR".to_string()],
                 preview: "Material.GUNPOWDER legacy Material.SULPHUR".to_string(),
             },
             RagContextHit {
                 source: "plugin:src/main/java/JoinListener.java".to_string(),
+                chunk_id: "plugin:0".to_string(),
                 score: 5,
+                matched_queries: vec!["SULPHUR".to_string()],
                 preview: "new ItemStack(Material.SULPHUR)".to_string(),
             },
         ];
@@ -974,7 +1015,9 @@ mod tests {
     fn detects_duplicate_legacy_keys() {
         let hit = RagContextHit {
             source: "opticcode:docs/minecraft-legacy-rules.md".to_string(),
+            chunk_id: "rules:0".to_string(),
             score: 1,
+            matched_queries: vec!["spade".to_string()],
             preview: "Material.WOODEN_SHOVEL -> Material.WOOD_SPADE".to_string(),
         };
 
@@ -986,12 +1029,16 @@ mod tests {
         let mut hits = vec![
             RagContextHit {
                 source: "plugin:docs/config.yml".to_string(),
+                chunk_id: "plugin:0".to_string(),
                 score: 1,
+                matched_queries: vec!["DIAMOND_SPADE".to_string()],
                 preview: "DIAMOND_HELMET DIAMOND_CHESTPLATE".to_string(),
             },
             RagContextHit {
                 source: "resource-pack:assets/minecraft/lang/en_US.lang".to_string(),
+                chunk_id: "lang:0".to_string(),
                 score: 1,
+                matched_queries: vec!["nether wart".to_string()],
                 preview: "tile.netherStalk.name=Nether Wart".to_string(),
             },
         ];
