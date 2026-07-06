@@ -117,7 +117,24 @@ Commande application reelle limitee au workspace courant :
 cargo run -q -- apply --path benchmarks/mini-bukkit-plugin --yes
 ```
 
-Ce mode refuse les chemins externes pour l'instant. PandaSpigot et les plugins personnels restent en lecture seule ou en mode copie tant que rollback/log n'est pas ajoute.
+Ce mode refuse les chemins externes pour l'instant. PandaSpigot et les plugins personnels restent en lecture seule ou en mode copie tant que `apply --undo <run-id>` n'est pas ajoute.
+
+Journal rollback :
+
+Apres une application reussie, OpticCode cree :
+
+```text
+.opticcode/apply-log.jsonl
+.opticcode/runs/<run-id>/patch.diff
+```
+
+La sortie affiche aussi :
+
+```powershell
+git apply -R ".opticcode\runs\<run-id>\patch.diff"
+```
+
+Ce rollback manuel a ete valide sur une copie temporaire. La commande automatique `apply --undo <run-id>` reste a faire.
 
 Roadmap detaillee :
 

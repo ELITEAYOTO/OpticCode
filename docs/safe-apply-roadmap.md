@@ -222,9 +222,11 @@ Limite volontaire :
 
 - ce mode ne doit pas encore etre utilise sur PandaSpigot ou tes plugins externes ;
 - pour les projets externes, utiliser encore `--copy-to <path> --yes` ;
-- l'application externe attend SA-4 avec journal/rollback.
+- l'application externe attend une commande `apply --undo <run-id>` en plus du journal rollback.
 
 ## Phase SA-4 - Rollback simple
+
+Statut : terminee pour journal + rollback manuel.
 
 Objectif :
 
@@ -232,13 +234,36 @@ Objectif :
 
 Approche V1 :
 
-- sauvegarder le patch applique dans `benchmarks/runs` ou `.opticcode/runs` ;
-- afficher la commande Git manuelle de rollback ;
+- sauvegarder le patch applique dans `.opticcode/runs/<run-id>/patch.diff` ;
+- ajouter une ligne JSONL dans `.opticcode/apply-log.jsonl` ;
+- afficher la commande Git manuelle de rollback dans la sortie `apply` ;
 - si le projet est sous Git, recommander `git diff` puis revert manuel.
+
+Commande de rollback affichee :
+
+```powershell
+git apply -R ".opticcode\runs\<run-id>\patch.diff"
+```
+
+Resultat valide :
+
+```text
+Apply log:
+Run id: apply-...
+Patch: .opticcode\runs\apply-...\patch.diff
+Rollback: git apply -R ".opticcode\runs\apply-...\patch.diff"
+```
+
+Validation effectuee :
+
+- application sur copie temporaire interne ;
+- creation de `.opticcode/apply-log.jsonl` ;
+- creation du `patch.diff` ;
+- rollback manuel avec `git apply -R` ;
+- verification que le fichier revient a l'etat avant patch.
 
 Approche plus tard :
 
-- journal local `.opticcode/apply-log.jsonl` ;
 - commande `apply --undo <run-id>` ;
 - backups fichier par fichier pour projets non Git.
 
@@ -307,7 +332,8 @@ Ne doit pas montrer de modification dans `benchmarks/mini-bukkit-plugin`.
 3. Ajouter `apply --yes` sur copie temporaire. Fait via `--copy-to <path> --yes`.
 4. Valider avec `run-patch-build-quality.ps1`. Fait.
 5. Activer application reelle avec confirmation stricte dans le workspace courant. Fait.
-6. Ajouter rollback/log local avant d'autoriser les projets externes.
+6. Ajouter rollback/log local avant d'autoriser les projets externes. Fait pour journal + rollback manuel.
+7. Ajouter `apply --undo <run-id>` avant d'elargir aux vrais projets externes.
 
 ## Risques
 

@@ -381,7 +381,7 @@ Interpretation :
 
 ### 13. Apply reel local
 
-Statut : ajoute pour le workspace courant.
+Statut : ajoute pour le workspace courant, avec journal rollback manuel.
 
 Commande :
 
@@ -401,7 +401,24 @@ Interpretation :
 
 - aucun appel Qwen n'est necessaire pour ces corrections legacy deterministes ;
 - le gain est surtout un temps de boucle plus court et moins de tokens LLM depenses ;
-- l'application reelle reste refusee hors workspace courant jusqu'au rollback/log local.
+- l'application reelle reste refusee hors workspace courant jusqu'a la commande `apply --undo <run-id>`.
+
+### 14. Log apply et rollback manuel
+
+Statut : ajoute.
+
+Chaque application reussie cree :
+
+```text
+.opticcode/apply-log.jsonl
+.opticcode/runs/<run-id>/patch.diff
+```
+
+Interpretation :
+
+- le cout runtime est negligeable par rapport a Maven ou Qwen ;
+- le rollback manuel repose sur `git apply -R` et ne consomme aucun token ;
+- le patch est stocke en chemin relatif pour eviter les problemes Windows `\\?\`.
 
 ## Plan optimisation court terme
 
@@ -417,4 +434,5 @@ Interpretation :
 10. Mesurer la qualite du RAG pondere sur plusieurs prompts legacy. Fait.
 11. Ajouter des tests qualite sur correction de code + build Maven. Fait.
 12. Concevoir `safe apply` avec confirmation explicite. Fait pour dry-run, copie, et workspace courant.
-13. Ajouter rollback/log local avant projets externes. Prochaine cible.
+13. Ajouter rollback/log local avant projets externes. Fait pour journal + rollback manuel.
+14. Ajouter `apply --undo <run-id>`. Prochaine cible.

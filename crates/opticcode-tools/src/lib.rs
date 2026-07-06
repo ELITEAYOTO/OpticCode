@@ -1,9 +1,9 @@
 use std::collections::BTreeMap;
-use std::fs::{self, File};
+use std::fs::{self, File, OpenOptions};
 use std::io::{BufRead, BufReader, BufWriter, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
@@ -148,6 +148,19 @@ pub struct ApplyPlan {
     pub apply: Option<PatchCheckResult>,
     pub copied_from: Option<PathBuf>,
     pub dry_run: bool,
+    pub log: Option<ApplyLogEntry>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ApplyLogEntry {
+    pub run_id: String,
+    pub applied_at_unix_ms: u128,
+    pub project_root: String,
+    pub copied_from: Option<String>,
+    pub change_count: usize,
+    pub files: Vec<String>,
+    pub patch_path: String,
+    pub rollback_command: String,
 }
 
 #[derive(Debug, Clone)]
@@ -894,6 +907,7 @@ pub fn prepare_java_legacy_apply_plan(root: &Path, dry_run: bool) -> Result<Appl
         apply: None,
         copied_from: None,
         dry_run,
+        log: None,
     })
 }
 
@@ -918,6 +932,9 @@ pub fn apply_java_legacy_patch_to_copy(source: &Path, copy_to: &Path) -> Result<
     }
 
     plan.apply = apply_patch_with_git(&plan.proposal)?;
+    if plan.apply.as_ref().is_some_and(|apply| apply.success) {
+        plan.log = Some(write_apply_log(&plan)?);
+    }
     Ok(plan)
 }
 
@@ -935,7 +952,63 @@ pub fn apply_java_legacy_patch_in_place(root: &Path) -> Result<ApplyPlan> {
     }
 
     plan.apply = apply_patch_with_git(&plan.proposal)?;
+    if plan.apply.as_ref().is_some_and(|apply| apply.success) {
+        plan.log = Some(write_apply_log(&plan)?);
+    }
     Ok(plan)
+}
+
+fn write_apply_log(plan: &ApplyPlan) -> Result<ApplyLogEntry> {
+    let applied_at_unix_ms = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .context("system time should be after unix epoch")?
+        .as_millis();
+    let run_id = format!("apply-{}-{}", applied_at_unix_ms, std::process::id());
+    let opticcode_dir = plan.proposal.root.join(".opticcode");
+    let run_dir = opticcode_dir.join("runs").join(&run_id);
+    fs::create_dir_all(&run_dir).with_context(|| {
+        format!(
+            "failed to create apply run directory: {}",
+            run_dir.display()
+        )
+    })?;
+
+    let patch_path = run_dir.join("patch.diff");
+    fs::write(&patch_path, plan.proposal.combined_diff())
+        .with_context(|| format!("failed to write apply patch log: {}", patch_path.display()))?;
+
+    let patch_relative = to_relative(&plan.proposal.root, &patch_path);
+    let patch_relative_display = patch_relative.display().to_string();
+    let rollback_command = format!("git apply -R \"{}\"", patch_relative_display);
+    let entry = ApplyLogEntry {
+        run_id,
+        applied_at_unix_ms,
+        project_root: plan.proposal.root.display().to_string(),
+        copied_from: plan
+            .copied_from
+            .as_ref()
+            .map(|path| path.display().to_string()),
+        change_count: plan.proposal.changes.len(),
+        files: plan
+            .proposal
+            .changes
+            .iter()
+            .map(|change| change.path.display().to_string())
+            .collect(),
+        patch_path: patch_relative_display,
+        rollback_command,
+    };
+
+    let log_path = opticcode_dir.join("apply-log.jsonl");
+    let mut log = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&log_path)
+        .with_context(|| format!("failed to open apply log: {}", log_path.display()))?;
+    serde_json::to_writer(&mut log, &entry)?;
+    log.write_all(b"\n")?;
+
+    Ok(entry)
 }
 
 fn copy_project_to(source: &Path, copy_to: &Path) -> Result<PathBuf> {
@@ -1233,6 +1306,13 @@ impl ApplyPlan {
             out.push_str("\nApplied in copy only; source project was not modified.\n");
         } else if self.apply.as_ref().is_some_and(|apply| apply.success) {
             out.push_str("\nApplied in source project.\n");
+        }
+
+        if let Some(log) = &self.log {
+            out.push_str("\nApply log:\n");
+            out.push_str(&format!("Run id: {}\n", log.run_id));
+            out.push_str(&format!("Patch: {}\n", log.patch_path));
+            out.push_str(&format!("Rollback: {}\n", log.rollback_command));
         }
 
         out
@@ -2194,6 +2274,7 @@ fn should_enter(entry: &DirEntry) -> bool {
     !matches!(
         name.as_ref(),
         ".git"
+            | ".opticcode"
             | "target"
             | "build"
             | ".gradle"
@@ -2209,7 +2290,7 @@ fn should_enter_resource_pack(entry: &DirEntry) -> bool {
     let name = entry.file_name().to_string_lossy();
     !matches!(
         name.as_ref(),
-        ".git" | ".idea" | ".vscode" | "target" | "build"
+        ".git" | ".opticcode" | ".idea" | ".vscode" | "target" | "build"
     )
 }
 
@@ -2218,6 +2299,7 @@ fn should_enter_rag_source(entry: &DirEntry) -> bool {
     !matches!(
         name.as_str(),
         ".git"
+            | ".opticcode"
             | ".gradle"
             | ".idea"
             | ".settings"
@@ -2296,7 +2378,8 @@ mod tests {
         context_priority, is_important_rag_file, is_legacy_resource_match, is_probably_text,
         is_rag_indexable_text, parse_java_file, parse_plugin_yml, parse_pom,
         propose_java_legacy_patch, resource_pack_category, summarize_build_output, tail_lines,
-        truncate_chars, ApplyPlan, BuildTool, PatchCheckResult, PatchFileChange, PatchProposal,
+        truncate_chars, ApplyLogEntry, ApplyPlan, BuildTool, PatchCheckResult, PatchFileChange,
+        PatchProposal,
     };
     use std::fs;
     use std::path::{Path, PathBuf};
@@ -2585,6 +2668,7 @@ commands:
             apply: None,
             copied_from: None,
             dry_run: true,
+            log: None,
         };
         let display = plan.to_display_string();
 
@@ -2616,6 +2700,7 @@ commands:
             apply: None,
             copied_from: None,
             dry_run: true,
+            log: None,
         };
         let display = plan.to_display_string();
 
@@ -2646,6 +2731,9 @@ commands:
         assert!(plan.apply.as_ref().is_some_and(|apply| apply.success));
         assert!(source_content.contains("Material.GUNPOWDER"));
         assert!(copy_content.contains("Material.SULPHUR"));
+        assert!(!source.join(".opticcode").exists());
+        assert!(copy.join(".opticcode/apply-log.jsonl").exists());
+        assert!(plan.log.as_ref().is_some_and(|log| log.change_count == 1));
         assert!(plan
             .to_display_string()
             .contains("Applied in copy only; source project was not modified."));
@@ -2670,8 +2758,27 @@ commands:
         assert!(plan.apply.as_ref().is_some_and(|apply| apply.success));
         assert!(content.contains("Material.SULPHUR"));
         assert!(!content.contains("Material.GUNPOWDER"));
+        let log = plan.log.as_ref().expect("apply log");
+        let log_path = root.join(".opticcode/apply-log.jsonl");
+        let patch_path = root
+            .join(".opticcode/runs")
+            .join(&log.run_id)
+            .join("patch.diff");
+        let log_line = fs::read_to_string(&log_path).expect("apply log jsonl");
+        let logged: ApplyLogEntry =
+            serde_json::from_str(log_line.trim()).expect("parse apply log entry");
+
+        assert_eq!(logged.run_id, log.run_id);
+        assert_eq!(logged.change_count, 1);
+        assert!(logged.patch_path.starts_with(".opticcode"));
+        assert!(patch_path.exists());
+        assert!(fs::read_to_string(&patch_path)
+            .expect("patch log")
+            .contains("Material.SULPHUR"));
+        assert!(logged.rollback_command.contains("git apply -R"));
         assert!(plan
             .to_display_string()
             .contains("Applied in source project."));
+        assert!(plan.to_display_string().contains("Apply log:"));
     }
 }

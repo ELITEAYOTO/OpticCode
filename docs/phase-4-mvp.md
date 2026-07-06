@@ -50,11 +50,13 @@ Le prototype sait deja :
 - verifier un plan d'application avec `apply --dry-run` sans modifier de fichiers.
 - appliquer un patch dans une copie temporaire avec `apply --copy-to ... --yes`.
 - appliquer un patch reel dans le workspace courant avec `apply --yes`.
+- journaliser une application reussie dans `.opticcode/apply-log.jsonl`.
+- sauvegarder le patch de rollback dans `.opticcode/runs/<run-id>/patch.diff`.
 
 Il ne sait pas encore :
 
 - appliquer un patch reel sur des projets externes ;
-- journaliser ou annuler automatiquement une application ;
+- annuler automatiquement une application via `apply --undo <run-id>` ;
 - indexer avec Tantivy ;
 - parser Java avec Tree-sitter ;
 - utiliser une memoire persistante.

@@ -749,3 +749,22 @@ Raison :
 - le workspace courant est controle et versionne, donc le risque est plus faible ;
 - tes projets externes n'ont pas tous un backup garanti ;
 - rollback/log doit exister avant d'autoriser PandaSpigot ou les plugins externes.
+
+### D-048 - Journal local des applications de patch
+
+Statut : valide provisoirement.
+
+Decision :
+
+- creer `.opticcode/runs/<run-id>/patch.diff` apres chaque application reussie ;
+- append une ligne JSONL dans `.opticcode/apply-log.jsonl` ;
+- stocker dans le log les fichiers touches, le nombre de changements, la source copiee si presente et la commande rollback ;
+- afficher la commande `git apply -R ".opticcode\\runs\\<run-id>\\patch.diff"` dans la sortie `apply` ;
+- ignorer `.opticcode/` dans Git et dans les scans OpticCode.
+
+Raison :
+
+- un agent qui modifie des fichiers doit laisser une trace locale lisible ;
+- le patch applique est le rollback le plus simple pour les projets Git ;
+- les chemins relatifs evitent les problemes Windows avec les prefixes `\\?\\` ;
+- cette etape prepare une future commande `apply --undo <run-id>`.
