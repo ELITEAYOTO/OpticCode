@@ -171,6 +171,7 @@ Etat actuel :
 - profil `minecraft-java-1.8` minimal ajoute ;
 - coherence `plugin.yml` / `getCommand(...)` detectee ;
 - memoire Markdown simple ajoutee ;
+- benchmark JSONL ajoute dans `scripts/run-mini-benchmark.ps1` ;
 - compilation et tests OK.
 
 Livrable :
@@ -212,7 +213,8 @@ Etat actuel :
 - `analyze-java` compare les commandes declarees avec `getCommand(...)` ;
 - table legacy initiale ajoutee : gunpowder, nether wart, spawners, pelles/spades et quelques mobs ;
 - `ask` et `plan` chargent une memoire global/profil par defaut ;
-- prochaine cible : enrichissement RAG depuis les packs/doc locales et benchmarks JSONL.
+- `run-mini-benchmark.ps1` append des runs JSONL comparables ;
+- prochaine cible : enrichissement RAG depuis les packs/doc locales.
 
 ## Phase 5.5 - Profils, memoire et optimisation controlee
 
@@ -226,11 +228,11 @@ Objectif :
 
 Priorites :
 
-1. Benchmarks JSONL/CSV reproductibles.
-2. Streaming pour confort interactif.
-3. Selection de contexte par tache.
-4. Packs RAG lies aux profils.
-5. Feedback accepted/rejected.
+1. Streaming pour confort interactif.
+2. Selection de contexte par tache.
+3. Packs RAG lies aux profils.
+4. Feedback accepted/rejected.
+5. Benchmark Q4/Q5 plus tard.
 
 Decisions :
 

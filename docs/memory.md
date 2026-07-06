@@ -53,6 +53,7 @@ La recherche se fait depuis le workspace analyse puis depuis le dossier courant.
 - Les fichiers sont tronques avant injection si necessaire.
 - Pas encore de feedback `accepted/rejected`.
 - Pas encore de SQLite.
+- La memoire augmente le prompt, donc son impact doit etre surveille avec `run-mini-benchmark.ps1`.
 
 ## Prochaines etapes
 

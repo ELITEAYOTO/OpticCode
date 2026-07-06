@@ -28,6 +28,9 @@ Mesures initiales sur la machine :
 | `plan --brief --metrics`, contexte enrichi | 6.41 s | 7090 caracteres de prompt, 114 tokens generes |
 | `plan --brief --metrics-json`, modele froid | 77.82 s | modele non charge au depart, generation reelle ~3.38 s |
 | `plan --brief --metrics-json`, modele chaud | 5.86 s | `keep_alive=15m`, chargement mesure ~0.23 s |
+| `run-mini-benchmark.ps1`, froid, profil+memoire, 80 tokens | 76.65 s | prompt 10 919 caracteres, load ~70.42 s |
+| `run-mini-benchmark.ps1`, chaud, profil sans memoire, 80 tokens | 5.23 s | prompt 9 285 caracteres |
+| `run-mini-benchmark.ps1`, chaud, profil+memoire, 80 tokens | 4.03 s | prompt 10 919 caracteres |
 
 Conclusion :
 
@@ -97,6 +100,19 @@ Runner local :
 ```
 
 Les sorties sont ecrites dans `benchmarks/runs/`, ignore par Git.
+
+Sorties produites :
+
+- reponse Markdown ;
+- metriques texte ;
+- append JSONL dans `benchmarks/runs/mini-bukkit-runs.jsonl`.
+
+Exemple :
+
+```powershell
+.\scripts\run-mini-benchmark.ps1 -Prompt "Verifier rapidement le mini plugin Bukkit 1.8.8" -MaxTokens 80
+.\scripts\run-mini-benchmark.ps1 -Prompt "Verifier rapidement le mini plugin Bukkit 1.8.8" -MaxTokens 80 -NoMemory
+```
 
 But :
 
@@ -271,7 +287,7 @@ Regle :
 3. Ajouter un mode reponse courte pour iteration rapide. Fait.
 4. Ajouter `keep_alive` et `load_duration`. Fait.
 5. Reduire encore le prompt `plan` avec des profils.
-6. Ajouter export benchmark CSV ou fichier JSONL.
+6. Ajouter export benchmark CSV ou fichier JSONL. Fait pour JSONL.
 7. Tester streaming pour confort utilisateur.
 8. Comparer Ollama avec llama.cpp/Vulkan seulement apres stabilisation des prompts.
 9. Comparer Q4_K_M et Q5_K_M seulement apres mise en place du benchmark reproductible.
