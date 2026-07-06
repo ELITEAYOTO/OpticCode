@@ -233,6 +233,7 @@ Etat actuel :
 - `patch --check` verifie que le diff est applicable ;
 - `run-patch-build-quality.ps1` valide plusieurs corrections legacy avec rebuild Maven OK ;
 - roadmap `safe apply` ajoutee avant implementation de l'application reelle ;
+- `apply --dry-run` ajoute pour verifier un plan d'application sans modifier de fichiers ;
 - `ask` et `plan` peuvent charger le profil `minecraft-java-1.8` ;
 - `analyze-java` compare les commandes declarees avec `getCommand(...)` ;
 - table legacy initiale ajoutee : gunpowder, nether wart, spawners, pelles/spades et quelques mobs ;
@@ -242,7 +243,7 @@ Etat actuel :
 
 ## Phase 5.1 - Safe Apply
 
-Statut : cadree, implementation a faire.
+Statut : demarree.
 
 Objectif :
 
@@ -254,7 +255,7 @@ Objectif :
 
 Ordre :
 
-1. `apply --dry-run` sans modification.
+1. `apply --dry-run` sans modification. Fait.
 2. Application sur copie temporaire.
 3. Application reelle avec `--yes` ou confirmation.
 4. Verification build optionnelle.

@@ -693,3 +693,21 @@ Raison :
 - le risque n'est pas technique seulement, il concerne la confiance dans l'agent ;
 - une roadmap claire evite de melanger preview, apply, rollback et autonomie ;
 - le projet doit rester organise avant de devenir plus puissant.
+
+### D-045 - Apply dry-run obligatoire avant apply reel
+
+Statut : valide provisoirement.
+
+Decision :
+
+- ajouter la commande `apply` ;
+- limiter la premiere implementation a `apply --dry-run` ;
+- refuser toute execution `apply` sans `--dry-run` ;
+- afficher les fichiers touches, raisons et resultat `git apply --check`.
+
+Raison :
+
+- c'est la premiere brique du workflow d'application sans modifier de fichiers ;
+- le dry-run permet de stabiliser les sorties et tests avant l'application reelle ;
+- separer `apply` de `patch` evite une commande surchagee ;
+- le refus sans `--dry-run` garantit qu'aucune modification reelle n'est possible dans cette etape.

@@ -1,6 +1,6 @@
 # OpticCode - Roadmap Safe Apply
 
-Derniere mise a jour : 2026-07-06
+Derniere mise a jour : 2026-07-07
 
 ## Objectif
 
@@ -63,6 +63,8 @@ benchmarks/runs/patch-build-quality-20260706-221333/summary.md
 
 ## Phase SA-1 - Safe apply dry-run
 
+Statut : terminee.
+
 Objectif :
 
 - ajouter une commande ou option qui prepare l'application sans modifier ;
@@ -70,27 +72,47 @@ Objectif :
 - afficher les fichiers touches ;
 - afficher le resultat de `git apply --check`.
 
-Commande cible possible :
+Commande :
 
 ```powershell
 cargo run -q -- apply --path benchmarks/mini-bukkit-plugin --dry-run
 ```
 
-ou :
+Decision :
 
-```powershell
-cargo run -q -- patch --path benchmarks/mini-bukkit-plugin --apply-dry-run
-```
-
-Decision recommandee :
-
-- creer une commande separee `apply` pour ne pas surcharger `patch`.
+- commande separee `apply` pour ne pas surcharger `patch` ;
+- `--dry-run` obligatoire dans cette premiere implementation ;
+- sans `--dry-run`, la commande refuse d'agir.
 
 Critere de reussite :
 
 - aucun fichier modifie ;
 - sortie claire ;
 - exit code non-zero si le patch n'est pas applicable.
+
+Resultat sur projet sain :
+
+```text
+Mode: apply dry-run
+Changes: 0
+No deterministic Java legacy patch is currently needed.
+```
+
+Resultat sur copie temporaire cassee :
+
+```text
+Mode: apply dry-run
+Changes: 1
+Patch check:
+Status: OK
+Dry run: no file was modified.
+```
+
+Resultat sans `--dry-run` :
+
+```text
+Error: apply currently requires --dry-run; real file modification is not enabled yet
+```
 
 ## Phase SA-2 - Safe apply sur copie temporaire
 
@@ -220,8 +242,8 @@ Ne doit pas montrer de modification dans `benchmarks/mini-bukkit-plugin`.
 
 ## Ordre recommande maintenant
 
-1. Implementer `apply --dry-run`.
-2. Ajouter un test unitaire ou integration leger pour l'application de patch sur dossier temporaire.
+1. Implementer `apply --dry-run`. Fait.
+2. Ajouter un test unitaire ou integration leger pour l'application de patch sur dossier temporaire. Fait pour dry-run.
 3. Ajouter `apply --yes` sur copie temporaire.
 4. Valider avec `run-patch-build-quality.ps1`.
 5. Seulement ensuite activer application reelle avec confirmation stricte.

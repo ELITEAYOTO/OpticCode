@@ -142,6 +142,13 @@ pub struct PatchCheckResult {
 }
 
 #[derive(Debug, Clone)]
+pub struct ApplyPlan {
+    pub proposal: PatchProposal,
+    pub check: Option<PatchCheckResult>,
+    pub dry_run: bool,
+}
+
+#[derive(Debug, Clone)]
 pub struct ResourcePackReport {
     pub root: PathBuf,
     pub total_files: usize,
@@ -837,6 +844,17 @@ pub fn check_patch_with_git(proposal: &PatchProposal) -> Result<Option<PatchChec
     }))
 }
 
+pub fn prepare_java_legacy_apply_plan(root: &Path, dry_run: bool) -> Result<ApplyPlan> {
+    let proposal = propose_java_legacy_patch(root)?;
+    let check = check_patch_with_git(&proposal)?;
+
+    Ok(ApplyPlan {
+        proposal,
+        check,
+        dry_run,
+    })
+}
+
 fn build_process_command(program: &str, args: &[&str]) -> Command {
     if cfg!(windows) {
         let mut command = Command::new("cmd");
@@ -959,6 +977,68 @@ impl PatchCheckResult {
             if !self.stderr.ends_with('\n') {
                 out.push('\n');
             }
+        }
+
+        out
+    }
+}
+
+impl ApplyPlan {
+    pub fn success(&self) -> bool {
+        self.proposal.changes.is_empty() || self.check.as_ref().is_some_and(|check| check.success)
+    }
+
+    pub fn to_display_string(&self) -> String {
+        let mut out = String::new();
+        out.push_str(&format!("Project: {}\n", self.proposal.root.display()));
+        out.push_str(&format!(
+            "Mode: {}\n",
+            if self.dry_run {
+                "apply dry-run"
+            } else {
+                "apply"
+            }
+        ));
+        out.push_str(&format!("Changes: {}\n", self.proposal.changes.len()));
+
+        if self.proposal.changes.is_empty() {
+            out.push_str("\nNo deterministic Java legacy patch is currently needed.\n");
+            return out;
+        }
+
+        out.push_str("\nFiles:\n");
+        for change in &self.proposal.changes {
+            out.push_str(&format!("- {}\n", change.path.display()));
+            out.push_str(&format!("  reason: {}\n", change.reason));
+        }
+
+        match &self.check {
+            Some(check) => {
+                out.push_str("\nPatch check:\n");
+                out.push_str(&format!("Command: {}\n", check.command));
+                out.push_str(&format!(
+                    "Status: {}\n",
+                    if check.success { "OK" } else { "FAILED" }
+                ));
+                out.push_str(&format!(
+                    "Exit code: {}\n",
+                    check
+                        .exit_code
+                        .map_or_else(|| "unknown".to_string(), |code| code.to_string())
+                ));
+                if !check.stderr.trim().is_empty() {
+                    out.push_str("\nStderr:\n");
+                    out.push_str(&check.stderr);
+                    if !check.stderr.ends_with('\n') {
+                        out.push('\n');
+                    }
+                }
+            }
+            None => out.push_str("\nPatch check: skipped, no changes.\n"),
+        }
+
+        if self.dry_run {
+            out.push_str("\nDry run: no file was modified.\n");
         }
 
         out
@@ -2017,7 +2097,7 @@ mod tests {
         context_priority, is_important_rag_file, is_legacy_resource_match, is_probably_text,
         is_rag_indexable_text, parse_java_file, parse_plugin_yml, parse_pom,
         propose_java_legacy_patch, resource_pack_category, summarize_build_output, tail_lines,
-        truncate_chars, BuildTool, PatchFileChange, PatchProposal,
+        truncate_chars, ApplyPlan, BuildTool, PatchCheckResult, PatchFileChange, PatchProposal,
     };
     use std::fs;
     use std::path::Path;
@@ -2284,5 +2364,53 @@ commands:
             proposal.combined_diff(),
             "--- a/src/Test.java\n+++ b/src/Test.java\n"
         );
+    }
+
+    #[test]
+    fn displays_apply_dry_run_without_changes() {
+        let plan = ApplyPlan {
+            proposal: PatchProposal {
+                root: Path::new("root").to_path_buf(),
+                changes: Vec::new(),
+                notes: Vec::new(),
+            },
+            check: None,
+            dry_run: true,
+        };
+        let display = plan.to_display_string();
+
+        assert!(plan.success());
+        assert!(display.contains("Mode: apply dry-run"));
+        assert!(display.contains("Changes: 0"));
+        assert!(display.contains("No deterministic Java legacy patch"));
+    }
+
+    #[test]
+    fn displays_apply_dry_run_check_failure() {
+        let plan = ApplyPlan {
+            proposal: PatchProposal {
+                root: Path::new("root").to_path_buf(),
+                changes: vec![PatchFileChange {
+                    path: Path::new("src/Test.java").to_path_buf(),
+                    reason: "test reason".to_string(),
+                    diff: String::new(),
+                }],
+                notes: Vec::new(),
+            },
+            check: Some(PatchCheckResult {
+                command: "git apply --check -".to_string(),
+                success: false,
+                exit_code: Some(1),
+                stdout: String::new(),
+                stderr: "patch failed".to_string(),
+            }),
+            dry_run: true,
+        };
+        let display = plan.to_display_string();
+
+        assert!(!plan.success());
+        assert!(display.contains("Status: FAILED"));
+        assert!(display.contains("patch failed"));
+        assert!(display.contains("Dry run: no file was modified"));
     }
 }

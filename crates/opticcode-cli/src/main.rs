@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use anyhow::Result;
+use anyhow::{bail, Result};
 use clap::{Parser, Subcommand};
 use opticcode_core::{
     load_memory_for_workspace, load_profile_for_workspace, load_rag_context, parse_keep_alive,
@@ -9,7 +9,7 @@ use opticcode_core::{
 use opticcode_tools::{
     analyze_java_project, build_java_project, build_project_context, build_rag_index,
     check_patch_with_git, inspect_rag_source, inspect_resource_pack, inspect_workspace,
-    propose_java_legacy_patch, search_rag_index, search_workspace,
+    prepare_java_legacy_apply_plan, propose_java_legacy_patch, search_rag_index, search_workspace,
 };
 use serde::Serialize;
 use std::io::{self, Write};
@@ -98,6 +98,12 @@ enum Command {
         path: PathBuf,
         #[arg(long)]
         check: bool,
+    },
+    Apply {
+        #[arg(long, default_value = ".")]
+        path: PathBuf,
+        #[arg(long)]
+        dry_run: bool,
     },
     Ask {
         prompt: String,
@@ -272,6 +278,18 @@ async fn main() -> Result<()> {
                     }
                     None => println!("Patch check: skipped, no changes."),
                 }
+            }
+        }
+        Command::Apply { path, dry_run } => {
+            if !dry_run {
+                bail!(
+                    "apply currently requires --dry-run; real file modification is not enabled yet"
+                );
+            }
+            let plan = prepare_java_legacy_apply_plan(&path, dry_run)?;
+            println!("{}", plan.to_display_string());
+            if !plan.success() {
+                std::process::exit(1);
             }
         }
         Command::Ask {

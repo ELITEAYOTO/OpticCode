@@ -89,11 +89,19 @@ Ce test travaille sur une copie temporaire du mini plugin et confirme que le pat
 
 ## Prochaines etapes
 
-1. Ajouter une commande separee `apply --dry-run`.
+1. Ajouter une commande separee `apply --dry-run`. Fait.
 2. Ajouter l'application sur copie temporaire.
 3. Ajouter l'application reelle avec confirmation explicite.
 4. Ajouter rollback/log simple.
 5. Brancher plus tard la generation LLM de patchs sur ce meme format.
+
+Commande dry-run :
+
+```powershell
+cargo run -q -- apply --path benchmarks/mini-bukkit-plugin --dry-run
+```
+
+Sans `--dry-run`, la commande refuse encore de modifier les fichiers.
 
 Roadmap detaillee :
 
