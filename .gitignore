@@ -24,6 +24,7 @@
 *.temp
 /.tmp/
 /tmp/
+/benchmarks/runs/
 
 # Windows/editor noise
 Thumbs.db
@@ -41,4 +42,3 @@ Desktop.ini
 .env
 .env.*
 !.env.example
-

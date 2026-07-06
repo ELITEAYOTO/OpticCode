@@ -1,0 +1,239 @@
+use std::path::PathBuf;
+
+use anyhow::Result;
+use clap::{Parser, Subcommand};
+use opticcode_core::{AskOptions, GenerateMetrics, OpticCode, PlanOptions};
+use opticcode_tools::{build_project_context, inspect_workspace, search_workspace};
+use serde::Serialize;
+use std::io::{self, Write};
+
+#[derive(Debug, Parser)]
+#[command(name = "opticcode")]
+#[command(about = "Local code assistant focused on Java 8 / Bukkit 1.8.8 projects.")]
+struct Cli {
+    #[command(subcommand)]
+    command: Command,
+}
+
+#[derive(Debug, Subcommand)]
+enum Command {
+    Inspect {
+        #[arg(long, default_value = ".")]
+        path: PathBuf,
+    },
+    Search {
+        pattern: String,
+        #[arg(long, default_value = ".")]
+        path: PathBuf,
+        #[arg(long, default_value_t = 50)]
+        limit: usize,
+    },
+    Context {
+        #[arg(long, default_value = ".")]
+        path: PathBuf,
+    },
+    Ask {
+        prompt: String,
+        #[arg(long, default_value = ".")]
+        path: PathBuf,
+        #[arg(long, default_value = "qwen2.5-coder:14b")]
+        model: String,
+        #[arg(long, default_value = "http://localhost:11434")]
+        ollama_url: String,
+        #[arg(long)]
+        brief: bool,
+        #[arg(long)]
+        max_tokens: Option<u32>,
+        #[arg(long)]
+        metrics: bool,
+        #[arg(long)]
+        metrics_json: bool,
+    },
+    Plan {
+        goal: String,
+        #[arg(long, default_value = ".")]
+        path: PathBuf,
+        #[arg(long, default_value = "qwen2.5-coder:14b")]
+        model: String,
+        #[arg(long, default_value = "http://localhost:11434")]
+        ollama_url: String,
+        #[arg(long)]
+        brief: bool,
+        #[arg(long)]
+        max_tokens: Option<u32>,
+        #[arg(long)]
+        metrics: bool,
+        #[arg(long)]
+        metrics_json: bool,
+    },
+}
+
+#[tokio::main]
+async fn main() -> Result<()> {
+    let cli = Cli::parse();
+
+    match cli.command {
+        Command::Inspect { path } => {
+            let report = inspect_workspace(&path)?;
+            println!("{}", report.to_display_string());
+        }
+        Command::Search {
+            pattern,
+            path,
+            limit,
+        } => {
+            let matches = search_workspace(&path, &pattern, limit)?;
+            if matches.is_empty() {
+                println!("No matches found.");
+            } else {
+                for hit in matches {
+                    println!(
+                        "{}:{}: {}",
+                        hit.path.display(),
+                        hit.line_number,
+                        hit.line.trim()
+                    );
+                }
+            }
+        }
+        Command::Context { path } => {
+            let context = build_project_context(&path)?;
+            println!("{}", context.to_display_string());
+        }
+        Command::Ask {
+            prompt,
+            path,
+            model,
+            ollama_url,
+            brief,
+            max_tokens,
+            metrics,
+            metrics_json,
+        } => {
+            let app = OpticCode::new(ollama_url, model);
+            let output = app
+                .ask_with_metrics(AskOptions {
+                    workspace: path,
+                    prompt,
+                    brief,
+                    max_tokens,
+                })
+                .await?;
+            println!("{}", output.text);
+            io::stdout().flush()?;
+            if metrics {
+                print_metrics(&output.metrics);
+            }
+            if metrics_json {
+                print_metrics_json("ask", &output.metrics)?;
+            }
+        }
+        Command::Plan {
+            goal,
+            path,
+            model,
+            ollama_url,
+            brief,
+            max_tokens,
+            metrics,
+            metrics_json,
+        } => {
+            let app = OpticCode::new(ollama_url, model);
+            let output = app
+                .plan_with_metrics(PlanOptions {
+                    workspace: path,
+                    goal,
+                    brief,
+                    max_tokens,
+                })
+                .await?;
+            println!("{}", output.text);
+            io::stdout().flush()?;
+            if metrics {
+                print_metrics(&output.metrics);
+            }
+            if metrics_json {
+                print_metrics_json("plan", &output.metrics)?;
+            }
+        }
+    }
+
+    Ok(())
+}
+
+#[derive(Serialize)]
+struct MetricsJson<'a> {
+    command: &'a str,
+    client_seconds: f64,
+    prompt_chars: usize,
+    ollama_total_seconds: Option<f64>,
+    prompt_eval_count: Option<u64>,
+    prompt_eval_seconds: Option<f64>,
+    eval_count: Option<u64>,
+    eval_seconds: Option<f64>,
+    eval_tokens_per_second: Option<f64>,
+}
+
+fn print_metrics_json(command: &str, metrics: &GenerateMetrics) -> Result<()> {
+    let eval_tokens_per_second = match (
+        metrics.eval_count,
+        metrics.eval_duration.map(|value| value.as_secs_f64()),
+    ) {
+        (Some(count), Some(seconds)) if seconds > 0.0 => Some(count as f64 / seconds),
+        _ => None,
+    };
+
+    let payload = MetricsJson {
+        command,
+        client_seconds: metrics.client_duration.as_secs_f64(),
+        prompt_chars: metrics.prompt_chars,
+        ollama_total_seconds: metrics
+            .ollama_total_duration
+            .map(|value| value.as_secs_f64()),
+        prompt_eval_count: metrics.prompt_eval_count,
+        prompt_eval_seconds: metrics
+            .prompt_eval_duration
+            .map(|value| value.as_secs_f64()),
+        eval_count: metrics.eval_count,
+        eval_seconds: metrics.eval_duration.map(|value| value.as_secs_f64()),
+        eval_tokens_per_second,
+    };
+
+    eprintln!();
+    eprintln!("=== metrics_json ===");
+    eprintln!("{}", serde_json::to_string_pretty(&payload)?);
+    Ok(())
+}
+
+fn print_metrics(metrics: &GenerateMetrics) {
+    eprintln!();
+    eprintln!("=== metrics ===");
+    eprintln!(
+        "client_seconds={:.2}",
+        metrics.client_duration.as_secs_f64()
+    );
+    eprintln!("prompt_chars={}", metrics.prompt_chars);
+    if let Some(duration) = metrics.ollama_total_duration {
+        eprintln!("ollama_total_seconds={:.2}", duration.as_secs_f64());
+    }
+    if let Some(count) = metrics.prompt_eval_count {
+        eprintln!("prompt_eval_count={}", count);
+    }
+    if let Some(duration) = metrics.prompt_eval_duration {
+        eprintln!("prompt_eval_seconds={:.2}", duration.as_secs_f64());
+    }
+    if let Some(count) = metrics.eval_count {
+        eprintln!("eval_count={}", count);
+    }
+    if let Some(duration) = metrics.eval_duration {
+        eprintln!("eval_seconds={:.2}", duration.as_secs_f64());
+        if let Some(count) = metrics.eval_count {
+            if duration.as_secs_f64() > 0.0 {
+                eprintln!(
+                    "eval_tokens_per_second={:.2}",
+                    count as f64 / duration.as_secs_f64()
+                );
+            }
+        }
+    }
+}

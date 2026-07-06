@@ -47,7 +47,7 @@ Livrables :
 
 ## Phase 1.5 - Initialisation projet local
 
-Statut : en cours.
+Statut : terminee.
 
 Objectif :
 
@@ -62,15 +62,12 @@ Etat :
 - `README.md` cree ;
 - `.gitignore` cree ;
 - dossiers `crates/`, `data/`, `skills/`, `models/`, `benchmarks/`, `scripts/` crees ;
-- initialisation Git bloquee temporairement par une regle Windows `DENY` sur `.git`.
-
-Action manuelle :
-
-- voir `docs/git-setup.md`.
+- Git initialise ;
+- commit initial cree : `4df52e4 Initialisation du projet OpticCode`.
 
 ## Phase 2 - Benchmark modele local
 
-Statut : a faire.
+Statut : terminee pour le premier passage Ollama.
 
 Objectif :
 
@@ -87,14 +84,21 @@ Tests minimum :
 
 Sortie attendue :
 
-- runtime principal choisi pour le MVP ;
-- quant recommande ;
-- taille de contexte de depart ;
-- limites constatees.
+- runtime principal provisoire choisi pour le MVP : Ollama API locale ;
+- modele installe : `qwen2.5-coder:14b` ;
+- taille locale : 9.0 GB ;
+- limites constatees et documentees dans `docs/model-benchmark-results.md`.
+
+Conclusion courte :
+
+- Ollama est suffisant pour demarrer le MVP agentique ;
+- la qualite Java 8 generale est correcte ;
+- les details Bukkit legacy precis ne sont pas assez fiables sans RAG et regles projet ;
+- llama.cpp reste une piste d'optimisation apres le MVP.
 
 ## Phase 3 - Recherche depots externes
 
-Statut : a faire apres Phase 2.
+Statut : terminee pour le cadrage initial.
 
 Objectif :
 
@@ -104,16 +108,28 @@ Objectif :
 
 Ordre propose :
 
-1. Qwen Code : architecture agent, tools, modes, memoire, skills.
-2. llama.cpp : runtime GGUF, serveur OpenAI-compatible, Vulkan, embeddings/reranking.
-3. Tree-sitter : parsing code, surtout Java.
-4. Tantivy : recherche texte locale en Rust.
-5. Qdrant : RAG vectoriel plus tard.
-6. PandaSpigot fork : cible metier principale.
+1. Qwen Code : premier depot a cloner pour analyse d'architecture.
+2. Ollama API : provider MVP deja valide, pas besoin de cloner.
+3. llama.cpp : runtime GGUF a cloner plus tard pour benchmark avance.
+4. Tree-sitter Java : a utiliser comme dependance Rust au moment de l'indexation.
+5. Tantivy : a utiliser comme dependance Rust pour la recherche texte.
+6. Qdrant : a repousser apres preuve de besoin vectoriel.
+7. PandaSpigot fork : a cloner apres squelette MVP et idealement avec l'URL du fork exact.
+
+Livrable :
+
+- `docs/repository-research.md`
+- `docs/qwen-code-analysis.md`
+
+Etat :
+
+- Qwen Code clone hors depot OpticCode dans `C:\Users\timot\Desktop\OpticCode-research\qwen-code` ;
+- analyse initiale terminee ;
+- prochaine phase : squelette Rust MVP.
 
 ## Phase 4 - Prototype OpticCode minimal
 
-Statut : a faire.
+Statut : demarre, squelette Rust initial fonctionnel.
 
 Objectif :
 
@@ -132,6 +148,28 @@ Scope volontairement limite :
 - pas d'autonomie dangereuse ;
 - pas d'edition automatique sans confirmation ;
 - pas de GUI.
+
+Etat actuel :
+
+- workspace Cargo cree ;
+- crates `opticcode-cli`, `opticcode-core`, `opticcode-llm`, `opticcode-tools` crees ;
+- commande `inspect` fonctionnelle ;
+- commande `search` fonctionnelle ;
+- commande `ask` fonctionnelle avec Ollama ;
+- commande `plan` fonctionnelle avec Ollama ;
+- commande `context` fonctionnelle ;
+- metriques LLM disponibles via `--metrics` ;
+- export JSON des metriques disponible via `--metrics-json` ;
+- mode bref disponible via `--brief` ;
+- limite de generation disponible via `--max-tokens` ;
+- mini projet benchmark Bukkit Java 8 ajoute ;
+- compilation et tests OK.
+
+Livrable :
+
+- `docs/phase-4-mvp.md`
+- `docs/mini-bukkit-benchmark.md`
+- `docs/optimization-notes.md`
 
 ## Phase 5 - Tools code et Java legacy
 

@@ -119,3 +119,6 @@ Apres benchmark :
 - decider si LM Studio doit etre compare ;
 - decider si llama.cpp doit etre compile plus tard.
 
+## Resultats
+
+Le premier passage Ollama est documente dans `docs/model-benchmark-results.md`.

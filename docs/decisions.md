@@ -38,16 +38,31 @@ Maven utilise maintenant Temurin JDK 8.
 
 ### D-006 - Runtime principal du MVP
 
+Statut : valide provisoirement.
+
 Options :
 
 - Ollama ;
 - LM Studio OpenAI-compatible ;
 - llama.cpp direct.
 
-Recommandation actuelle :
+Decision :
 
-- commencer par Ollama ou LM Studio ;
-- garder llama.cpp pour l'optimisation.
+- commencer le MVP avec Ollama via API locale ;
+- garder LM Studio comme alternative de comparaison ;
+- garder llama.cpp pour l'optimisation runtime et l'integration GGUF plus bas niveau.
+
+Raison :
+
+- Ollama 0.31.1 fonctionne sur la machine ;
+- `qwen2.5-coder:14b` est installe et repond correctement via API locale ;
+- la vitesse mesuree apres chargement est acceptable pour un MVP ;
+- cela permet de construire les couches agent, tools et RAG sans attendre l'integration C++.
+
+Limite :
+
+- le modele hallucine encore sur certains details Bukkit/Spigot 1.8.8 ;
+- la fiabilite legacy devra venir des regles OpticCode, de la documentation locale et de tests de compilation.
 
 ### D-007 - Mode d'edition des fichiers
 
@@ -90,12 +105,158 @@ Recommandation actuelle :
 
 ### D-010 - Initialisation Git locale
 
-Statut : action manuelle requise.
+Statut : valide.
 
-Un dossier `.git` vide existait deja mais contenait une regle Windows `DENY` qui bloque l'ecriture depuis Codex.
+Git a ete initialise manuellement dans `C:\Users\timot\Desktop\OpticCode`.
 
 Decision :
 
-- ne pas contourner la protection sandbox ;
-- documenter la correction dans `docs/git-setup.md` ;
-- laisser l'utilisateur initialiser Git localement.
+- le commit initial `4df52e4 Initialisation du projet OpticCode` sert de point de depart propre.
+
+### D-011 - RAG legacy obligatoire pour Bukkit 1.8.8
+
+Statut : valide provisoirement.
+
+Decision :
+
+- OpticCode ne devra pas s'appuyer uniquement sur le modele pour les details legacy ;
+- les mappings Bukkit/Spigot 1.8.8, exemples PandaSpigot et conventions Java 8 devront etre indexes ;
+- les sorties du modele devront etre relues par des regles et, quand possible, par compilation.
+
+Raison :
+
+- le benchmark a montre une bonne reponse avec `Material.SULPHUR` dans un cas ;
+- le meme modele a hallucine une correction incorrecte pour `Material.GUNPOWDER` dans un autre cas.
+
+### D-012 - Politique de clonage des depots externes
+
+Statut : valide provisoirement.
+
+Decision :
+
+- les depots de recherche seront clones hors du depot OpticCode ;
+- Qwen Code a ete clone hors du depot OpticCode, pour analyse d'architecture ;
+- llama.cpp sera clone seulement au moment du benchmark runtime avance ;
+- PandaSpigot sera clone quand OpticCode aura un squelette capable de lire, chercher et resumer.
+
+Raison :
+
+- garder le depot OpticCode propre ;
+- eviter de melanger code source externe, benchmarks et code projet ;
+- progresser par apprentissage cible au lieu de collectionner des depots.
+
+### D-013 - Architecture MVP inspiree par Qwen Code, mais simplifiee
+
+Statut : valide provisoirement.
+
+Decision :
+
+- OpticCode reprend les principes utiles : core separe du CLI, registre d'outils, validation des appels, lecture avant edition, diff avant application ;
+- OpticCode ne reprend pas la complexite complete : daemon, nombreux SDK, channels, extensions, MCP et subagents sont repousses ;
+- le MVP Rust commence par `opticcode-cli`, `opticcode-core`, `opticcode-llm` et `opticcode-tools`.
+
+Raison :
+
+- Qwen Code montre des garde-fous solides pour un agent code ;
+- OpticCode doit rester specialise Minecraft Java 8 et avancer par etapes ;
+- le premier prototype doit etre utile avant d'etre une plateforme complete.
+
+### D-014 - Premier workspace Rust
+
+Statut : valide provisoirement.
+
+Decision :
+
+- creer un workspace Cargo avec quatre crates initiales ;
+- `opticcode-cli` pour l'interface ligne de commande ;
+- `opticcode-core` pour l'orchestration ;
+- `opticcode-llm` pour le provider Ollama ;
+- `opticcode-tools` pour inspection et recherche locale.
+
+Raison :
+
+- garder une separation claire des responsabilites ;
+- permettre de remplacer Ollama plus tard par LM Studio ou llama.cpp ;
+- eviter que le CLI devienne le coeur du projet ;
+- preparer l'ajout futur de l'indexation, du RAG et des outils Java.
+
+### D-015 - Commande plan avant edition
+
+Statut : valide provisoirement.
+
+Decision :
+
+- ajouter une commande `plan` avant toute commande de patch ou d'edition ;
+- le mode plan doit produire une strategie, les fichiers probables, les risques legacy et les verifications ;
+- le mode plan ne doit pas modifier les fichiers ni pretendre l'avoir fait.
+
+Raison :
+
+- OpticCode doit rester fiable avant d'etre autonome ;
+- les details Bukkit/Spigot 1.8.8 demandent une phase de verification ;
+- separer plan et patch rendra le futur agent plus controlable.
+
+### D-016 - Optimiser par mesure, pas par intuition
+
+Statut : valide provisoirement.
+
+Decision :
+
+- mesurer les temps des tools locaux, builds Java et appels LLM ;
+- optimiser d'abord le prompt et le contexte ;
+- comparer llama.cpp/C++ seulement avec des benchmarks reproductibles.
+
+Raison :
+
+- le mini benchmark montre que les outils Rust locaux sont rapides ;
+- le temps dominant actuel est l'inference Qwen via Ollama ;
+- descendre trop tot en C++ ne corrigera pas un mauvais preprompt ou un contexte trop large.
+
+### D-017 - Contexte enrichi mais borne
+
+Statut : valide provisoirement.
+
+Decision :
+
+- ajouter une commande `context` ;
+- inclure des extraits limites de fichiers importants ;
+- prioriser `pom.xml`, `plugin.yml`, classe principale, commandes et listeners ;
+- garder une limite stricte de taille.
+
+Raison :
+
+- le modele raisonne mieux quand il voit le vrai code ;
+- les premiers tests montrent que le cout principal reste la generation, pas l'evaluation du contexte ;
+- ce contexte servira de base aux futurs patches non appliques.
+
+### D-018 - Mode bref pour iteration rapide
+
+Statut : valide provisoirement.
+
+Decision :
+
+- ajouter `--brief` aux commandes LLM ;
+- ajouter `--max-tokens` pour controler la generation Ollama ;
+- utiliser ce mode pour les boucles rapides de verification.
+
+Raison :
+
+- le benchmark mini Bukkit passe d'environ 26 s a environ 6.4 s ;
+- le contexte reste enrichi ;
+- la reduction vient surtout du nombre de tokens generes.
+
+### D-019 - Metriques exportables
+
+Statut : valide provisoirement.
+
+Decision :
+
+- ajouter `--metrics-json` aux commandes LLM ;
+- imprimer les metriques en JSON pour faciliter les comparaisons ;
+- garder la sortie texte humaine avec `--metrics`.
+
+Raison :
+
+- les futures comparaisons Ollama / llama.cpp / prompts doivent etre reproductibles ;
+- recopier les chiffres a la main devient vite source d'erreurs ;
+- JSON est suffisant avant de construire un vrai runner benchmark.

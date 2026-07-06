@@ -17,12 +17,14 @@ Le projet ne vise pas a entrainer un modele IA depuis zero. Il construit une cou
 
 ## Etat actuel
 
-Le projet est en phase de cadrage.
+Le projet a maintenant un premier squelette Rust fonctionnel.
 
 - Phase 0 : audit environnement Windows 10 termine.
 - Phase 1 : documentation de cadrage en cours.
-- Phase 1.5 : initialisation projet local en cours.
-- Phase 2 : benchmark modele local a faire.
+- Phase 1.5 : initialisation projet local terminee.
+- Phase 2 : benchmark Ollama / Qwen2.5-Coder 14B termine.
+- Phase 3 : recherche depots externes et analyse Qwen Code terminees.
+- Phase 4 : squelette Rust MVP demarre.
 
 ## Documentation
 
@@ -31,6 +33,11 @@ Le projet est en phase de cadrage.
 - [Architecture cible](docs/architecture.md)
 - [Strategie d'etude des depots](docs/repository-research.md)
 - [Decisions techniques](docs/decisions.md)
+- [Resultats benchmark modele](docs/model-benchmark-results.md)
+- [Analyse Qwen Code](docs/qwen-code-analysis.md)
+- [Phase 4 MVP Rust](docs/phase-4-mvp.md)
+- [Benchmark mini Bukkit](docs/mini-bukkit-benchmark.md)
+- [Notes optimisation](docs/optimization-notes.md)
 
 ## Arborescence prevue
 
@@ -44,7 +51,29 @@ benchmarks/  tests et scenarios realistes
 scripts/     scripts de maintenance et verification
 ```
 
+## Benchmark local
+
+Un mini projet Bukkit Java 8 est disponible ici :
+
+```text
+benchmarks/mini-bukkit-plugin
+```
+
+Il sert a tester OpticCode sur une structure proche d'un plugin legacy.
+
+## Commandes MVP actuelles
+
+```powershell
+cargo run -q -- inspect --path .
+cargo run -q -- context --path benchmarks/mini-bukkit-plugin
+cargo run -q -- search Material.SULPHUR --path . --limit 5
+cargo run -q -- ask "Reponds en une phrase : quelle regle Bukkit 1.8.8 dois-tu respecter pour gunpowder ?" --path .
+cargo run -q -- plan "Ajouter une commande /coins dans un plugin Bukkit 1.8.8" --path . --metrics
+cargo run -q -- plan "Verifier ce plugin Bukkit 1.8.8 et proposer les risques avant compilation" --path benchmarks/mini-bukkit-plugin --brief --metrics
+cargo run -q -- plan "Verifier ce plugin Bukkit 1.8.8 et proposer les risques avant compilation" --path benchmarks/mini-bukkit-plugin --brief --metrics-json
+cargo run -q -- inspect --path benchmarks/mini-bukkit-plugin
+```
+
 ## Prochaine etape
 
-Tester Qwen2.5-Coder 14B localement via Ollama ou LM Studio avant de coder l'agent.
-
+Preparer un mini projet Bukkit Java 8 de benchmark, puis ajouter la generation de patch texte non applique.

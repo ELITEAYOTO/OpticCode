@@ -1,0 +1,7 @@
+name: MiniBenchmarkPlugin
+version: 1.0.0
+main: dev.opticcode.benchmark.MiniBenchmarkPlugin
+commands:
+  coins:
+    description: Shows or updates the player's coins.
+    usage: /coins
