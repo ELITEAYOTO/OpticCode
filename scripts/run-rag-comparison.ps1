@@ -12,7 +12,8 @@ param(
     [string]$RagIndex = "data/index",
     [int]$RagLimit = 4,
     [int]$MaxTokens = 80,
-    [switch]$NoMemory
+    [switch]$NoMemory,
+    [switch]$RagDebug
 )
 
 $ErrorActionPreference = "Stop"
@@ -53,6 +54,10 @@ function Invoke-OneBenchmark {
 
     if ($DisableRag) {
         $params.NoRag = $true
+    }
+
+    if ($RagDebug) {
+        $params.RagDebug = $true
     }
 
     & $runner @params | Out-Null

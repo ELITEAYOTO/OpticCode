@@ -10,7 +10,8 @@ param(
     [int]$MaxTokens = 160,
     [switch]$Brief = $true,
     [switch]$NoMemory,
-    [switch]$NoRag
+    [switch]$NoRag,
+    [switch]$RagDebug
 )
 
 $ErrorActionPreference = "Stop"
@@ -48,6 +49,10 @@ if ($NoMemory) {
 
 if ($NoRag) {
     $argsList += "--no-rag"
+}
+
+if ($RagDebug) {
+    $argsList += "--rag-debug"
 }
 
 Push-Location $root
@@ -89,6 +94,7 @@ $record = [ordered]@{
     brief = [bool]$Brief
     no_memory = [bool]$NoMemory
     no_rag = [bool]$NoRag
+    rag_debug = [bool]$RagDebug
     max_tokens = $MaxTokens
     answer_path = $answerPath
     metrics_path = $metricsPath

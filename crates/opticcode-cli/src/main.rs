@@ -3,8 +3,8 @@ use std::path::PathBuf;
 use anyhow::Result;
 use clap::{Parser, Subcommand};
 use opticcode_core::{
-    load_memory_for_workspace, load_profile_for_workspace, parse_keep_alive, AskOptions,
-    GenerateMetrics, OpticCode, PlanOptions, DEFAULT_PROFILE,
+    load_memory_for_workspace, load_profile_for_workspace, load_rag_context, parse_keep_alive,
+    AskOptions, GenerateMetrics, OpticCode, PlanOptions, DEFAULT_PROFILE,
 };
 use opticcode_tools::{
     analyze_java_project, build_java_project, build_project_context, build_rag_index,
@@ -86,6 +86,13 @@ enum Command {
         #[arg(long, default_value_t = 8)]
         limit: usize,
     },
+    RagDebug {
+        query: String,
+        #[arg(long, default_value = "data/index")]
+        index: PathBuf,
+        #[arg(long, default_value_t = 4)]
+        limit: usize,
+    },
     Patch {
         #[arg(long, default_value = ".")]
         path: PathBuf,
@@ -112,6 +119,8 @@ enum Command {
         rag_index: PathBuf,
         #[arg(long, default_value_t = 4)]
         rag_limit: usize,
+        #[arg(long)]
+        rag_debug: bool,
         #[arg(long)]
         brief: bool,
         #[arg(long)]
@@ -141,6 +150,8 @@ enum Command {
         rag_index: PathBuf,
         #[arg(long, default_value_t = 4)]
         rag_limit: usize,
+        #[arg(long)]
+        rag_debug: bool,
         #[arg(long)]
         brief: bool,
         #[arg(long)]
@@ -240,6 +251,14 @@ async fn main() -> Result<()> {
                 }
             }
         }
+        Command::RagDebug {
+            query,
+            index,
+            limit,
+        } => {
+            let rag = load_rag_context(&index, &query, limit)?;
+            println!("{}", rag.to_display_string());
+        }
         Command::Patch { path, check } => {
             let proposal = propose_java_legacy_patch(&path)?;
             println!("{}", proposal.to_display_string());
@@ -266,6 +285,7 @@ async fn main() -> Result<()> {
             no_rag,
             rag_index,
             rag_limit,
+            rag_debug,
             brief,
             max_tokens,
             metrics,
@@ -273,6 +293,9 @@ async fn main() -> Result<()> {
         } => {
             let app =
                 OpticCode::new(ollama_url, model).with_keep_alive(parse_keep_alive(&keep_alive));
+            if rag_debug && !no_rag {
+                print_rag_debug(&rag_index, &prompt, rag_limit)?;
+            }
             let output = app
                 .ask_with_metrics(AskOptions {
                     workspace: path,
@@ -306,6 +329,7 @@ async fn main() -> Result<()> {
             no_rag,
             rag_index,
             rag_limit,
+            rag_debug,
             brief,
             max_tokens,
             metrics,
@@ -313,6 +337,9 @@ async fn main() -> Result<()> {
         } => {
             let app =
                 OpticCode::new(ollama_url, model).with_keep_alive(parse_keep_alive(&keep_alive));
+            if rag_debug && !no_rag {
+                print_rag_debug(&rag_index, &goal, rag_limit)?;
+            }
             let output = app
                 .plan_with_metrics(PlanOptions {
                     workspace: path,
@@ -387,6 +414,14 @@ fn print_metrics_json(command: &str, metrics: &GenerateMetrics) -> Result<()> {
     eprintln!();
     eprintln!("=== metrics_json ===");
     eprintln!("{}", serde_json::to_string_pretty(&payload)?);
+    Ok(())
+}
+
+fn print_rag_debug(index: &PathBuf, query: &str, limit: usize) -> Result<()> {
+    let rag = load_rag_context(index, query, limit)?;
+    eprintln!();
+    eprintln!("=== rag_debug ===");
+    eprintln!("{}", rag.to_display_string());
     Ok(())
 }
 

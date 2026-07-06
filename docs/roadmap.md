@@ -179,6 +179,7 @@ Etat actuel :
 - script `run-rag-comparison.ps1` ajoute pour comparer avec/sans RAG ;
 - expansion de requete RAG ajoutee pour les synonymes legacy francais/anglais ;
 - tri RAG ajoute pour privilegier `docs/` et `skills/` avant le code interne ;
+- debug RAG ajoute pour afficher les requetes elargies et chunks injectes ;
 - compilation et tests OK.
 
 Livrable :

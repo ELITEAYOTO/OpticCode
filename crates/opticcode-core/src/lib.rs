@@ -64,6 +64,7 @@ pub struct MemoryEntry {
 #[derive(Debug, Clone, Default)]
 pub struct RagContext {
     pub index: Option<PathBuf>,
+    pub queries: Vec<String>,
     pub hits: Vec<RagContextHit>,
 }
 
@@ -269,6 +270,7 @@ pub fn load_rag_context(index_dir: &Path, query: &str, limit: usize) -> Result<R
     if !chunks_path.exists() {
         return Ok(RagContext {
             index: Some(index_dir.to_path_buf()),
+            queries: expand_rag_queries(query),
             hits: Vec::new(),
         });
     }
@@ -276,9 +278,10 @@ pub fn load_rag_context(index_dir: &Path, query: &str, limit: usize) -> Result<R
     let limit = limit.clamp(1, MAX_RAG_HITS);
     let mut seen = BTreeSet::new();
     let mut hits = Vec::new();
+    let queries = expand_rag_queries(query);
 
-    for expanded_query in expand_rag_queries(query) {
-        for hit in search_rag_index(index_dir, &expanded_query, limit)? {
+    for expanded_query in &queries {
+        for hit in search_rag_index(index_dir, expanded_query, limit)? {
             let key = format!("{}:{}", hit.document_path, hit.chunk_id);
             if !seen.insert(key) {
                 continue;
@@ -296,6 +299,7 @@ pub fn load_rag_context(index_dir: &Path, query: &str, limit: usize) -> Result<R
 
     Ok(RagContext {
         index: Some(index_dir.to_path_buf()),
+        queries,
         hits,
     })
 }
@@ -327,6 +331,45 @@ impl MemoryContext {
                 out.push('\n');
             }
         }
+        out
+    }
+}
+
+impl RagContext {
+    pub fn to_display_string(&self) -> String {
+        let mut out = String::new();
+        out.push_str("RAG context\n");
+        out.push_str(&format!(
+            "Index: {}\n",
+            self.index
+                .as_ref()
+                .map(|path| path.display().to_string())
+                .unwrap_or_else(|| "none".to_string())
+        ));
+
+        out.push_str("\nExpanded queries:\n");
+        if self.queries.is_empty() {
+            out.push_str("- none\n");
+        } else {
+            for query in &self.queries {
+                out.push_str(&format!("- {query}\n"));
+            }
+        }
+
+        out.push_str("\nInjected hits:\n");
+        if self.hits.is_empty() {
+            out.push_str("- none\n");
+        } else {
+            for hit in &self.hits {
+                out.push_str(&format!("\nsource: {}\n", hit.source));
+                out.push_str(&format!("score: {}\n", hit.score));
+                out.push_str(&hit.preview);
+                if !hit.preview.ends_with('\n') {
+                    out.push('\n');
+                }
+            }
+        }
+
         out
     }
 }
@@ -693,6 +736,7 @@ mod tests {
     fn prompt_includes_rag_context() {
         let rag = RagContext {
             index: Some(PathBuf::from("data/index")),
+            queries: vec!["nether wart".to_string(), "nether_stalk".to_string()],
             hits: vec![RagContextHit {
                 source: "resource-pack:assets/minecraft/lang/en_US.lang".to_string(),
                 score: 12,
@@ -716,6 +760,7 @@ mod tests {
     fn rag_context_is_bounded() {
         let rag = RagContext {
             index: Some(PathBuf::from("data/index")),
+            queries: vec!["spade".to_string()],
             hits: vec![RagContextHit {
                 source: "plugin:big.java".to_string(),
                 score: 1,
@@ -735,6 +780,24 @@ mod tests {
         assert!(queries.contains(&"spade".to_string()));
         assert!(queries.contains(&"mob_spawner".to_string()));
         assert!(queries.contains(&"nether_stalk".to_string()));
+    }
+
+    #[test]
+    fn displays_rag_debug_context() {
+        let rag = RagContext {
+            index: Some(PathBuf::from("data/index")),
+            queries: vec!["spade".to_string()],
+            hits: vec![RagContextHit {
+                source: "opticcode:docs/minecraft-legacy-rules.md".to_string(),
+                score: 6,
+                preview: "WOOD_SPADE".to_string(),
+            }],
+        };
+        let display = rag.to_display_string();
+
+        assert!(display.contains("Expanded queries"));
+        assert!(display.contains("spade"));
+        assert!(display.contains("WOOD_SPADE"));
     }
 
     #[test]

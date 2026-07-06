@@ -84,6 +84,7 @@ cargo run -q -- pack-scan --path "C:\Users\timot\Desktop\minecraft\Volkaria\Pack
 cargo run -q -- rag-scan --limit 8 --path "C:\Users\timot\Desktop\minecraft\SparrowMCALL\Kspawners" --path "C:\Users\timot\Desktop\KhopeSpigot\PandaSpigot-Fork\PandaSpigot"
 cargo run -q -- rag-index --output data/index --path . --path "C:\Users\timot\Desktop\minecraft\SparrowMCALL\Kspawners"
 cargo run -q -- rag-search "nether wart" --index data/index --limit 5
+cargo run -q -- rag-debug "Quels risques legacy verifier pour des pelles et spawners ?" --index data/index --limit 3
 cargo run -q -- plan "Verifier nether wart et spawner dans un plugin Bukkit 1.8.8" --path benchmarks/mini-bukkit-plugin --brief --max-tokens 80 --metrics-json --rag-limit 3
 cargo run -q -- plan "Verifier nether wart et spawner dans un plugin Bukkit 1.8.8" --path benchmarks/mini-bukkit-plugin --brief --max-tokens 80 --metrics-json --no-rag
 .\scripts\run-rag-comparison.ps1
@@ -148,7 +149,7 @@ cargo test --workspace
 Resultat :
 
 ```text
-OK - 25 tests passes
+OK - 26 tests passes
 ```
 
 ### Inspection locale

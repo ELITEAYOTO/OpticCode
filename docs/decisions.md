@@ -536,3 +536,20 @@ Raison :
 - le code interne d'OpticCode peut contenir les memes regles que la documentation, mais il est moins lisible pour le modele ;
 - pour repondre a une question Minecraft legacy, une regle documentee est souvent plus utile qu'une implementation Rust ;
 - le tri est applique au contexte RAG injecte, sans casser `rag-search` qui reste un outil de diagnostic brut.
+
+### D-036 - Debug RAG sans appel modele
+
+Statut : valide provisoirement.
+
+Decision :
+
+- ajouter la commande `rag-debug` ;
+- ajouter l'option `--rag-debug` a `ask` et `plan` ;
+- afficher les requetes elargies et les chunks injectes ;
+- garder `rag-search` comme recherche brute d'index.
+
+Raison :
+
+- il faut comprendre ce que le modele recoit vraiment avant d'optimiser la qualite ;
+- diagnostiquer le RAG sans appeler Qwen evite de perdre du temps et des tokens ;
+- le debug facilite la correction des synonymes, du tri et des doublons.

@@ -267,10 +267,49 @@ eval_count: 30
 eval_tokens_per_second: 25.10
 ```
 
+## Debug RAG
+
+Statut : ajoute.
+
+Commande sans appel modele :
+
+```powershell
+cargo run -q -- rag-debug "Quels risques legacy verifier pour des pelles et spawners ?" --index data/index --limit 3
+```
+
+Option sur `ask` et `plan` :
+
+```powershell
+cargo run -q -- plan "Quels risques legacy verifier pour des pelles et spawners ?" --path benchmarks/mini-bukkit-plugin --brief --rag-debug
+```
+
+Le debug affiche :
+
+- l'index utilise ;
+- les requetes RAG elargies ;
+- les chunks réellement injectes dans le prompt.
+
+Exemple observe :
+
+```text
+Expanded queries:
+- DIAMOND_SPADE
+- MOB_SPAWNER
+- WOOD_SPADE
+- mob_spawner
+- shovel
+- spade
+- spawner
+
+Injected hits:
+- opticcode:docs/minecraft-legacy-rules.md
+- opticcode:skills/profiles/minecraft-java-1.8/profile.md
+- plugin:src/main/java/me/krunsh/kspawner/data/PlayerSpawnerData.java
+```
+
 ## Prochaine etape
 
 Ameliorer encore la requete RAG :
 
-- afficher les requetes RAG utilisees en mode debug ;
 - eviter les doublons proches entre docs/profil/code ;
 - mesurer de nouveau avec plus de prompts.
