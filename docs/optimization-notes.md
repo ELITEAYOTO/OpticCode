@@ -224,6 +224,46 @@ Mais il ne faut pas le faire avant d'avoir :
 - des prompts stabilises ;
 - une idee claire du contexte utile.
 
+### 8. Q5_K_M
+
+Qwen2.5-Coder 14B Q5_K_M est une piste qualite, pas une optimisation automatique.
+
+Hypothese :
+
+- reponses potentiellement plus precises ;
+- moins d'erreurs sur certaines generations de code.
+
+Risques :
+
+- modele plus lourd ;
+- chargement plus long ;
+- debit plus faible ;
+- aucun gain garanti sur Bukkit 1.8.8 sans RAG.
+
+Decision :
+
+- rester sur Q4_K_M pour le MVP ;
+- tester Q5_K_M plus tard avec les memes prompts, memes projets et memes metriques ;
+- comparer qualite, temps froid, temps chaud, tokens/s, build pass/fail.
+
+### 9. Reglages Ollama experimentaux
+
+Pistes a tester plus tard :
+
+```text
+OLLAMA_FLASH_ATTENTION=1
+OLLAMA_KV_CACHE_TYPE=q8_0
+OLLAMA_MAX_LOADED_MODELS=1
+OLLAMA_NUM_PARALLEL=1
+```
+
+Ces reglages peuvent aider, surtout avec de grands contextes, mais ils doivent etre mesures.
+
+Regle :
+
+- un changement de runtime ou d'environnement doit produire un fichier de benchmark comparable ;
+- si le gain n'est pas visible sur OpticCode, on ne le garde pas comme recommandation.
+
 ## Plan optimisation court terme
 
 1. Ajouter metriques LLM dans la sortie de debug. Fait.
@@ -234,3 +274,4 @@ Mais il ne faut pas le faire avant d'avoir :
 6. Ajouter export benchmark CSV ou fichier JSONL.
 7. Tester streaming pour confort utilisateur.
 8. Comparer Ollama avec llama.cpp/Vulkan seulement apres stabilisation des prompts.
+9. Comparer Q4_K_M et Q5_K_M seulement apres mise en place du benchmark reproductible.

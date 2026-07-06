@@ -38,6 +38,7 @@ Le projet a maintenant un premier squelette Rust fonctionnel.
 - [Phase 4 MVP Rust](docs/phase-4-mvp.md)
 - [Benchmark mini Bukkit](docs/mini-bukkit-benchmark.md)
 - [Notes optimisation](docs/optimization-notes.md)
+- [Tri des idees de recherche](docs/ideas-triage.md)
 
 ## Arborescence prevue
 
@@ -78,4 +79,4 @@ cargo run -q -- inspect --path benchmarks/mini-bukkit-plugin
 
 ## Prochaine etape
 
-Ajouter une generation de patch texte non appliquee, puis comparer les commandes declarees dans `plugin.yml` avec les appels `getCommand(...)`.
+Ajouter une generation de patch texte non appliquee, puis introduire un premier profil `minecraft-java-1.8` minimal.

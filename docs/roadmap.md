@@ -44,6 +44,7 @@ Livrables :
 - `docs/repository-research.md`
 - `docs/decisions.md`
 - `docs/model-benchmark.md`
+- `docs/ideas-triage.md`
 
 ## Phase 1.5 - Initialisation projet local
 
@@ -199,7 +200,37 @@ Etat actuel :
 - `build` lance Maven/Gradle de facon controlee ;
 - `build` resume les erreurs de compilation utiles ;
 - test negatif `Material.GUNPOWDER` valide avec suggestion `Material.SULPHUR` ;
+- `keep_alive=15m` reduit fortement le cout de modele froid ;
 - prochaine cible : generation de patch texte non applique.
+
+## Phase 5.5 - Profils, memoire et optimisation controlee
+
+Statut : cadree.
+
+Objectif :
+
+- transformer les idees de recherche en plan exploitable ;
+- eviter les optimisations prematures ;
+- preparer les profils specialises sans ralentir le MVP.
+
+Priorites :
+
+1. Profil `minecraft-java-1.8` minimal.
+2. Benchmarks JSONL/CSV reproductibles.
+3. Streaming pour confort interactif.
+4. Memoire simple global/profile/project.
+5. Selection de contexte par tache.
+
+Decisions :
+
+- Q4_K_M reste le modele principal tant que le workflow agent/RAG n'est pas stabilise ;
+- Q5_K_M sera teste plus tard avec benchmark qualite/vitesse ;
+- llama.cpp direct reste une piste de benchmark, pas une dependance V1 ;
+- pas de fine-tuning/LoRA avant collecte de patches acceptes/refuses.
+
+Livrable :
+
+- `docs/ideas-triage.md`
 
 ## Phase 6 - RAG local
 

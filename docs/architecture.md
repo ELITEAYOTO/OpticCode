@@ -76,6 +76,8 @@ crates/
   optic-safety/
 ```
 
+Les crates actuelles gardent le prefixe `opticcode-*`. Le decoupage ci-dessus reste la cible logique ; il pourra etre renomme ou affine quand le MVP sera stabilise.
+
 ## Regles de conception
 
 - Le modele ne modifie jamais directement les fichiers.
@@ -106,6 +108,82 @@ Providers envisages :
 
 Le MVP doit commencer par un seul provider local stable, probablement Ollama ou LM Studio.
 
+Regle d'optimisation :
+
+- mesurer avant de changer de backend ;
+- garder le modele chaud quand c'est possible ;
+- reduire le contexte avant d'augmenter `num_ctx` ;
+- tester Q5_K_M et llama.cpp seulement avec des benchmarks reproductibles.
+
+## Profils
+
+OpticCode doit pouvoir changer de comportement selon le domaine.
+
+Exemples de profils :
+
+```text
+minecraft-java-1.8
+rust-cli
+cpp-perf
+iot-embedded
+web-backend
+```
+
+Chaque profil peut definir :
+
+- prompt systeme court ;
+- regles metier ;
+- limites de contexte ;
+- chemins inclus/exclus ;
+- commandes de verification ;
+- docs/RAG a injecter ;
+- modeles et options recommandees.
+
+Le premier profil cible est `minecraft-java-1.8`.
+
+## Memoire
+
+Memoire cible en trois couches :
+
+```text
+global memory
+profile memory
+project memory
+```
+
+V1 simple :
+
+- fichiers Markdown/YAML versionnables ;
+- regles chargees dans le prompt ;
+- pas de fine-tuning.
+
+V2 :
+
+- SQLite ;
+- feedback accepted/rejected ;
+- lecons extraites des builds, patches et corrections.
+
+## Daemon et IDE
+
+Le CLI reste prioritaire.
+
+Architecture future :
+
+```text
+VS Code extension
+  -> opticd local
+  -> OpticCode core
+  -> index/RAG/memoire
+  -> Ollama ou llama.cpp
+```
+
+Le daemon `opticd` est repousse apres :
+
+1. patch preview CLI ;
+2. build/test fiable ;
+3. indexation locale ;
+4. profils et memoire simples.
+
 ## Strategie RAG
 
 Le RAG ne doit pas etre uniquement vectoriel.
@@ -131,4 +209,3 @@ OpticCode doit connaitre et appliquer :
 - Maven/Gradle legacy ;
 - performance serveur PvP/Faction ;
 - conventions personnelles du projet.
-

@@ -293,3 +293,68 @@ Raison :
 - un agent code doit verifier ses hypotheses par compilation ;
 - Maven produit beaucoup de bruit, surtout sur Windows ;
 - isoler les erreurs comme `cannot find symbol` permet de relier plus vite un probleme a une correction legacy, par exemple `Material.GUNPOWDER` vers `Material.SULPHUR`.
+
+### D-022 - Les idees de recherche doivent etre triees avant implementation
+
+Statut : valide.
+
+Decision :
+
+- conserver les notes brutes hors Git ;
+- ajouter une synthese projet dans `docs/ideas-triage.md` ;
+- classer les idees en maintenant, ensuite, plus tard, a eviter.
+
+Raison :
+
+- les recherches GPT/Qwen contiennent de bonnes directions et des pistes trop avancees ;
+- la roadmap doit rester executable ;
+- OpticCode doit viser l'excellence sans courir apres chaque optimisation annoncee.
+
+### D-023 - Q4_K_M reste le modele principal avant benchmark Q5_K_M
+
+Statut : valide provisoirement.
+
+Decision :
+
+- garder `qwen2.5-coder:14b` Q4_K_M comme modele principal ;
+- tester Q5_K_M plus tard seulement avec un benchmark qualite/vitesse ;
+- ne pas migrer avant d'avoir ameliore le contexte, les tools, le RAG et le patch workflow.
+
+Raison :
+
+- Q5_K_M peut ameliorer la qualite mais augmenter le cout memoire/latence ;
+- les erreurs Bukkit legacy viennent surtout d'un manque de contexte specialise ;
+- Q4_K_M est deja utilisable avec `keep_alive` et mode bref.
+
+### D-024 - Ne pas patcher Qwen, GGUF ou llama.cpp pour la V1
+
+Statut : valide.
+
+Decision :
+
+- ne pas modifier les poids Qwen ;
+- ne pas patcher le GGUF ;
+- ne pas ecrire de kernels custom ;
+- ne pas fork llama.cpp pour la V1.
+
+Raison :
+
+- le meilleur ratio effort/gain est dans l'orchestration, la selection de contexte, le RAG et la verification ;
+- les optimisations bas niveau demandent un protocole de benchmark solide ;
+- un agent fiable vaut plus qu'un runtime exotique difficile a maintenir.
+
+### D-025 - Profils dynamiques plutot que Modelfile geant
+
+Statut : valide provisoirement.
+
+Decision :
+
+- garder Ollama/Modelfile pour le socle modele et quelques parametres ;
+- gerer les profils, regles, RAG et verifications dans OpticCode ;
+- commencer par `minecraft-java-1.8`.
+
+Raison :
+
+- les profils doivent fonctionner en CLI, futur daemon et futur IDE ;
+- les regles doivent pouvoir changer selon le projet ;
+- un Modelfile trop gros deviendrait rigide et difficile a benchmarker.
