@@ -11,6 +11,7 @@ Ces regles servent a trois endroits :
 - profil `minecraft-java-1.8` ;
 - analyse `analyze-java` ;
 - patch preview `patch`.
+- scan preparatoire `pack-scan`.
 
 ## Sources locales consultees
 
@@ -26,6 +27,8 @@ Observations utiles :
 - le pack legacy contient `mob_spawner`, `nether_wart`, `nether_stalk`, `spawn_egg` et les assets shovel ;
 - le pack Volkaria contient des CIT autour des spawners, mobs shop, nether wart et shovels custom ;
 - les fichiers `.lang` exposent des noms 1.8 comme `tile.mobSpawner`, `tile.netherStalk`, `item.netherStalk`, `item.monsterPlacer`.
+
+La commande `pack-scan` confirme aussi la presence de nombreux `models/block`, `models/item`, textures, blockstates et fichiers CIT utiles pour le futur RAG.
 
 ## Materials legacy supportes par OpticCode
 

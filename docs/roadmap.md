@@ -172,6 +172,7 @@ Etat actuel :
 - coherence `plugin.yml` / `getCommand(...)` detectee ;
 - memoire Markdown simple ajoutee ;
 - benchmark JSONL ajoute dans `scripts/run-mini-benchmark.ps1` ;
+- commande `pack-scan` ajoutee pour inventorier les resource packs externes sans les copier ;
 - compilation et tests OK.
 
 Livrable :
@@ -180,6 +181,7 @@ Livrable :
 - `docs/mini-bukkit-benchmark.md`
 - `docs/optimization-notes.md`
 - `docs/java-project-intelligence.md`
+- `docs/resource-pack-scan.md`
 
 ## Phase 5 - Tools code et Java legacy
 
@@ -247,22 +249,28 @@ Livrable :
 - `docs/profiles.md`
 - `docs/memory.md`
 
-## Phase 6 - RAG local
+## Phase 6 - RAG local et donnees metier
 
-Statut : a faire.
+Statut : prochaine grande etape.
 
 Objectif :
 
 - indexer docs, conventions, exemples de plugins, mappings legacy ;
+- indexer les regles legacy et les inventaires de resource packs utiles ;
+- garder les sources externes a leur emplacement d'origine ;
 - melanger recherche texte, symboles et embeddings ;
-- garder une base de connaissances reutilisable.
+- garder une base de connaissances reutilisable ;
+- mesurer le cout en prompt, latence et qualite de reponse.
 
 Approche recommandee :
 
-1. SQLite pour metadata et memoire.
-2. Tantivy pour recherche full-text.
-3. Tree-sitter pour symboles/classes/methodes.
-4. Qdrant seulement quand les embeddings sont valides.
+1. Commencer par un index texte local et deterministe.
+2. Extraire les fichiers `.md`, `.txt`, `.lang`, `.properties`, `.json` utiles.
+3. Garder les images uniquement comme references de chemins et metadata.
+4. Ajouter SQLite pour metadata et memoire quand les schemas sont stables.
+5. Ajouter Tantivy pour recherche full-text.
+6. Ajouter Tree-sitter pour symboles/classes/methodes.
+7. Ajouter Qdrant seulement quand les embeddings sont valides.
 
 ## Phase 7 - Agent iteratif
 

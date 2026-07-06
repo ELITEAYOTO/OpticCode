@@ -8,7 +8,7 @@ use opticcode_core::{
 };
 use opticcode_tools::{
     analyze_java_project, build_java_project, build_project_context, check_patch_with_git,
-    inspect_workspace, propose_java_legacy_patch, search_workspace,
+    inspect_resource_pack, inspect_workspace, propose_java_legacy_patch, search_workspace,
 };
 use serde::Serialize;
 use std::io::{self, Write};
@@ -57,6 +57,12 @@ enum Command {
         path: PathBuf,
         #[arg(long, default_value = DEFAULT_PROFILE)]
         profile: String,
+    },
+    PackScan {
+        #[arg(long)]
+        path: PathBuf,
+        #[arg(long, default_value_t = 60)]
+        limit: usize,
     },
     Patch {
         #[arg(long, default_value = ".")]
@@ -164,6 +170,10 @@ async fn main() -> Result<()> {
         Command::Memory { path, profile } => {
             let memory = load_memory_for_workspace(&path, Some(&profile))?;
             println!("{}", memory.to_display_string());
+        }
+        Command::PackScan { path, limit } => {
+            let report = inspect_resource_pack(&path, limit)?;
+            println!("{}", report.to_display_string());
         }
         Command::Patch { path, check } => {
             let proposal = propose_java_legacy_patch(&path)?;

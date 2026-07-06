@@ -414,3 +414,20 @@ Raison :
 - OpticCode doit apprendre son contexte avant d'entrainer un modele ;
 - Markdown est lisible, versionnable et suffisant pour les premieres regles ;
 - cela prepare la future memoire global/profile/project sans complexite prematuree.
+
+### D-029 - Scanner les resource packs avant de les indexer
+
+Statut : valide provisoirement.
+
+Decision :
+
+- ajouter une commande `pack-scan` read-only ;
+- inventorier les packs externes sans les deplacer et sans les copier ;
+- classer les fichiers par categories utiles : blockstates, models, textures, lang, CIT ;
+- extraire une courte liste de chemins legacy suspects pour preparer le RAG.
+
+Raison :
+
+- les packs donnes par l'utilisateur sont des sources de contexte, pas des dependances a modifier ;
+- un scan leger permet de savoir quoi indexer avant de creer une base RAG ;
+- les images ne doivent pas etre injectees directement dans le prompt, mais leurs chemins et noms peuvent aider le contexte Minecraft 1.8.

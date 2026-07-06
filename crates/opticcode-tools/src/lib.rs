@@ -140,6 +140,15 @@ pub struct PatchCheckResult {
     pub stderr: String,
 }
 
+#[derive(Debug, Clone)]
+pub struct ResourcePackReport {
+    pub root: PathBuf,
+    pub total_files: usize,
+    pub has_pack_mcmeta: bool,
+    pub categories: BTreeMap<String, usize>,
+    pub legacy_matches: Vec<PathBuf>,
+}
+
 #[derive(Debug, Clone, Copy)]
 struct LegacySymbolReplacement {
     modern: &'static str,
@@ -250,6 +259,40 @@ pub fn inspect_workspace(root: &Path) -> Result<WorkspaceReport> {
             .map(|value| value.to_ascii_lowercase())
             .unwrap_or_else(|| "<none>".to_string());
         *report.extensions.entry(extension).or_insert(0) += 1;
+    }
+
+    Ok(report)
+}
+
+pub fn inspect_resource_pack(root: &Path, limit: usize) -> Result<ResourcePackReport> {
+    let root = fs::canonicalize(root)
+        .with_context(|| format!("failed to resolve resource pack path: {}", root.display()))?;
+    let mut report = ResourcePackReport {
+        has_pack_mcmeta: root.join("pack.mcmeta").exists(),
+        root: root.clone(),
+        total_files: 0,
+        categories: BTreeMap::new(),
+        legacy_matches: Vec::new(),
+    };
+
+    for entry in WalkDir::new(&root)
+        .into_iter()
+        .filter_entry(should_enter_resource_pack)
+        .filter_map(Result::ok)
+    {
+        if !entry.file_type().is_file() {
+            continue;
+        }
+
+        report.total_files += 1;
+        let relative = to_relative(&root, entry.path());
+        let normalized = relative.to_string_lossy().replace('\\', "/");
+        let category = resource_pack_category(&normalized);
+        *report.categories.entry(category).or_insert(0) += 1;
+
+        if report.legacy_matches.len() < limit && is_legacy_resource_match(&normalized) {
+            report.legacy_matches.push(relative);
+        }
     }
 
     Ok(report)
@@ -648,6 +691,31 @@ impl PatchCheckResult {
     }
 }
 
+impl ResourcePackReport {
+    pub fn to_display_string(&self) -> String {
+        let mut out = String::new();
+        out.push_str(&format!("Resource pack: {}\n", self.root.display()));
+        out.push_str(&format!("pack.mcmeta: {}\n", yes_no(self.has_pack_mcmeta)));
+        out.push_str(&format!("Files: {}\n", self.total_files));
+
+        out.push_str("\nCategories:\n");
+        for (category, count) in top_named_counts(&self.categories, 16) {
+            out.push_str(&format!("- {}: {}\n", category, count));
+        }
+
+        out.push_str("\nLegacy/resource matches:\n");
+        if self.legacy_matches.is_empty() {
+            out.push_str("- none\n");
+        } else {
+            for path in &self.legacy_matches {
+                out.push_str(&format!("- {}\n", path.display()));
+            }
+        }
+
+        out
+    }
+}
+
 fn parse_pom(content: &str) -> Result<MavenAnalysis> {
     let doc = roxmltree::Document::parse(content).context("failed to parse pom.xml")?;
     let root = doc.root_element();
@@ -986,6 +1054,44 @@ fn symbol_name_appears(content: &str, qualified_symbol: &str) -> bool {
     qualified_symbol
         .rsplit_once('.')
         .is_some_and(|(_, name)| content.contains(name))
+}
+
+fn resource_pack_category(path: &str) -> String {
+    if path.starts_with("assets/minecraft/blockstates/") {
+        "blockstates".to_string()
+    } else if path.starts_with("assets/minecraft/models/block/") {
+        "models/block".to_string()
+    } else if path.starts_with("assets/minecraft/models/item/") {
+        "models/item".to_string()
+    } else if path.starts_with("assets/minecraft/textures/blocks/") {
+        "textures/blocks".to_string()
+    } else if path.starts_with("assets/minecraft/textures/items/") {
+        "textures/items".to_string()
+    } else if path.starts_with("assets/minecraft/lang/") {
+        "lang".to_string()
+    } else if path.starts_with("assets/minecraft/mcpatcher/cit/") {
+        "mcpatcher/cit".to_string()
+    } else if path.starts_with("assets/") {
+        "assets/other".to_string()
+    } else {
+        "root/other".to_string()
+    }
+}
+
+fn is_legacy_resource_match(path: &str) -> bool {
+    let lower = path.to_ascii_lowercase();
+    [
+        "spawner",
+        "mob_spawner",
+        "monster_placer",
+        "nether_stalk",
+        "nether_wart",
+        "shovel",
+        "spade",
+        "spawn_egg",
+    ]
+    .iter()
+    .any(|term| lower.contains(term))
 }
 
 fn build_unified_diff(path: &Path, original: &str, proposed: &str, reason: &str) -> String {
@@ -1373,6 +1479,14 @@ fn should_enter(entry: &DirEntry) -> bool {
     )
 }
 
+fn should_enter_resource_pack(entry: &DirEntry) -> bool {
+    let name = entry.file_name().to_string_lossy();
+    !matches!(
+        name.as_ref(),
+        ".git" | ".idea" | ".vscode" | "target" | "build"
+    )
+}
+
 fn is_probably_text(path: &Path) -> bool {
     let Some(extension) = path.extension().and_then(|value| value.to_str()) else {
         return true;
@@ -1418,13 +1532,23 @@ fn top_extensions(extensions: &BTreeMap<String, usize>, limit: usize) -> Vec<(&s
     values
 }
 
+fn top_named_counts(values: &BTreeMap<String, usize>, limit: usize) -> Vec<(&str, usize)> {
+    let mut values = values
+        .iter()
+        .map(|(name, count)| (name.as_str(), *count))
+        .collect::<Vec<_>>();
+    values.sort_by(|left, right| right.1.cmp(&left.1).then_with(|| left.0.cmp(right.0)));
+    values.truncate(limit);
+    values
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
         apply_legacy_replacements, build_unified_diff, collect_project_risks, context_priority,
-        is_probably_text, parse_java_file, parse_plugin_yml, parse_pom, propose_java_legacy_patch,
-        summarize_build_output, tail_lines, truncate_chars, BuildTool, PatchFileChange,
-        PatchProposal,
+        is_legacy_resource_match, is_probably_text, parse_java_file, parse_plugin_yml, parse_pom,
+        propose_java_legacy_patch, resource_pack_category, summarize_build_output, tail_lines,
+        truncate_chars, BuildTool, PatchFileChange, PatchProposal,
     };
     use std::fs;
     use std::path::Path;
@@ -1436,6 +1560,24 @@ mod tests {
         assert!(is_probably_text(Path::new("plugin.yml")));
         assert!(is_probably_text(Path::new("src/Main.java")));
         assert!(!is_probably_text(Path::new("server.jar")));
+    }
+
+    #[test]
+    fn categorizes_resource_pack_paths() {
+        assert_eq!(
+            resource_pack_category("assets/minecraft/models/item/nether_wart.json"),
+            "models/item"
+        );
+        assert_eq!(
+            resource_pack_category("assets/minecraft/mcpatcher/cit/item_gui/spawners/a.properties"),
+            "mcpatcher/cit"
+        );
+        assert!(is_legacy_resource_match(
+            "assets/minecraft/textures/items/wood_shovel.png"
+        ));
+        assert!(is_legacy_resource_match(
+            "assets/minecraft/models/item/mob_spawner.json"
+        ));
     }
 
     #[test]
