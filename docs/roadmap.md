@@ -201,6 +201,7 @@ Livrable :
 - `docs/rag-index.md`
 - `docs/rag-quality.md`
 - `docs/patch-build-quality.md`
+- `docs/safe-apply-roadmap.md`
 
 ## Phase 5 - Tools code et Java legacy
 
@@ -231,12 +232,37 @@ Etat actuel :
 - `patch` propose un diff non applique pour `Material.GUNPOWDER` -> `Material.SULPHUR` ;
 - `patch --check` verifie que le diff est applicable ;
 - `run-patch-build-quality.ps1` valide plusieurs corrections legacy avec rebuild Maven OK ;
+- roadmap `safe apply` ajoutee avant implementation de l'application reelle ;
 - `ask` et `plan` peuvent charger le profil `minecraft-java-1.8` ;
 - `analyze-java` compare les commandes declarees avec `getCommand(...)` ;
 - table legacy initiale ajoutee : gunpowder, nether wart, spawners, pelles/spades et quelques mobs ;
 - `ask` et `plan` chargent une memoire global/profil par defaut ;
 - `run-mini-benchmark.ps1` append des runs JSONL comparables ;
-- prochaine cible : enrichissement RAG depuis les packs/doc locales.
+- prochaine cible : `safe apply` V1 en dry-run, puis application confirmee.
+
+## Phase 5.1 - Safe Apply
+
+Statut : cadree, implementation a faire.
+
+Objectif :
+
+- appliquer des patchs seulement apres verification et confirmation explicite ;
+- commencer par `apply --dry-run` ;
+- tester l'application sur copie temporaire ;
+- refuser toute modification silencieuse ;
+- preparer rollback simple.
+
+Ordre :
+
+1. `apply --dry-run` sans modification.
+2. Application sur copie temporaire.
+3. Application reelle avec `--yes` ou confirmation.
+4. Verification build optionnelle.
+5. Rollback/log local.
+
+Livrable :
+
+- `docs/safe-apply-roadmap.md`
 
 ## Phase 5.5 - Profils, memoire et optimisation controlee
 

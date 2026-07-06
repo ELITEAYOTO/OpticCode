@@ -46,6 +46,7 @@ Le prototype sait deja :
 - afficher et utiliser un score RAG pondere par requete legacy.
 - mesurer automatiquement la qualite legacy avec/sans RAG.
 - verifier automatiquement un patch legacy jusqu'au rebuild Maven sur copie temporaire.
+- cadrer `safe apply` avant toute application reelle.
 
 Il ne sait pas encore :
 

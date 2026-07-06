@@ -89,6 +89,14 @@ Ce test travaille sur une copie temporaire du mini plugin et confirme que le pat
 
 ## Prochaines etapes
 
-1. Ajouter une commande `apply` avec confirmation explicite.
-2. Ajouter d'autres regles legacy sures.
-3. Brancher plus tard la generation LLM de patchs sur ce meme format.
+1. Ajouter une commande separee `apply --dry-run`.
+2. Ajouter l'application sur copie temporaire.
+3. Ajouter l'application reelle avec confirmation explicite.
+4. Ajouter rollback/log simple.
+5. Brancher plus tard la generation LLM de patchs sur ce meme format.
+
+Roadmap detaillee :
+
+```text
+docs/safe-apply-roadmap.md
+```

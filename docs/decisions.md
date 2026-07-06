@@ -675,3 +675,21 @@ Raison :
 - le test reste reproductible sans toucher au mini projet source ;
 - cette etape prepare une future commande `safe apply` avec confirmation explicite ;
 - le run valide `patch-build-quality-20260706-221333` montre un passage build echec -> patch -> build OK.
+
+### D-044 - Roadmap Safe Apply avant implementation
+
+Statut : valide provisoirement.
+
+Decision :
+
+- documenter une roadmap dediee avant d'implementer l'application de patch ;
+- separer `patch`, `apply --dry-run`, application sur copie temporaire et application reelle ;
+- imposer confirmation explicite avant toute modification reelle ;
+- garder rollback et verification build dans le plan des premieres iterations.
+
+Raison :
+
+- l'application de patch est le premier vrai passage vers la modification de fichiers ;
+- le risque n'est pas technique seulement, il concerne la confiance dans l'agent ;
+- une roadmap claire evite de melanger preview, apply, rollback et autonomie ;
+- le projet doit rester organise avant de devenir plus puissant.
