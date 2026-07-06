@@ -62,6 +62,10 @@ Build command: mvn -q -DskipTests package
 - commande declaree dans `plugin.yml` sans `getCommand(...)` detecte ;
 - commande enregistree en Java sans declaration dans `plugin.yml` ;
 - `Material.GUNPOWDER` dans du code cible 1.8.8 ;
+- pelles modernes `*_SHOVEL` au lieu de `*_SPADE` ;
+- `Material.NETHER_WART` au lieu de `Material.NETHER_STALK` ;
+- `Material.SPAWNER` au lieu de `Material.MOB_SPAWNER` ;
+- `EntityType.ZOMBIFIED_PIGLIN`, `MOOSHROOM`, `SNOW_GOLEM` au lieu des noms legacy ;
 - `record` ou `var` ;
 - imports Adventure API ;
 - imports `org.bukkit.persistence`.

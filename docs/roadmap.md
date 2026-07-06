@@ -209,7 +209,8 @@ Etat actuel :
 - `patch --check` verifie que le diff est applicable ;
 - `ask` et `plan` peuvent charger le profil `minecraft-java-1.8` ;
 - `analyze-java` compare les commandes declarees avec `getCommand(...)` ;
-- prochaine cible : regles legacy supplementaires et premiere memoire simple.
+- table legacy initiale ajoutee : gunpowder, nether wart, spawners, pelles/spades et quelques mobs ;
+- prochaine cible : premiere memoire simple et enrichissement RAG depuis les packs/doc locales.
 
 ## Phase 5.5 - Profils, memoire et optimisation controlee
 

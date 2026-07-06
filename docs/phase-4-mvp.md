@@ -132,7 +132,7 @@ cargo test --workspace
 Resultat :
 
 ```text
-OK - 17 tests passes
+OK - 18 tests passes
 ```
 
 ### Inspection locale

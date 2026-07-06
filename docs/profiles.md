@@ -25,6 +25,9 @@ Ce profil couvre :
 - Java 8 strict ;
 - Bukkit / Spigot / PandaSpigot 1.8.8 et 1.8.9 ;
 - `Material.SULPHUR` pour la gunpowder ;
+- `Material.NETHER_STALK` pour nether wart ;
+- noms `*_SPADE` pour les pelles ;
+- `Material.MOB_SPAWNER` pour les spawners ;
 - absence d'`api-version` dans `plugin.yml` ;
 - commandes/listeners Bukkit ;
 - risques de performance serveur.

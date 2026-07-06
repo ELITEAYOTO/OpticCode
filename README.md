@@ -41,6 +41,7 @@ Le projet a maintenant un premier squelette Rust fonctionnel.
 - [Tri des idees de recherche](docs/ideas-triage.md)
 - [Patch preview](docs/patch-preview.md)
 - [Profils](docs/profiles.md)
+- [Regles Minecraft 1.8 legacy](docs/minecraft-legacy-rules.md)
 
 ## Arborescence prevue
 

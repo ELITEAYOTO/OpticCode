@@ -140,6 +140,81 @@ pub struct PatchCheckResult {
     pub stderr: String,
 }
 
+#[derive(Debug, Clone, Copy)]
+struct LegacySymbolReplacement {
+    modern: &'static str,
+    legacy: &'static str,
+    reason: &'static str,
+}
+
+const LEGACY_SYMBOL_REPLACEMENTS: &[LegacySymbolReplacement] = &[
+    LegacySymbolReplacement {
+        modern: "Material.GUNPOWDER",
+        legacy: "Material.SULPHUR",
+        reason: "Bukkit 1.8.8 uses SULPHUR for gunpowder.",
+    },
+    LegacySymbolReplacement {
+        modern: "Material.NETHER_WART",
+        legacy: "Material.NETHER_STALK",
+        reason: "Bukkit 1.8.8 uses NETHER_STALK for nether wart.",
+    },
+    LegacySymbolReplacement {
+        modern: "Material.SPAWNER",
+        legacy: "Material.MOB_SPAWNER",
+        reason: "Bukkit 1.8.8 uses MOB_SPAWNER for spawner blocks.",
+    },
+    LegacySymbolReplacement {
+        modern: "Material.MONSTER_SPAWNER",
+        legacy: "Material.MOB_SPAWNER",
+        reason: "Bukkit 1.8.8 uses MOB_SPAWNER for spawner blocks.",
+    },
+    LegacySymbolReplacement {
+        modern: "Material.WOODEN_SHOVEL",
+        legacy: "Material.WOOD_SPADE",
+        reason: "Bukkit 1.8.8 uses SPADE names for shovels.",
+    },
+    LegacySymbolReplacement {
+        modern: "Material.STONE_SHOVEL",
+        legacy: "Material.STONE_SPADE",
+        reason: "Bukkit 1.8.8 uses SPADE names for shovels.",
+    },
+    LegacySymbolReplacement {
+        modern: "Material.IRON_SHOVEL",
+        legacy: "Material.IRON_SPADE",
+        reason: "Bukkit 1.8.8 uses SPADE names for shovels.",
+    },
+    LegacySymbolReplacement {
+        modern: "Material.DIAMOND_SHOVEL",
+        legacy: "Material.DIAMOND_SPADE",
+        reason: "Bukkit 1.8.8 uses SPADE names for shovels.",
+    },
+    LegacySymbolReplacement {
+        modern: "Material.GOLDEN_SHOVEL",
+        legacy: "Material.GOLD_SPADE",
+        reason: "Bukkit 1.8.8 uses SPADE names for shovels.",
+    },
+    LegacySymbolReplacement {
+        modern: "Material.GOLD_SHOVEL",
+        legacy: "Material.GOLD_SPADE",
+        reason: "Bukkit 1.8.8 uses SPADE names for shovels.",
+    },
+    LegacySymbolReplacement {
+        modern: "EntityType.ZOMBIFIED_PIGLIN",
+        legacy: "EntityType.PIG_ZOMBIE",
+        reason: "Bukkit 1.8.8 predates zombified piglin naming.",
+    },
+    LegacySymbolReplacement {
+        modern: "EntityType.MOOSHROOM",
+        legacy: "EntityType.MUSHROOM_COW",
+        reason: "Bukkit 1.8.8 uses MUSHROOM_COW for mooshrooms.",
+    },
+    LegacySymbolReplacement {
+        modern: "EntityType.SNOW_GOLEM",
+        legacy: "EntityType.SNOWMAN",
+        reason: "Bukkit 1.8.8 uses SNOWMAN for snow golems.",
+    },
+];
+
 pub fn inspect_workspace(root: &Path) -> Result<WorkspaceReport> {
     let root = fs::canonicalize(root)
         .with_context(|| format!("failed to resolve workspace path: {}", root.display()))?;
@@ -371,22 +446,24 @@ pub fn propose_java_legacy_patch(root: &Path) -> Result<PatchProposal> {
             Err(_) => continue,
         };
 
-        if !content.contains("Material.GUNPOWDER") {
+        let Some((proposed, replacements)) = apply_legacy_replacements(&content) else {
             continue;
-        }
-
-        let proposed = content.replace("Material.GUNPOWDER", "Material.SULPHUR");
+        };
+        let reason = replacements
+            .iter()
+            .map(|replacement| format!("{} -> {}", replacement.modern, replacement.legacy))
+            .collect::<Vec<_>>()
+            .join(", ");
         let diff = build_unified_diff(
             &file.path,
             &content,
             &proposed,
-            "Bukkit 1.8.8 legacy material name.",
+            "Bukkit 1.8.8 legacy symbol names.",
         );
 
         changes.push(PatchFileChange {
             path: file.path.clone(),
-            reason: "Replace Material.GUNPOWDER with Material.SULPHUR for Bukkit 1.8.8."
-                .to_string(),
+            reason: format!("Replace modern symbols with Bukkit 1.8.8 legacy names: {reason}."),
             diff,
         });
     }
@@ -640,10 +717,11 @@ fn parse_java_file(root: &Path, path: &Path, content: &str) -> JavaFileAnalysis 
     let registered_commands = extract_string_calls(content, "getCommand");
 
     let mut risks = Vec::new();
-    if content.contains("Material.GUNPOWDER") {
-        risks.push(
-            "Uses Material.GUNPOWDER; Bukkit 1.8.8 usually expects Material.SULPHUR.".to_string(),
-        );
+    for replacement in detect_legacy_replacements(content) {
+        risks.push(format!(
+            "Uses {}; Bukkit 1.8.8 expects {}. {}",
+            replacement.modern, replacement.legacy, replacement.reason
+        ));
     }
     if content.contains("record ") {
         risks.push("Contains `record`, not compatible with Java 8.".to_string());
@@ -858,11 +936,15 @@ fn summarize_build_output(stdout: &str, stderr: &str, success: bool) -> Vec<Stri
         }
     }
 
-    if combined.contains("Material") && combined.contains("GUNPOWDER") {
-        summary.push(
-            "Likely Bukkit 1.8.8 legacy fix: use Material.SULPHUR instead of Material.GUNPOWDER."
-                .to_string(),
-        );
+    for replacement in LEGACY_SYMBOL_REPLACEMENTS {
+        if combined.contains(replacement.modern)
+            || symbol_name_appears(&combined, replacement.modern)
+        {
+            summary.push(format!(
+                "Likely Bukkit 1.8.8 legacy fix: use {} instead of {}.",
+                replacement.legacy, replacement.modern
+            ));
+        }
     }
 
     if summary.is_empty() {
@@ -876,6 +958,34 @@ fn tail_lines(value: &str, limit: usize) -> String {
     let lines = value.lines().collect::<Vec<_>>();
     let start = lines.len().saturating_sub(limit);
     lines[start..].join("\n")
+}
+
+fn detect_legacy_replacements(content: &str) -> Vec<LegacySymbolReplacement> {
+    LEGACY_SYMBOL_REPLACEMENTS
+        .iter()
+        .copied()
+        .filter(|replacement| content.contains(replacement.modern))
+        .collect()
+}
+
+fn apply_legacy_replacements(content: &str) -> Option<(String, Vec<LegacySymbolReplacement>)> {
+    let replacements = detect_legacy_replacements(content);
+    if replacements.is_empty() {
+        return None;
+    }
+
+    let mut proposed = content.to_string();
+    for replacement in &replacements {
+        proposed = proposed.replace(replacement.modern, replacement.legacy);
+    }
+
+    Some((proposed, replacements))
+}
+
+fn symbol_name_appears(content: &str, qualified_symbol: &str) -> bool {
+    qualified_symbol
+        .rsplit_once('.')
+        .is_some_and(|(_, name)| content.contains(name))
 }
 
 fn build_unified_diff(path: &Path, original: &str, proposed: &str, reason: &str) -> String {
@@ -1311,8 +1421,8 @@ fn top_extensions(extensions: &BTreeMap<String, usize>, limit: usize) -> Vec<(&s
 #[cfg(test)]
 mod tests {
     use super::{
-        build_unified_diff, collect_project_risks, context_priority, is_probably_text,
-        parse_java_file, parse_plugin_yml, parse_pom, propose_java_legacy_patch,
+        apply_legacy_replacements, build_unified_diff, collect_project_risks, context_priority,
+        is_probably_text, parse_java_file, parse_plugin_yml, parse_pom, propose_java_legacy_patch,
         summarize_build_output, tail_lines, truncate_chars, BuildTool, PatchFileChange,
         PatchProposal,
     };
@@ -1459,6 +1569,19 @@ commands:
     }
 
     #[test]
+    fn applies_known_legacy_symbol_replacements() {
+        let original = "Material.WOODEN_SHOVEL\nMaterial.NETHER_WART\nMaterial.SPAWNER\nEntityType.ZOMBIFIED_PIGLIN";
+        let (proposed, replacements) =
+            apply_legacy_replacements(original).expect("legacy replacements should be found");
+
+        assert_eq!(replacements.len(), 4);
+        assert!(proposed.contains("Material.WOOD_SPADE"));
+        assert!(proposed.contains("Material.NETHER_STALK"));
+        assert!(proposed.contains("Material.MOB_SPAWNER"));
+        assert!(proposed.contains("EntityType.PIG_ZOMBIE"));
+    }
+
+    #[test]
     fn keeps_tail_lines() {
         assert_eq!(tail_lines("a\nb\nc", 2), "b\nc");
     }
@@ -1495,7 +1618,7 @@ commands:
         let java_path = java_dir.join("Test.java");
         fs::write(
             &java_path,
-            "package dev.test;\nclass Test { Object item = Material.GUNPOWDER; }\n",
+            "package dev.test;\nclass Test { Object item = Material.GUNPOWDER; Object tool = Material.WOODEN_SHOVEL; }\n",
         )
         .expect("java should be written");
 
@@ -1505,7 +1628,9 @@ commands:
 
         assert_eq!(proposal.changes.len(), 1);
         assert!(proposal.changes[0].diff.contains("Material.SULPHUR"));
+        assert!(proposal.changes[0].diff.contains("Material.WOOD_SPADE"));
         assert!(unchanged.contains("Material.GUNPOWDER"));
+        assert!(unchanged.contains("Material.WOODEN_SHOVEL"));
     }
 
     #[test]

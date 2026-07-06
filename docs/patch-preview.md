@@ -27,7 +27,8 @@ La commande `patch` propose uniquement des corrections deterministes Java legacy
 
 Regle supportee :
 
-- remplacer `Material.GUNPOWDER` par `Material.SULPHUR` pour Bukkit 1.8.8.
+- remplacer plusieurs symboles modernes par leurs noms Bukkit 1.8.8 ;
+- exemples : `Material.GUNPOWDER` -> `Material.SULPHUR`, `Material.WOODEN_SHOVEL` -> `Material.WOOD_SPADE`, `Material.NETHER_WART` -> `Material.NETHER_STALK`.
 
 ## Resultat sur projet sain
 

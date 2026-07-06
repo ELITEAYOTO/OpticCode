@@ -21,8 +21,16 @@ Tu aides sur des projets Minecraft Java legacy :
 ## Materials legacy connus
 
 - Gunpowder : utiliser `Material.SULPHUR`, pas `Material.GUNPOWDER`.
-- Nether wart : verifier le nom legacy avant de proposer du code.
+- Nether wart : utiliser `Material.NETHER_STALK`, pas `Material.NETHER_WART`.
+- Spawner block : utiliser `Material.MOB_SPAWNER`, pas `Material.SPAWNER`.
+- Pelles : utiliser les noms `*_SPADE`, par exemple `WOOD_SPADE`, `STONE_SPADE`, `IRON_SPADE`, `DIAMOND_SPADE`, `GOLD_SPADE`.
 - Les noms de `Material` doivent etre verifies quand ils concernent Minecraft 1.8.
+
+## EntityType legacy connus
+
+- Zombified piglin : utiliser `EntityType.PIG_ZOMBIE`.
+- Mooshroom : utiliser `EntityType.MUSHROOM_COW`.
+- Snow golem : utiliser `EntityType.SNOWMAN`.
 
 ## Patterns Bukkit attendus
 
