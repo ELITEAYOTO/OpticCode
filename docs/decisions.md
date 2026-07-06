@@ -619,3 +619,21 @@ Raison :
 - `matched_queries` dit quelles requetes ont match, mais pas lesquelles portent vraiment le resultat ;
 - un score detaille permet de voir rapidement si un hit est principalement porte par `spawner`, `nether wart`, `shovel`, etc. ;
 - cela prepare une future ponderation plus fine sans embeddings.
+
+### D-041 - Score RAG pondere par requete elargie
+
+Statut : valide provisoirement.
+
+Decision :
+
+- ajouter un `weighted_score` par hit RAG ;
+- ponderer les requetes legacy precises plus fortement que les synonymes generiques ;
+- trier les hits d'une meme priorite de source par `weighted_score`, puis par score brut ;
+- afficher les poids dans `query_scores` avec la forme `requete=scorexpoids`.
+
+Raison :
+
+- `shovel` est utile pour retrouver les fichiers de langue, mais moins fiable qu'un identifiant 1.8 comme `MOB_SPAWNER`, `NETHER_STALK` ou `Material.SULPHUR` ;
+- le score brut peut favoriser un terme generique tres frequent ;
+- la ponderation est deterministe, peu couteuse et evite d'ajouter un moteur vectoriel trop tot ;
+- l'optimisation vise surtout la qualite du contexte injecte, donc le cout en tokens utiles, pas le debit brut du modele.

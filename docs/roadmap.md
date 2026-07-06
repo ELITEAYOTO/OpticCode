@@ -184,6 +184,7 @@ Etat actuel :
 - filtre anti-bruit RAG ajoute pour ignorer les hits faibles sans concept legacy ;
 - `matched_queries` ajoute au debug RAG pour expliquer chaque hit ;
 - `query_scores` ajoute au debug RAG pour voir le score par requete elargie ;
+- `weighted_score` ajoute pour favoriser les correspondances legacy precises par rapport aux synonymes generiques ;
 - compilation et tests OK.
 
 Livrable :

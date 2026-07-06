@@ -74,6 +74,7 @@ Mesure importante du 2026-07-06 :
 - le filtre anti-bruit supprime les hits faibles sans concept legacy detecte.
 - `rag-debug` affiche maintenant `chunk` et `matched_queries`, utile pour diagnostiquer la qualite sans relancer Qwen.
 - `rag-debug` affiche aussi `query_scores`, ce qui montre le poids de chaque requete elargie par chunk.
+- le scoring RAG pondere favorise les identifiants legacy precis (`MOB_SPAWNER`, `NETHER_STALK`, `Material.SULPHUR`) par rapport aux synonymes generiques (`shovel`).
 
 ## Optimisations prioritaires
 
@@ -302,6 +303,32 @@ Regle :
 - un changement de runtime ou d'environnement doit produire un fichier de benchmark comparable ;
 - si le gain n'est pas visible sur OpticCode, on ne le garde pas comme recommandation.
 
+### 10. Scoring RAG pondere
+
+Statut : ajoute.
+
+Le RAG utilise maintenant un score pondere par requete elargie.
+
+Impact attendu :
+
+- meilleur choix des chunks injectes dans le prompt ;
+- moins de contexte faible ou trop generique ;
+- aucun cout runtime significatif, car le calcul est deterministe et local ;
+- pas de changement attendu sur le debit tokens/s du modele.
+
+Exemple :
+
+```text
+query_scores: nether wart=44x3, spade=6x2, NETHER_STALK=2x4
+weighted_score: 162
+```
+
+Interpretation :
+
+- le gain est un gain de qualite et de tokens utiles ;
+- ce n'est pas une acceleration brute de Qwen ;
+- la prochaine mesure importante est le taux de bonnes reponses avec/sans RAG pondere sur les memes prompts.
+
 ## Plan optimisation court terme
 
 1. Ajouter metriques LLM dans la sortie de debug. Fait.
@@ -313,3 +340,4 @@ Regle :
 7. Tester streaming pour confort utilisateur.
 8. Comparer Ollama avec llama.cpp/Vulkan seulement apres stabilisation des prompts.
 9. Comparer Q4_K_M et Q5_K_M seulement apres mise en place du benchmark reproductible.
+10. Mesurer la qualite du RAG pondere sur plusieurs prompts legacy. En cours.

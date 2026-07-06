@@ -43,6 +43,7 @@ Le prototype sait deja :
 - prioriser les docs et profils avant le code interne dans le contexte RAG.
 - dedupliquer les regles RAG repetitives cote OpticCode.
 - filtrer les hits RAG faibles sans concept legacy.
+- afficher et utiliser un score RAG pondere par requete legacy.
 
 Il ne sait pas encore :
 
@@ -151,7 +152,7 @@ cargo test --workspace
 Resultat :
 
 ```text
-OK - 30 tests passes
+OK - 32 tests passes
 ```
 
 ### Inspection locale

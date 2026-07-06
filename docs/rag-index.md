@@ -313,7 +313,39 @@ Le debug affiche aussi :
 ```text
 chunk: 2024feecdafcac5f:0
 matched_queries: DIAMOND_SPADE, NETHER_STALK, WOOD_SPADE, nether wart, nether_stalk, spade
-query_scores: nether wart=44, spade=6, NETHER_STALK=2, nether_stalk=2, DIAMOND_SPADE=1, WOOD_SPADE=1
+score: 44
+weighted_score: 162
+query_scores: nether wart=44x3, spade=6x2, NETHER_STALK=2x4, nether_stalk=2x4, DIAMOND_SPADE=1, WOOD_SPADE=1
+```
+
+## Score RAG pondere
+
+Statut : ajoute.
+
+OpticCode conserve maintenant deux scores par hit injecte :
+
+- `score` : meilleur score brut trouve par la recherche texte ;
+- `weighted_score` : somme des scores par requete, multiplies par un poids metier.
+
+Poids actuels :
+
+| Requete | Poids |
+| --- | ---: |
+| `Material.SULPHUR`, `SULPHUR`, `MOB_SPAWNER`, `NETHER_STALK`, `spawn_egg`, `monster_placer` | 4 |
+| `nether wart`, `gunpowder` | 3 |
+| `spawner`, `spade` | 2 |
+| `shovel`, `WOOD_SPADE`, `DIAMOND_SPADE`, `MONSTER_EGG` | 1 |
+
+Raison :
+
+- les identifiants Bukkit/Minecraft 1.8 precis sont plus fiables que les synonymes utilisateur ;
+- les synonymes restent utiles pour le rappel, mais ne doivent pas dominer le contexte final ;
+- le tri reste d'abord controle par la priorite de source, puis par `weighted_score`.
+
+Verification rapide :
+
+```powershell
+cargo run -q -- rag-debug "Verifier pelles spawners nether wart gunpowder" --index data/index --limit 4
 ```
 
 ## Deduplication RAG

@@ -73,6 +73,7 @@ pub struct RagContextHit {
     pub source: String,
     pub chunk_id: String,
     pub score: usize,
+    pub weighted_score: usize,
     pub matched_queries: Vec<String>,
     pub query_scores: Vec<RagQueryScore>,
     pub preview: String,
@@ -299,17 +300,20 @@ pub fn load_rag_context(index_dir: &Path, query: &str, limit: usize) -> Result<R
                     existing.matched_queries.sort();
                 }
                 upsert_query_score(&mut existing.query_scores, expanded_query, hit.score);
+                existing.weighted_score = weighted_query_score(&existing.query_scores);
                 continue;
             }
+            let query_scores = vec![RagQueryScore {
+                query: expanded_query.clone(),
+                score: hit.score,
+            }];
             hits.push(RagContextHit {
                 source: hit.document_path,
                 chunk_id: hit.chunk_id,
                 score: hit.score,
+                weighted_score: weighted_query_score(&query_scores),
                 matched_queries: vec![expanded_query.clone()],
-                query_scores: vec![RagQueryScore {
-                    query: expanded_query.clone(),
-                    score: hit.score,
-                }],
+                query_scores,
                 preview: hit.preview,
             });
         }
@@ -385,6 +389,7 @@ impl RagContext {
                 out.push_str(&format!("\nsource: {}\n", hit.source));
                 out.push_str(&format!("chunk: {}\n", hit.chunk_id));
                 out.push_str(&format!("score: {}\n", hit.score));
+                out.push_str(&format!("weighted_score: {}\n", hit.weighted_score));
                 out.push_str(&format!(
                     "matched_queries: {}\n",
                     if hit.matched_queries.is_empty() {
@@ -641,6 +646,7 @@ fn sort_rag_hits_for_prompt(hits: &mut [RagContextHit]) {
     hits.sort_by(|left, right| {
         rag_source_priority(&left.source)
             .cmp(&rag_source_priority(&right.source))
+            .then_with(|| right.weighted_score.cmp(&left.weighted_score))
             .then_with(|| right.score.cmp(&left.score))
             .then_with(|| left.source.cmp(&right.source))
     });
@@ -664,10 +670,37 @@ fn upsert_query_score(scores: &mut Vec<RagQueryScore>, query: &str, score: usize
     });
 }
 
+fn weighted_query_score(scores: &[RagQueryScore]) -> usize {
+    scores
+        .iter()
+        .map(|entry| entry.score * rag_query_weight(&entry.query))
+        .sum()
+}
+
+fn rag_query_weight(query: &str) -> usize {
+    let lower = query.to_ascii_lowercase();
+    match lower.as_str() {
+        "material.sulphur" | "sulphur" | "mob_spawner" | "nether_stalk" | "spawn_egg"
+        | "monster_placer" => 4,
+        "nether wart" | "gunpowder" => 3,
+        "spawner" | "spade" => 2,
+        "diamond_spade" | "monster_egg" | "wood_spade" => 1,
+        "shovel" => 1,
+        _ => 1,
+    }
+}
+
 fn format_query_scores(scores: &[RagQueryScore]) -> String {
     scores
         .iter()
-        .map(|score| format!("{}={}", score.query, score.score))
+        .map(|score| {
+            let weight = rag_query_weight(&score.query);
+            if weight == 1 {
+                format!("{}={}", score.query, score.score)
+            } else {
+                format!("{}={}x{}", score.query, score.score, weight)
+            }
+        })
         .collect::<Vec<_>>()
         .join(", ")
 }
@@ -800,8 +833,9 @@ fn truncate_memory(value: &str, max_chars: usize) -> String {
 mod tests {
     use super::{
         build_plan_prompt, build_prompt, expand_rag_queries, format_rag_context, rag_duplicate_key,
-        select_rag_hits_for_prompt, sort_rag_hits_for_prompt, MemoryContext, MemoryEntry,
-        ProfileContext, RagContext, RagContextHit, RagQueryScore,
+        rag_query_weight, select_rag_hits_for_prompt, sort_rag_hits_for_prompt,
+        weighted_query_score, MemoryContext, MemoryEntry, ProfileContext, RagContext,
+        RagContextHit, RagQueryScore,
     };
     use std::path::PathBuf;
 
@@ -830,15 +864,17 @@ mod tests {
         query: &str,
         preview: &str,
     ) -> RagContextHit {
+        let query_scores = vec![RagQueryScore {
+            query: query.to_string(),
+            score,
+        }];
         RagContextHit {
             source: source.to_string(),
             chunk_id: chunk_id.to_string(),
             score,
+            weighted_score: weighted_query_score(&query_scores),
             matched_queries: vec![query.to_string()],
-            query_scores: vec![RagQueryScore {
-                query: query.to_string(),
-                score,
-            }],
+            query_scores,
             preview: preview.to_string(),
         }
     }
@@ -970,8 +1006,32 @@ mod tests {
 
         assert!(display.contains("Expanded queries"));
         assert!(display.contains("matched_queries: spade"));
-        assert!(display.contains("query_scores: spade=6"));
+        assert!(display.contains("weighted_score: 12"));
+        assert!(display.contains("query_scores: spade=6x2"));
         assert!(display.contains("WOOD_SPADE"));
+    }
+
+    #[test]
+    fn weights_precise_legacy_queries_above_generic_synonyms() {
+        assert!(rag_query_weight("MOB_SPAWNER") > rag_query_weight("shovel"));
+        assert!(rag_query_weight("NETHER_STALK") > rag_query_weight("shovel"));
+        assert!(rag_query_weight("Material.SULPHUR") > rag_query_weight("shovel"));
+    }
+
+    #[test]
+    fn weighted_query_score_combines_raw_score_and_query_weight() {
+        let scores = vec![
+            RagQueryScore {
+                query: "shovel".to_string(),
+                score: 10,
+            },
+            RagQueryScore {
+                query: "NETHER_STALK".to_string(),
+                score: 2,
+            },
+        ];
+
+        assert_eq!(weighted_query_score(&scores), 18);
     }
 
     #[test]
