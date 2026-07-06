@@ -4,9 +4,12 @@ param(
     [string]$Model = "qwen2.5-coder:14b",
     [string]$Profile = "minecraft-java-1.8",
     [string]$KeepAlive = "15m",
+    [string]$RagIndex = "data/index",
+    [int]$RagLimit = 4,
     [int]$MaxTokens = 160,
     [switch]$Brief = $true,
-    [switch]$NoMemory
+    [switch]$NoMemory,
+    [switch]$NoRag
 )
 
 $ErrorActionPreference = "Stop"
@@ -28,6 +31,8 @@ $argsList = @(
     "--model", $Model,
     "--profile", $Profile,
     "--keep-alive", $KeepAlive,
+    "--rag-index", $RagIndex,
+    "--rag-limit", "$RagLimit",
     "--max-tokens", "$MaxTokens",
     "--metrics-json"
 )
@@ -38,6 +43,10 @@ if ($Brief) {
 
 if ($NoMemory) {
     $argsList += "--no-memory"
+}
+
+if ($NoRag) {
+    $argsList += "--no-rag"
 }
 
 Push-Location $root
@@ -73,8 +82,11 @@ $record = [ordered]@{
     model = $Model
     profile = $Profile
     keep_alive = $KeepAlive
+    rag_index = $RagIndex
+    rag_limit = $RagLimit
     brief = [bool]$Brief
     no_memory = [bool]$NoMemory
+    no_rag = [bool]$NoRag
     max_tokens = $MaxTokens
     answer_path = $answerPath
     metrics_path = $metricsPath

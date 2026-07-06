@@ -107,6 +107,12 @@ enum Command {
         #[arg(long)]
         no_memory: bool,
         #[arg(long)]
+        no_rag: bool,
+        #[arg(long, default_value = "data/index")]
+        rag_index: PathBuf,
+        #[arg(long, default_value_t = 4)]
+        rag_limit: usize,
+        #[arg(long)]
         brief: bool,
         #[arg(long)]
         max_tokens: Option<u32>,
@@ -129,6 +135,12 @@ enum Command {
         profile: String,
         #[arg(long)]
         no_memory: bool,
+        #[arg(long)]
+        no_rag: bool,
+        #[arg(long, default_value = "data/index")]
+        rag_index: PathBuf,
+        #[arg(long, default_value_t = 4)]
+        rag_limit: usize,
         #[arg(long)]
         brief: bool,
         #[arg(long)]
@@ -251,6 +263,9 @@ async fn main() -> Result<()> {
             keep_alive,
             profile,
             no_memory,
+            no_rag,
+            rag_index,
+            rag_limit,
             brief,
             max_tokens,
             metrics,
@@ -264,6 +279,9 @@ async fn main() -> Result<()> {
                     prompt,
                     profile: Some(profile),
                     include_memory: !no_memory,
+                    include_rag: !no_rag,
+                    rag_index,
+                    rag_limit,
                     brief,
                     max_tokens,
                 })
@@ -285,6 +303,9 @@ async fn main() -> Result<()> {
             keep_alive,
             profile,
             no_memory,
+            no_rag,
+            rag_index,
+            rag_limit,
             brief,
             max_tokens,
             metrics,
@@ -298,6 +319,9 @@ async fn main() -> Result<()> {
                     goal,
                     profile: Some(profile),
                     include_memory: !no_memory,
+                    include_rag: !no_rag,
+                    rag_index,
+                    rag_limit,
                     brief,
                     max_tokens,
                 })

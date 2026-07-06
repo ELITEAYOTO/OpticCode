@@ -22,6 +22,18 @@ Chercher dans l'index :
 cargo run -q -- rag-search "nether wart" --index data/index --limit 5
 ```
 
+Utiliser le RAG dans un plan :
+
+```powershell
+cargo run -q -- plan "Verifier nether wart et spawner dans un plugin Bukkit 1.8.8" --path benchmarks/mini-bukkit-plugin --brief --rag-limit 3
+```
+
+Comparer sans RAG :
+
+```powershell
+cargo run -q -- plan "Verifier nether wart et spawner dans un plugin Bukkit 1.8.8" --path benchmarks/mini-bukkit-plugin --brief --no-rag
+```
+
 ## Fichiers generes
 
 Les artefacts sont ecrits dans :
@@ -93,11 +105,51 @@ Le scoring impose que tous les mots d'une requete multi-mots soient presents dan
 - Pas encore de recherche semantique.
 - Pas encore de selection automatique de chunks pour le prompt Qwen.
 
+## Integration `ask` / `plan`
+
+Statut : ajoute.
+
+Options disponibles :
+
+```text
+--no-rag
+--rag-index data/index
+--rag-limit 4
+```
+
+Comportement :
+
+- `ask` et `plan` cherchent automatiquement dans `data/index` ;
+- si l'index n'existe pas, la commande continue sans contexte RAG ;
+- les extraits RAG sont ajoutes dans une section separee du prompt ;
+- la taille totale injectee est bornee.
+
+## Mesure initiale avec/sans RAG
+
+Commande test :
+
+```powershell
+cargo run -q -- plan "Verifier nether wart et spawner dans un plugin Bukkit 1.8.8" --path benchmarks/mini-bukkit-plugin --brief --max-tokens 80 --metrics-json
+```
+
+Mesure chaude observee :
+
+| Mode | Prompt | Temps client | Prompt eval | Generation | Debit |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| avec RAG, `--rag-limit 3` | 11 299 caracteres | 3.70 s | 0.04 s | 3.08 s | 25.95 tok/s |
+| sans RAG, `--no-rag` | 10 969 caracteres | 4.05 s | 0.04 s | 3.10 s | 25.78 tok/s |
+
+Interpretation :
+
+- sur ce test, le RAG ajoute environ 330 caracteres ;
+- le cout prompt reste negligeable face aux tokens generes ;
+- la mesure est courte, donc il faudra repeter via le script benchmark.
+
 ## Prochaine etape
 
-Relier `rag-search` a `ask` et `plan` :
+Ajouter un mode benchmark compare :
 
-- recuperer quelques chunks pertinents ;
-- les injecter dans le prompt sous une limite stricte ;
-- mesurer le cout en tokens et la qualite de reponse ;
-- garder `--no-rag` pour benchmarker avec/sans RAG.
+- avec/sans RAG ;
+- plusieurs prompts legacy ;
+- export JSONL deja exploitable ;
+- comparaison qualite manuelle des reponses.

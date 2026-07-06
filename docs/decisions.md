@@ -465,3 +465,21 @@ Raison :
 - JSONL est simple, inspectable et suffisant pour valider les sources ;
 - l'index doit d'abord prouver son utilite sur des requetes Minecraft legacy ;
 - cela evite d'installer une brique lourde avant de connaitre le volume et les besoins reels.
+
+### D-032 - RAG injecte sous limite stricte
+
+Statut : valide provisoirement.
+
+Decision :
+
+- brancher le RAG local dans `ask` et `plan` ;
+- utiliser `data/index` par defaut ;
+- limiter les resultats avec `--rag-limit` ;
+- permettre `--no-rag` pour comparer avec/sans RAG ;
+- ne pas faire echouer `ask` ou `plan` si l'index n'existe pas encore.
+
+Raison :
+
+- le RAG doit ameliorer le contexte sans exploser les tokens ;
+- les benchmarks doivent rester comparables ;
+- OpticCode doit rester utilisable meme avant la construction d'un index local.

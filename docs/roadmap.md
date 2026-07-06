@@ -175,6 +175,7 @@ Etat actuel :
 - commande `pack-scan` ajoutee pour inventorier les resource packs externes sans les copier ;
 - commande `rag-scan` ajoutee pour inventorier les plugins avances et PandaSpigot en lecture seule ;
 - commandes `rag-index` et `rag-search` ajoutees pour un premier index JSONL local ;
+- RAG branche dans `ask` et `plan` avec `--no-rag`, `--rag-index`, `--rag-limit` ;
 - compilation et tests OK.
 
 Livrable :

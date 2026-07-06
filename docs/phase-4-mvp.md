@@ -37,7 +37,8 @@ Le prototype sait deja :
 - charger une memoire Markdown simple depuis `skills/memory` ;
 - scanner des resource packs externes en lecture seule ;
 - inventorier des sources RAG externes en lecture seule ;
-- construire et interroger un premier index RAG JSONL local.
+- construire et interroger un premier index RAG JSONL local ;
+- injecter le RAG dans `ask` et `plan` avec `--no-rag`.
 
 Il ne sait pas encore :
 
@@ -81,6 +82,8 @@ cargo run -q -- pack-scan --path "C:\Users\timot\Desktop\minecraft\Volkaria\Pack
 cargo run -q -- rag-scan --limit 8 --path "C:\Users\timot\Desktop\minecraft\SparrowMCALL\Kspawners" --path "C:\Users\timot\Desktop\KhopeSpigot\PandaSpigot-Fork\PandaSpigot"
 cargo run -q -- rag-index --output data/index --path . --path "C:\Users\timot\Desktop\minecraft\SparrowMCALL\Kspawners"
 cargo run -q -- rag-search "nether wart" --index data/index --limit 5
+cargo run -q -- plan "Verifier nether wart et spawner dans un plugin Bukkit 1.8.8" --path benchmarks/mini-bukkit-plugin --brief --max-tokens 80 --metrics-json --rag-limit 3
+cargo run -q -- plan "Verifier nether wart et spawner dans un plugin Bukkit 1.8.8" --path benchmarks/mini-bukkit-plugin --brief --max-tokens 80 --metrics-json --no-rag
 cargo run -q -- search Material.SULPHUR --path . --limit 5
 cargo run -q -- ask "Reponds en une phrase : quelle regle Bukkit 1.8.8 dois-tu respecter pour gunpowder ?" --path .
 cargo run -q -- plan "Ajouter une commande /coins dans un plugin Bukkit 1.8.8" --path . --metrics
@@ -142,7 +145,7 @@ cargo test --workspace
 Resultat :
 
 ```text
-OK - 21 tests passes
+OK - 23 tests passes
 ```
 
 ### Inspection locale

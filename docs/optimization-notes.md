@@ -31,6 +31,8 @@ Mesures initiales sur la machine :
 | `run-mini-benchmark.ps1`, froid, profil+memoire, 80 tokens | 76.65 s | prompt 10 919 caracteres, load ~70.42 s |
 | `run-mini-benchmark.ps1`, chaud, profil sans memoire, 80 tokens | 5.23 s | prompt 9 285 caracteres |
 | `run-mini-benchmark.ps1`, chaud, profil+memoire, 80 tokens | 4.03 s | prompt 10 919 caracteres |
+| `plan`, chaud, profil+memoire+RAG, 80 tokens | 3.70 s | prompt 11 299 caracteres |
+| `plan`, chaud, profil+memoire sans RAG, 80 tokens | 4.05 s | prompt 10 969 caracteres |
 
 Conclusion :
 
@@ -62,6 +64,7 @@ Mesure importante du 2026-07-06 :
 - sur un run froid observe, le total etait ~77.8 s alors que la generation ne prenait que ~3.4 s ;
 - OpticCode envoie maintenant `keep_alive=15m` par defaut pour eviter de recharger Qwen a chaque appel ;
 - Ollama charge actuellement le modele avec un contexte actif de 4096 tokens, suffisant pour le mini projet.
+- le premier branchement RAG ajoute peu de contexte sur une requete ciblee, mais la qualite doit etre mesuree sur plusieurs prompts.
 
 ## Optimisations prioritaires
 
@@ -112,6 +115,7 @@ Exemple :
 ```powershell
 .\scripts\run-mini-benchmark.ps1 -Prompt "Verifier rapidement le mini plugin Bukkit 1.8.8" -MaxTokens 80
 .\scripts\run-mini-benchmark.ps1 -Prompt "Verifier rapidement le mini plugin Bukkit 1.8.8" -MaxTokens 80 -NoMemory
+.\scripts\run-mini-benchmark.ps1 -Prompt "Verifier rapidement le mini plugin Bukkit 1.8.8" -MaxTokens 80 -NoRag
 ```
 
 But :

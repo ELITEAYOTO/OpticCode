@@ -5,7 +5,7 @@ use anyhow::{Context, Result};
 use opticcode_llm::GenerateOptions;
 use opticcode_llm::OllamaClient;
 pub use opticcode_llm::{parse_keep_alive, GenerateMetrics};
-use opticcode_tools::build_project_context;
+use opticcode_tools::{build_project_context, search_rag_index};
 
 pub struct OpticCode {
     llm: OllamaClient,
@@ -17,6 +17,9 @@ pub struct AskOptions {
     pub prompt: String,
     pub profile: Option<String>,
     pub include_memory: bool,
+    pub include_rag: bool,
+    pub rag_index: PathBuf,
+    pub rag_limit: usize,
     pub brief: bool,
     pub max_tokens: Option<u32>,
 }
@@ -26,6 +29,9 @@ pub struct PlanOptions {
     pub goal: String,
     pub profile: Option<String>,
     pub include_memory: bool,
+    pub include_rag: bool,
+    pub rag_index: PathBuf,
+    pub rag_limit: usize,
     pub brief: bool,
     pub max_tokens: Option<u32>,
 }
@@ -54,9 +60,24 @@ pub struct MemoryEntry {
     pub content: String,
 }
 
+#[derive(Debug, Clone, Default)]
+pub struct RagContext {
+    pub index: Option<PathBuf>,
+    pub hits: Vec<RagContextHit>,
+}
+
+#[derive(Debug, Clone)]
+pub struct RagContextHit {
+    pub source: String,
+    pub score: usize,
+    pub preview: String,
+}
+
 pub const DEFAULT_PROFILE: &str = "minecraft-java-1.8";
 const MAX_MEMORY_ENTRY_CHARS: usize = 2_500;
 const MAX_MEMORY_TOTAL_CHARS: usize = 7_000;
+const MAX_RAG_HITS: usize = 6;
+const MAX_RAG_TOTAL_CHARS: usize = 4_500;
 
 impl OpticCode {
     pub fn new(ollama_url: impl Into<String>, model: impl Into<String>) -> Self {
@@ -83,11 +104,17 @@ impl OpticCode {
         } else {
             MemoryContext::default()
         };
+        let rag = if options.include_rag {
+            load_rag_context(&options.rag_index, &options.prompt, options.rag_limit)?
+        } else {
+            RagContext::default()
+        };
         let prompt = build_prompt(
             &options.prompt,
             &context.to_prompt_context(),
             profile.as_ref(),
             &memory,
+            &rag,
             options.brief,
         );
         let response = self
@@ -118,11 +145,17 @@ impl OpticCode {
         } else {
             MemoryContext::default()
         };
+        let rag = if options.include_rag {
+            load_rag_context(&options.rag_index, &options.goal, options.rag_limit)?
+        } else {
+            RagContext::default()
+        };
         let prompt = build_plan_prompt(
             &options.goal,
             &context.to_prompt_context(),
             profile.as_ref(),
             &memory,
+            &rag,
             options.brief,
         );
         let response = self
@@ -230,6 +263,31 @@ pub fn load_memory_for_workspace(
     Ok(MemoryContext { entries })
 }
 
+pub fn load_rag_context(index_dir: &Path, query: &str, limit: usize) -> Result<RagContext> {
+    let chunks_path = index_dir.join("chunks.jsonl");
+    if !chunks_path.exists() {
+        return Ok(RagContext {
+            index: Some(index_dir.to_path_buf()),
+            hits: Vec::new(),
+        });
+    }
+
+    let limit = limit.clamp(1, MAX_RAG_HITS);
+    let hits = search_rag_index(index_dir, query, limit)?
+        .into_iter()
+        .map(|hit| RagContextHit {
+            source: hit.document_path,
+            score: hit.score,
+            preview: hit.preview,
+        })
+        .collect::<Vec<_>>();
+
+    Ok(RagContext {
+        index: Some(index_dir.to_path_buf()),
+        hits,
+    })
+}
+
 impl ProfileContext {
     pub fn to_display_string(&self) -> String {
         format!(
@@ -266,6 +324,7 @@ fn build_prompt(
     project_context: &str,
     profile: Option<&ProfileContext>,
     memory: &MemoryContext,
+    rag: &RagContext,
     brief: bool,
 ) -> String {
     let style = if brief {
@@ -275,6 +334,7 @@ fn build_prompt(
     };
     let profile_context = format_profile_context(profile);
     let memory_context = format_memory_context(memory);
+    let rag_context = format_rag_context(rag);
 
     format!(
         r#"Tu es OpticCode, un assistant code local specialise Java Minecraft legacy.
@@ -295,6 +355,9 @@ Profil actif :
 Memoire active :
 {memory_context}
 
+Connaissances RAG pertinentes :
+{rag_context}
+
 Contexte projet detecte :
 {project_context}
 
@@ -309,6 +372,7 @@ fn build_plan_prompt(
     project_context: &str,
     profile: Option<&ProfileContext>,
     memory: &MemoryContext,
+    rag: &RagContext,
     brief: bool,
 ) -> String {
     let format_instruction = if brief {
@@ -318,6 +382,7 @@ fn build_plan_prompt(
     };
     let profile_context = format_profile_context(profile);
     let memory_context = format_memory_context(memory);
+    let rag_context = format_rag_context(rag);
 
     format!(
         r#"Tu es OpticCode en mode plan.
@@ -347,6 +412,9 @@ Profil actif :
 
 Memoire active :
 {memory_context}
+
+Connaissances RAG pertinentes :
+{rag_context}
 
 Contexte projet detecte :
 {project_context}
@@ -391,13 +459,45 @@ fn format_memory_context(memory: &MemoryContext) -> String {
         .join("\n\n")
 }
 
+fn format_rag_context(rag: &RagContext) -> String {
+    if rag.hits.is_empty() {
+        return match &rag.index {
+            Some(index) => format!("none\nindex: {}", index.display()),
+            None => "none".to_string(),
+        };
+    }
+
+    let mut out = String::new();
+    if let Some(index) = &rag.index {
+        out.push_str(&format!("index: {}\n", index.display()));
+    }
+
+    let mut total_chars = 0usize;
+    for hit in &rag.hits {
+        let mut preview = hit.preview.clone();
+        let remaining = MAX_RAG_TOTAL_CHARS.saturating_sub(total_chars);
+        if remaining == 0 {
+            break;
+        }
+        preview = truncate_chars(&preview, remaining);
+        total_chars += preview.chars().count();
+
+        out.push_str(&format!(
+            "\nsource: {}\nscore: {}\n{}\n",
+            hit.source, hit.score, preview
+        ));
+    }
+
+    out
+}
+
 fn normalized_id(value: Option<&str>) -> Option<&str> {
     value
         .map(str::trim)
         .filter(|value| !value.is_empty() && !value.eq_ignore_ascii_case("none"))
 }
 
-fn truncate_memory(value: &str, max_chars: usize) -> String {
+fn truncate_chars(value: &str, max_chars: usize) -> String {
     let mut iter = value.chars();
     let mut content = iter.by_ref().take(max_chars).collect::<String>();
     if iter.next().is_some() {
@@ -406,9 +506,16 @@ fn truncate_memory(value: &str, max_chars: usize) -> String {
     content
 }
 
+fn truncate_memory(value: &str, max_chars: usize) -> String {
+    truncate_chars(value, max_chars)
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{build_plan_prompt, build_prompt, MemoryContext, MemoryEntry, ProfileContext};
+    use super::{
+        build_plan_prompt, build_prompt, format_rag_context, MemoryContext, MemoryEntry,
+        ProfileContext, RagContext, RagContextHit,
+    };
     use std::path::PathBuf;
 
     fn test_profile() -> ProfileContext {
@@ -433,7 +540,14 @@ mod tests {
     fn prompt_contains_legacy_guardrails() {
         let profile = test_profile();
         let memory = test_memory();
-        let prompt = build_prompt("test", "context", Some(&profile), &memory, false);
+        let prompt = build_prompt(
+            "test",
+            "context",
+            Some(&profile),
+            &memory,
+            &RagContext::default(),
+            false,
+        );
 
         assert!(prompt.contains("Java 8"));
         assert!(prompt.contains("PandaSpigot"));
@@ -447,7 +561,14 @@ mod tests {
     fn plan_prompt_forbids_file_modification_claims() {
         let profile = test_profile();
         let memory = test_memory();
-        let prompt = build_plan_prompt("ajouter /coins", "context", Some(&profile), &memory, false);
+        let prompt = build_plan_prompt(
+            "ajouter /coins",
+            "context",
+            Some(&profile),
+            &memory,
+            &RagContext::default(),
+            false,
+        );
 
         assert!(prompt.contains("mode plan"));
         assert!(prompt.contains("Tu ne dois pas ecrire un patch complet"));
@@ -463,10 +584,50 @@ mod tests {
             "context",
             None,
             &MemoryContext::default(),
+            &RagContext::default(),
             true,
         );
 
         assert!(prompt.contains("6 puces maximum"));
         assert!(!prompt.contains("1. Resume de l'objectif"));
+    }
+
+    #[test]
+    fn prompt_includes_rag_context() {
+        let rag = RagContext {
+            index: Some(PathBuf::from("data/index")),
+            hits: vec![RagContextHit {
+                source: "resource-pack:assets/minecraft/lang/en_US.lang".to_string(),
+                score: 12,
+                preview: "tile.netherStalk.name=Nether Wart".to_string(),
+            }],
+        };
+        let prompt = build_prompt(
+            "nether wart",
+            "context",
+            None,
+            &MemoryContext::default(),
+            &rag,
+            false,
+        );
+
+        assert!(prompt.contains("Connaissances RAG pertinentes"));
+        assert!(prompt.contains("tile.netherStalk.name=Nether Wart"));
+    }
+
+    #[test]
+    fn rag_context_is_bounded() {
+        let rag = RagContext {
+            index: Some(PathBuf::from("data/index")),
+            hits: vec![RagContextHit {
+                source: "plugin:big.java".to_string(),
+                score: 1,
+                preview: "a".repeat(6_000),
+            }],
+        };
+        let formatted = format_rag_context(&rag);
+
+        assert!(formatted.contains("[truncated]"));
+        assert!(formatted.chars().count() < 4_800);
     }
 }
