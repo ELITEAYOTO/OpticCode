@@ -553,3 +553,36 @@ Raison :
 - il faut comprendre ce que le modele recoit vraiment avant d'optimiser la qualite ;
 - diagnostiquer le RAG sans appeler Qwen evite de perdre du temps et des tokens ;
 - le debug facilite la correction des synonymes, du tri et des doublons.
+
+### D-037 - Deduplication des regles RAG repetitives
+
+Statut : valide provisoirement.
+
+Decision :
+
+- detecter quelques concepts legacy dans les previews RAG ;
+- dedupliquer les repetitions `opticcode:docs`, `opticcode:skills` et `opticcode:crates` quand elles portent la meme regle ;
+- conserver les sources plugin/resource-pack separees, car elles peuvent montrer un usage concret ;
+- prioriser `docs/minecraft-legacy-rules.md` avant les autres documents OpticCode.
+
+Raison :
+
+- une meme regle peut exister dans la doc, le profil, la memoire et le code Rust ;
+- le modele doit voir la regle la plus lisible, pas trois variantes internes ;
+- les usages plugin restent utiles pour comprendre le contexte metier reel.
+
+### D-038 - Filtrer les hits RAG faibles sans concept legacy
+
+Statut : valide provisoirement.
+
+Decision :
+
+- ignorer les hits RAG avec un score tres faible quand aucun concept legacy connu n'est detecte dans la preview ;
+- conserver les docs et skills meme avec un score faible ;
+- conserver les hits faibles s'ils contiennent un concept legacy explicite.
+
+Raison :
+
+- certaines requetes elargies comme `DIAMOND_SPADE` peuvent matcher des configs contenant beaucoup de `DIAMOND_*` sans rapport avec Bukkit legacy ;
+- un hit faible sans concept metier ajoute du bruit au prompt ;
+- le filtre garde les exemples utiles plugin/resource-pack quand ils mentionnent vraiment une regle ou un nom legacy.

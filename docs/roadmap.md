@@ -180,6 +180,8 @@ Etat actuel :
 - expansion de requete RAG ajoutee pour les synonymes legacy francais/anglais ;
 - tri RAG ajoute pour privilegier `docs/` et `skills/` avant le code interne ;
 - debug RAG ajoute pour afficher les requetes elargies et chunks injectes ;
+- deduplication RAG ajoutee pour reduire les repetitions internes OpticCode ;
+- filtre anti-bruit RAG ajoute pour ignorer les hits faibles sans concept legacy ;
 - compilation et tests OK.
 
 Livrable :

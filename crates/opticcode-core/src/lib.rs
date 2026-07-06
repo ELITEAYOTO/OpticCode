@@ -294,7 +294,7 @@ pub fn load_rag_context(index_dir: &Path, query: &str, limit: usize) -> Result<R
         }
     }
 
-    sort_rag_hits_for_prompt(&mut hits);
+    select_rag_hits_for_prompt(&mut hits);
     hits.truncate(limit);
 
     Ok(RagContext {
@@ -608,10 +608,38 @@ fn sort_rag_hits_for_prompt(hits: &mut [RagContextHit]) {
     });
 }
 
+fn select_rag_hits_for_prompt(hits: &mut Vec<RagContextHit>) {
+    sort_rag_hits_for_prompt(hits);
+
+    let mut selected = Vec::new();
+    let mut seen_keys = BTreeSet::new();
+
+    for hit in hits.drain(..) {
+        if is_low_value_rag_hit(&hit) {
+            continue;
+        }
+        if let Some(key) = rag_duplicate_key(&hit) {
+            if !seen_keys.insert(key) {
+                continue;
+            }
+        }
+        selected.push(hit);
+    }
+
+    *hits = selected;
+}
+
+fn is_low_value_rag_hit(hit: &RagContextHit) -> bool {
+    hit.score <= 1
+        && legacy_concepts(&hit.preview).is_empty()
+        && !hit.source.starts_with("opticcode:docs/")
+        && !hit.source.starts_with("opticcode:skills/")
+}
+
 fn rag_source_priority(source: &str) -> u8 {
-    if source.starts_with("opticcode:docs/") {
+    if source == "opticcode:docs/minecraft-legacy-rules.md" {
         0
-    } else if source.starts_with("opticcode:skills/") {
+    } else if source.starts_with("opticcode:skills/profiles/") {
         1
     } else if source.starts_with("plugin:") {
         2
@@ -623,11 +651,66 @@ fn rag_source_priority(source: &str) -> u8 {
         5
     } else if source.starts_with("pandaspigot:") {
         6
-    } else if source.starts_with("opticcode:crates/") {
+    } else if source.starts_with("opticcode:docs/") {
         7
-    } else {
+    } else if source.starts_with("opticcode:crates/") {
         8
+    } else {
+        9
     }
+}
+
+fn rag_duplicate_key(hit: &RagContextHit) -> Option<String> {
+    let concepts = legacy_concepts(&hit.preview);
+    if concepts.is_empty() {
+        return None;
+    }
+
+    let group = if hit.source.starts_with("opticcode:docs/")
+        || hit.source.starts_with("opticcode:skills/")
+        || hit.source.starts_with("opticcode:crates/")
+    {
+        "opticcode"
+    } else if hit.source.starts_with("resource-pack:") {
+        "resource-pack"
+    } else if hit.source.starts_with("plugin:") {
+        "plugin"
+    } else if hit.source.starts_with("pandaspigot:") {
+        "pandaspigot"
+    } else {
+        "other"
+    };
+
+    Some(format!("{group}:{}", concepts.join("+")))
+}
+
+fn legacy_concepts(value: &str) -> Vec<&'static str> {
+    let lower = value.to_ascii_lowercase();
+    let mut concepts = Vec::new();
+
+    if lower.contains("sulphur") || lower.contains("gunpowder") {
+        concepts.push("gunpowder");
+    }
+    if lower.contains("spade") || lower.contains("shovel") {
+        concepts.push("spade");
+    }
+    if lower.contains("mob_spawner") || lower.contains("spawner") {
+        concepts.push("spawner");
+    }
+    if lower.contains("nether_stalk")
+        || lower.contains("nether_wart")
+        || lower.contains("nether wart")
+    {
+        concepts.push("nether_stalk");
+    }
+    if lower.contains("spawn_egg")
+        || lower.contains("monster_placer")
+        || lower.contains("monster egg")
+    {
+        concepts.push("spawn_egg");
+    }
+
+    concepts
 }
 
 fn normalized_id(value: Option<&str>) -> Option<&str> {
@@ -652,9 +735,9 @@ fn truncate_memory(value: &str, max_chars: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::{
-        build_plan_prompt, build_prompt, expand_rag_queries, format_rag_context,
-        sort_rag_hits_for_prompt, MemoryContext, MemoryEntry, ProfileContext, RagContext,
-        RagContextHit,
+        build_plan_prompt, build_prompt, expand_rag_queries, format_rag_context, rag_duplicate_key,
+        select_rag_hits_for_prompt, sort_rag_hits_for_prompt, MemoryContext, MemoryEntry,
+        ProfileContext, RagContext, RagContextHit,
     };
     use std::path::PathBuf;
 
@@ -830,6 +913,95 @@ mod tests {
         assert_eq!(
             hits[2].source,
             "opticcode:crates/opticcode-tools/src/lib.rs"
+        );
+    }
+
+    #[test]
+    fn prioritizes_legacy_rules_over_other_docs() {
+        let mut hits = vec![
+            RagContextHit {
+                source: "opticcode:docs/mini-bukkit-benchmark.md".to_string(),
+                score: 20,
+                preview: "Material.SULPHUR benchmark".to_string(),
+            },
+            RagContextHit {
+                source: "opticcode:docs/minecraft-legacy-rules.md".to_string(),
+                score: 1,
+                preview: "Material.SULPHUR rule".to_string(),
+            },
+        ];
+
+        sort_rag_hits_for_prompt(&mut hits);
+
+        assert_eq!(hits[0].source, "opticcode:docs/minecraft-legacy-rules.md");
+    }
+
+    #[test]
+    fn deduplicates_repeated_opticcode_legacy_rules() {
+        let mut hits = vec![
+            RagContextHit {
+                source: "opticcode:docs/minecraft-legacy-rules.md".to_string(),
+                score: 10,
+                preview: "Material.GUNPOWDER -> Material.SULPHUR".to_string(),
+            },
+            RagContextHit {
+                source: "opticcode:crates/opticcode-tools/src/lib.rs".to_string(),
+                score: 30,
+                preview: "Material.GUNPOWDER legacy Material.SULPHUR".to_string(),
+            },
+            RagContextHit {
+                source: "plugin:src/main/java/JoinListener.java".to_string(),
+                score: 5,
+                preview: "new ItemStack(Material.SULPHUR)".to_string(),
+            },
+        ];
+
+        select_rag_hits_for_prompt(&mut hits);
+
+        assert_eq!(hits.len(), 2);
+        assert!(hits
+            .iter()
+            .any(|hit| hit.source == "opticcode:docs/minecraft-legacy-rules.md"));
+        assert!(hits
+            .iter()
+            .any(|hit| hit.source == "plugin:src/main/java/JoinListener.java"));
+        assert!(!hits
+            .iter()
+            .any(|hit| hit.source == "opticcode:crates/opticcode-tools/src/lib.rs"));
+    }
+
+    #[test]
+    fn detects_duplicate_legacy_keys() {
+        let hit = RagContextHit {
+            source: "opticcode:docs/minecraft-legacy-rules.md".to_string(),
+            score: 1,
+            preview: "Material.WOODEN_SHOVEL -> Material.WOOD_SPADE".to_string(),
+        };
+
+        assert_eq!(rag_duplicate_key(&hit), Some("opticcode:spade".to_string()));
+    }
+
+    #[test]
+    fn filters_low_value_hits_without_legacy_concepts() {
+        let mut hits = vec![
+            RagContextHit {
+                source: "plugin:docs/config.yml".to_string(),
+                score: 1,
+                preview: "DIAMOND_HELMET DIAMOND_CHESTPLATE".to_string(),
+            },
+            RagContextHit {
+                source: "resource-pack:assets/minecraft/lang/en_US.lang".to_string(),
+                score: 1,
+                preview: "tile.netherStalk.name=Nether Wart".to_string(),
+            },
+        ];
+
+        select_rag_hits_for_prompt(&mut hits);
+
+        assert_eq!(hits.len(), 1);
+        assert_eq!(
+            hits[0].source,
+            "resource-pack:assets/minecraft/lang/en_US.lang"
         );
     }
 }

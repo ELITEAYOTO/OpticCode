@@ -41,6 +41,8 @@ Le prototype sait deja :
 - injecter le RAG dans `ask` et `plan` avec `--no-rag` ;
 - enrichir les requetes RAG avec des synonymes legacy.
 - prioriser les docs et profils avant le code interne dans le contexte RAG.
+- dedupliquer les regles RAG repetitives cote OpticCode.
+- filtrer les hits RAG faibles sans concept legacy.
 
 Il ne sait pas encore :
 
@@ -149,7 +151,7 @@ cargo test --workspace
 Resultat :
 
 ```text
-OK - 26 tests passes
+OK - 30 tests passes
 ```
 
 ### Inspection locale

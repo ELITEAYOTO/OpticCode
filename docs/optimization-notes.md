@@ -70,6 +70,8 @@ Mesure importante du 2026-07-06 :
 - le premier branchement RAG ajoute peu de contexte sur une requete ciblee, mais la qualite doit etre mesuree sur plusieurs prompts.
 - l'expansion de requete RAG augmente le rappel sur les termes francais/legacy, avec environ +1 000 caracteres sur le test court.
 - le tri docs/skills avant code interne n'a pas de cout notable ; il modifie surtout la qualite du contexte injecte.
+- la deduplication RAG reduit les repetitions internes OpticCode avant injection au modele.
+- le filtre anti-bruit supprime les hits faibles sans concept legacy detecte.
 
 ## Optimisations prioritaires
 

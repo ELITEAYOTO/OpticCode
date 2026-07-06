@@ -307,9 +307,79 @@ Injected hits:
 - plugin:src/main/java/me/krunsh/kspawner/data/PlayerSpawnerData.java
 ```
 
+## Deduplication RAG
+
+Statut : ajoute.
+
+OpticCode detecte maintenant quelques concepts legacy dans les previews RAG :
+
+- `gunpowder` / `SULPHUR` ;
+- `spade` / `shovel` ;
+- `spawner` / `MOB_SPAWNER` ;
+- `nether_stalk` / `nether_wart` ;
+- `spawn_egg` / `monster_placer`.
+
+Pour les sources OpticCode, les doublons sont filtres afin de garder plutot :
+
+```text
+opticcode:docs/minecraft-legacy-rules.md
+```
+
+avant :
+
+```text
+opticcode:skills/...
+opticcode:crates/...
+autres docs de benchmark
+```
+
+Les sources `plugin:` et `resource-pack:` restent separees, car elles peuvent apporter un exemple concret ou un nom d'asset.
+
+Verification :
+
+```powershell
+cargo run -q -- rag-debug "Verifier pelles spawners nether wart gunpowder" --index data/index --limit 6
+```
+
+Observation :
+
+- le contexte commence par `docs/minecraft-legacy-rules.md` ;
+- le code interne Rust ne remonte plus en haut ;
+- des sources plugin/resource-pack restent disponibles.
+
+## Filtre anti-bruit
+
+Statut : ajoute.
+
+OpticCode ignore maintenant les hits avec :
+
+- score `<= 1` ;
+- aucun concept legacy detecte dans la preview ;
+- source differente de `opticcode:docs/` ou `opticcode:skills/`.
+
+Exemple corrige :
+
+- une config plugin contenant beaucoup de valeurs `DIAMOND_*` pouvait remonter via `DIAMOND_SPADE` ;
+- elle est maintenant filtree si elle ne contient pas de concept legacy utile.
+
+Debug apres filtre :
+
+```text
+Injected hits:
+- opticcode:docs/minecraft-legacy-rules.md
+- plugin:src/main/java/me/krunsh/kspawner/data/PlayerSpawnerData.java
+- resource-pack:assets/minecraft/lang/en_US.lang
+- resource-pack:assets/minecraft/lang/en_CA.lang
+```
+
+Limite restante :
+
+- le filtre reste volontairement simple ;
+- il faudra mesurer sur plus de prompts avant de le rendre plus agressif.
+
 ## Prochaine etape
 
 Ameliorer encore la requete RAG :
 
-- eviter les doublons proches entre docs/profil/code ;
+- afficher un score detaille par requete elargie ;
 - mesurer de nouveau avec plus de prompts.
