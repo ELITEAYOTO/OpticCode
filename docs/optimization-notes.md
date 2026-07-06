@@ -368,8 +368,7 @@ Dernier resultat observe :
 
 ```text
 build avant patch : echec
-patch --check : succes
-git apply : succes
+apply --copy-to --yes : succes
 build apres patch : succes
 ```
 
@@ -377,6 +376,7 @@ Interpretation :
 
 - le cout est local Maven/Rust, sans appel Qwen ;
 - le test valide la fiabilite des tools avant d'ajouter une commande d'application automatique ;
+- la commande publique `apply --copy-to --yes` est maintenant utilisee par le benchmark ;
 - les differences LF/CRLF sont neutralisees lors de l'application du patch dans la copie temporaire.
 
 ## Plan optimisation court terme

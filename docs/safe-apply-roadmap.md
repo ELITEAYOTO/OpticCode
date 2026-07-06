@@ -116,17 +116,27 @@ Error: apply currently requires --dry-run; real file modification is not enabled
 
 ## Phase SA-2 - Safe apply sur copie temporaire
 
+Statut : terminee.
+
 Objectif :
 
 - appliquer le patch dans une copie temporaire ;
 - verifier que le workflow fonctionne sans toucher au projet source ;
 - rendre le test automatisable.
 
-Commande cible :
+Commande :
 
 ```powershell
 cargo run -q -- apply --path benchmarks/mini-bukkit-plugin --copy-to benchmarks/runs/apply-test --yes
 ```
+
+Decision :
+
+- `--copy-to` applique uniquement dans la copie ;
+- `--yes` est obligatoire pour creer et modifier la copie ;
+- la cible ne doit pas deja exister ;
+- la cible ne doit pas etre a l'interieur du projet source ;
+- le projet source n'est pas modifie.
 
 Critere de reussite :
 
@@ -134,6 +144,24 @@ Critere de reussite :
 - patch applique dans la copie ;
 - build apres application OK ;
 - projet source intact.
+
+Resultat sur copie temporaire cassee :
+
+```text
+Mode: apply copy
+Changes: 1
+Patch check:
+Status: OK
+Patch apply:
+Status: OK
+Applied in copy only; source project was not modified.
+```
+
+Resultat sans `--yes` :
+
+```text
+Error: apply with --copy-to requires --yes
+```
 
 ## Phase SA-3 - Safe apply reel avec confirmation
 
@@ -244,8 +272,8 @@ Ne doit pas montrer de modification dans `benchmarks/mini-bukkit-plugin`.
 
 1. Implementer `apply --dry-run`. Fait.
 2. Ajouter un test unitaire ou integration leger pour l'application de patch sur dossier temporaire. Fait pour dry-run.
-3. Ajouter `apply --yes` sur copie temporaire.
-4. Valider avec `run-patch-build-quality.ps1`.
+3. Ajouter `apply --yes` sur copie temporaire. Fait via `--copy-to <path> --yes`.
+4. Valider avec `run-patch-build-quality.ps1`. En cours.
 5. Seulement ensuite activer application reelle avec confirmation stricte.
 
 ## Risques

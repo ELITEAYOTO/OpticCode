@@ -7,9 +7,10 @@ use opticcode_core::{
     AskOptions, GenerateMetrics, OpticCode, PlanOptions, DEFAULT_PROFILE,
 };
 use opticcode_tools::{
-    analyze_java_project, build_java_project, build_project_context, build_rag_index,
-    check_patch_with_git, inspect_rag_source, inspect_resource_pack, inspect_workspace,
-    prepare_java_legacy_apply_plan, propose_java_legacy_patch, search_rag_index, search_workspace,
+    analyze_java_project, apply_java_legacy_patch_to_copy, build_java_project,
+    build_project_context, build_rag_index, check_patch_with_git, inspect_rag_source,
+    inspect_resource_pack, inspect_workspace, prepare_java_legacy_apply_plan,
+    propose_java_legacy_patch, search_rag_index, search_workspace,
 };
 use serde::Serialize;
 use std::io::{self, Write};
@@ -104,6 +105,10 @@ enum Command {
         path: PathBuf,
         #[arg(long)]
         dry_run: bool,
+        #[arg(long)]
+        copy_to: Option<PathBuf>,
+        #[arg(long)]
+        yes: bool,
     },
     Ask {
         prompt: String,
@@ -280,13 +285,22 @@ async fn main() -> Result<()> {
                 }
             }
         }
-        Command::Apply { path, dry_run } => {
-            if !dry_run {
-                bail!(
-                    "apply currently requires --dry-run; real file modification is not enabled yet"
-                );
-            }
-            let plan = prepare_java_legacy_apply_plan(&path, dry_run)?;
+        Command::Apply {
+            path,
+            dry_run,
+            copy_to,
+            yes,
+        } => {
+            let plan = if dry_run {
+                prepare_java_legacy_apply_plan(&path, true)?
+            } else if let Some(copy_to) = copy_to {
+                if !yes {
+                    bail!("apply with --copy-to requires --yes");
+                }
+                apply_java_legacy_patch_to_copy(&path, &copy_to)?
+            } else {
+                bail!("real apply is not enabled yet; use --dry-run or --copy-to <path> --yes");
+            };
             println!("{}", plan.to_display_string());
             if !plan.success() {
                 std::process::exit(1);

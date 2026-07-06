@@ -145,6 +145,8 @@ pub struct PatchCheckResult {
 pub struct ApplyPlan {
     pub proposal: PatchProposal,
     pub check: Option<PatchCheckResult>,
+    pub apply: Option<PatchCheckResult>,
+    pub copied_from: Option<PathBuf>,
     pub dry_run: bool,
 }
 
@@ -844,6 +846,44 @@ pub fn check_patch_with_git(proposal: &PatchProposal) -> Result<Option<PatchChec
     }))
 }
 
+pub fn apply_patch_with_git(proposal: &PatchProposal) -> Result<Option<PatchCheckResult>> {
+    if proposal.changes.is_empty() {
+        return Ok(None);
+    }
+
+    let patch = proposal.combined_diff();
+    let command_display = "git apply --ignore-space-change --ignore-whitespace -".to_string();
+    let mut command = build_process_command(
+        "git",
+        &["apply", "--ignore-space-change", "--ignore-whitespace", "-"],
+    );
+    let mut child = command
+        .current_dir(&proposal.root)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .with_context(|| format!("failed to run patch apply command: {command_display}"))?;
+
+    if let Some(stdin) = &mut child.stdin {
+        stdin
+            .write_all(patch.as_bytes())
+            .context("failed to send patch to git apply")?;
+    }
+
+    let output = child
+        .wait_with_output()
+        .context("failed to read patch apply result")?;
+
+    Ok(Some(PatchCheckResult {
+        command: command_display,
+        success: output.status.success(),
+        exit_code: output.status.code(),
+        stdout: String::from_utf8_lossy(&output.stdout).to_string(),
+        stderr: String::from_utf8_lossy(&output.stderr).to_string(),
+    }))
+}
+
 pub fn prepare_java_legacy_apply_plan(root: &Path, dry_run: bool) -> Result<ApplyPlan> {
     let proposal = propose_java_legacy_patch(root)?;
     let check = check_patch_with_git(&proposal)?;
@@ -851,8 +891,105 @@ pub fn prepare_java_legacy_apply_plan(root: &Path, dry_run: bool) -> Result<Appl
     Ok(ApplyPlan {
         proposal,
         check,
+        apply: None,
+        copied_from: None,
         dry_run,
     })
+}
+
+pub fn apply_java_legacy_patch_to_copy(source: &Path, copy_to: &Path) -> Result<ApplyPlan> {
+    let target_root = copy_project_to(source, copy_to)?;
+    let mut plan = prepare_java_legacy_apply_plan(&target_root, false)?;
+    plan.copied_from = Some(fs::canonicalize(source).with_context(|| {
+        format!(
+            "failed to resolve source project path before apply: {}",
+            source.display()
+        )
+    })?);
+
+    if let Some(check) = &plan.check {
+        if !check.success {
+            return Ok(plan);
+        }
+    }
+
+    plan.apply = apply_patch_with_git(&plan.proposal)?;
+    Ok(plan)
+}
+
+fn copy_project_to(source: &Path, copy_to: &Path) -> Result<PathBuf> {
+    let source = fs::canonicalize(source).with_context(|| {
+        format!(
+            "failed to resolve source project path: {}",
+            source.display()
+        )
+    })?;
+
+    if !source.is_dir() {
+        anyhow::bail!("source project is not a directory: {}", source.display());
+    }
+
+    let target = absolute_path(copy_to)?;
+    if target.exists() {
+        anyhow::bail!("copy target already exists: {}", target.display());
+    }
+    if target.starts_with(&source) {
+        anyhow::bail!(
+            "copy target must not be inside source project: {}",
+            target.display()
+        );
+    }
+
+    fs::create_dir_all(&target)
+        .with_context(|| format!("failed to create copy target: {}", target.display()))?;
+
+    for entry in WalkDir::new(&source).follow_links(false) {
+        let entry =
+            entry.with_context(|| format!("failed to walk source: {}", source.display()))?;
+        let path = entry.path();
+        if path == source {
+            continue;
+        }
+
+        let relative = path
+            .strip_prefix(&source)
+            .with_context(|| format!("failed to compute relative path for {}", path.display()))?;
+        let destination = target.join(relative);
+
+        if entry.file_type().is_dir() {
+            fs::create_dir_all(&destination).with_context(|| {
+                format!(
+                    "failed to create copied directory: {}",
+                    destination.display()
+                )
+            })?;
+        } else if entry.file_type().is_file() {
+            if let Some(parent) = destination.parent() {
+                fs::create_dir_all(parent).with_context(|| {
+                    format!("failed to create copied parent: {}", parent.display())
+                })?;
+            }
+            fs::copy(path, &destination).with_context(|| {
+                format!(
+                    "failed to copy {} to {}",
+                    path.display(),
+                    destination.display()
+                )
+            })?;
+        }
+    }
+
+    Ok(target)
+}
+
+fn absolute_path(path: &Path) -> Result<PathBuf> {
+    if path.is_absolute() {
+        Ok(path.to_path_buf())
+    } else {
+        Ok(std::env::current_dir()
+            .context("failed to read current directory")?
+            .join(path))
+    }
 }
 
 fn build_process_command(program: &str, args: &[&str]) -> Command {
@@ -985,16 +1122,26 @@ impl PatchCheckResult {
 
 impl ApplyPlan {
     pub fn success(&self) -> bool {
-        self.proposal.changes.is_empty() || self.check.as_ref().is_some_and(|check| check.success)
+        if self.dry_run {
+            return self.proposal.changes.is_empty()
+                || self.check.as_ref().is_some_and(|check| check.success);
+        }
+
+        self.proposal.changes.is_empty() || self.apply.as_ref().is_some_and(|apply| apply.success)
     }
 
     pub fn to_display_string(&self) -> String {
         let mut out = String::new();
         out.push_str(&format!("Project: {}\n", self.proposal.root.display()));
+        if let Some(source) = &self.copied_from {
+            out.push_str(&format!("Copied from: {}\n", source.display()));
+        }
         out.push_str(&format!(
             "Mode: {}\n",
             if self.dry_run {
                 "apply dry-run"
+            } else if self.copied_from.is_some() {
+                "apply copy"
             } else {
                 "apply"
             }
@@ -1037,8 +1184,32 @@ impl ApplyPlan {
             None => out.push_str("\nPatch check: skipped, no changes.\n"),
         }
 
+        if let Some(apply) = &self.apply {
+            out.push_str("\nPatch apply:\n");
+            out.push_str(&format!("Command: {}\n", apply.command));
+            out.push_str(&format!(
+                "Status: {}\n",
+                if apply.success { "OK" } else { "FAILED" }
+            ));
+            out.push_str(&format!(
+                "Exit code: {}\n",
+                apply
+                    .exit_code
+                    .map_or_else(|| "unknown".to_string(), |code| code.to_string())
+            ));
+            if !apply.stderr.trim().is_empty() {
+                out.push_str("\nStderr:\n");
+                out.push_str(&apply.stderr);
+                if !apply.stderr.ends_with('\n') {
+                    out.push('\n');
+                }
+            }
+        }
+
         if self.dry_run {
             out.push_str("\nDry run: no file was modified.\n");
+        } else if self.copied_from.is_some() {
+            out.push_str("\nApplied in copy only; source project was not modified.\n");
         }
 
         out
@@ -1992,6 +2163,10 @@ fn truncate_chars(value: &str, max_chars: usize) -> (String, bool) {
 }
 
 fn should_enter(entry: &DirEntry) -> bool {
+    if entry.depth() == 0 {
+        return true;
+    }
+
     let name = entry.file_name().to_string_lossy();
     !matches!(
         name.as_ref(),
@@ -2093,15 +2268,23 @@ fn top_named_counts(values: &BTreeMap<String, usize>, limit: usize) -> Vec<(&str
 #[cfg(test)]
 mod tests {
     use super::{
-        apply_legacy_replacements, build_unified_diff, chunk_text, collect_project_risks,
-        context_priority, is_important_rag_file, is_legacy_resource_match, is_probably_text,
-        is_rag_indexable_text, parse_java_file, parse_plugin_yml, parse_pom,
+        apply_java_legacy_patch_to_copy, apply_legacy_replacements, build_unified_diff, chunk_text,
+        collect_project_risks, context_priority, is_important_rag_file, is_legacy_resource_match,
+        is_probably_text, is_rag_indexable_text, parse_java_file, parse_plugin_yml, parse_pom,
         propose_java_legacy_patch, resource_pack_category, summarize_build_output, tail_lines,
         truncate_chars, ApplyPlan, BuildTool, PatchCheckResult, PatchFileChange, PatchProposal,
     };
     use std::fs;
-    use std::path::Path;
+    use std::path::{Path, PathBuf};
     use std::time::{SystemTime, UNIX_EPOCH};
+
+    fn unique_temp_dir(prefix: &str) -> PathBuf {
+        let stamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system time should be after unix epoch")
+            .as_nanos();
+        std::env::temp_dir().join(format!("{prefix}-{stamp}"))
+    }
 
     #[test]
     fn detects_common_project_text_files() {
@@ -2375,6 +2558,8 @@ commands:
                 notes: Vec::new(),
             },
             check: None,
+            apply: None,
+            copied_from: None,
             dry_run: true,
         };
         let display = plan.to_display_string();
@@ -2404,6 +2589,8 @@ commands:
                 stdout: String::new(),
                 stderr: "patch failed".to_string(),
             }),
+            apply: None,
+            copied_from: None,
             dry_run: true,
         };
         let display = plan.to_display_string();
@@ -2412,5 +2599,31 @@ commands:
         assert!(display.contains("Status: FAILED"));
         assert!(display.contains("patch failed"));
         assert!(display.contains("Dry run: no file was modified"));
+    }
+
+    #[test]
+    fn applies_legacy_patch_to_copy_without_touching_source() {
+        let source = unique_temp_dir("opticcode-apply-source");
+        let copy = unique_temp_dir("opticcode-apply-copy");
+        fs::create_dir_all(source.join("src/main/java/dev/test")).expect("source dirs");
+        fs::write(
+            source.join("src/main/java/dev/test/Test.java"),
+            "package dev.test;\nclass Test { Object item = Material.GUNPOWDER; }\n",
+        )
+        .expect("write source java");
+
+        let plan = apply_java_legacy_patch_to_copy(&source, &copy).expect("apply to copy");
+        let source_content =
+            fs::read_to_string(source.join("src/main/java/dev/test/Test.java")).expect("source");
+        let copy_content =
+            fs::read_to_string(copy.join("src/main/java/dev/test/Test.java")).expect("copy");
+
+        assert!(plan.success());
+        assert!(plan.apply.as_ref().is_some_and(|apply| apply.success));
+        assert!(source_content.contains("Material.GUNPOWDER"));
+        assert!(copy_content.contains("Material.SULPHUR"));
+        assert!(plan
+            .to_display_string()
+            .contains("Applied in copy only; source project was not modified."));
     }
 }

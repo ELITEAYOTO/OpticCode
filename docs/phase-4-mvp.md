@@ -48,6 +48,7 @@ Le prototype sait deja :
 - verifier automatiquement un patch legacy jusqu'au rebuild Maven sur copie temporaire.
 - cadrer `safe apply` avant toute application reelle.
 - verifier un plan d'application avec `apply --dry-run` sans modifier de fichiers.
+- appliquer un patch dans une copie temporaire avec `apply --copy-to ... --yes`.
 
 Il ne sait pas encore :
 
@@ -85,6 +86,7 @@ cargo run -q -- build --path benchmarks/mini-bukkit-plugin
 cargo run -q -- patch --path benchmarks/mini-bukkit-plugin
 cargo run -q -- patch --path benchmarks/mini-bukkit-plugin --check
 cargo run -q -- apply --path benchmarks/mini-bukkit-plugin --dry-run
+cargo run -q -- apply --path benchmarks/mini-bukkit-plugin --copy-to benchmarks/runs/apply-test --yes
 cargo run -q -- profile --path benchmarks/mini-bukkit-plugin --profile minecraft-java-1.8
 cargo run -q -- memory --path benchmarks/mini-bukkit-plugin --profile minecraft-java-1.8
 cargo run -q -- pack-scan --path "C:\Users\timot\Desktop\RAG-1.8-Minecraft\1.8-JavaDoc\resource-pack-1.8\LegacyPack" --limit 25
@@ -159,7 +161,7 @@ cargo test --workspace
 Resultat :
 
 ```text
-OK - 35 tests passes
+OK - 36 tests passes
 ```
 
 ### Inspection locale

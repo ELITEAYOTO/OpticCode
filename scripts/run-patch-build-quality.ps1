@@ -10,31 +10,35 @@ New-Item -ItemType Directory -Force -Path $runsDir | Out-Null
 
 $timestamp = Get-Date -Format "yyyyMMdd-HHmmss"
 $runDir = Join-Path $runsDir "patch-build-quality-$timestamp"
-$workspace = Join-Path $runDir "workspace"
+$sourceWorkspace = Join-Path $runDir "source"
+$targetWorkspace = Join-Path $runDir "target"
 $summaryPath = Join-Path $runDir "summary.md"
 $jsonPath = Join-Path $runDir "result.json"
-$patchOutputPath = Join-Path $runDir "patch-output.txt"
-$patchPath = Join-Path $runDir "proposal.patch"
+$applyOutputPath = Join-Path $runDir "apply-output.txt"
 $beforeBuildPath = Join-Path $runDir "build-before.txt"
 $afterBuildPath = Join-Path $runDir "build-after.txt"
 
 New-Item -ItemType Directory -Force -Path $runDir | Out-Null
 
 $sourceProject = Join-Path $root $ProjectPath
-Copy-Item -Path $sourceProject -Destination $workspace -Recurse
+Copy-Item -Path $sourceProject -Destination $sourceWorkspace -Recurse
 
 $resolvedRunDir = [System.IO.Path]::GetFullPath($runDir)
-$resolvedWorkspace = [System.IO.Path]::GetFullPath($workspace)
-if (-not $resolvedWorkspace.StartsWith($resolvedRunDir, [System.StringComparison]::OrdinalIgnoreCase)) {
+$resolvedSource = [System.IO.Path]::GetFullPath($sourceWorkspace)
+$resolvedTarget = [System.IO.Path]::GetFullPath($targetWorkspace)
+if (-not $resolvedSource.StartsWith($resolvedRunDir, [System.StringComparison]::OrdinalIgnoreCase)) {
     throw "Refusing to operate outside benchmark run directory."
 }
-
-$copiedTarget = Join-Path $workspace "target"
-if (Test-Path $copiedTarget) {
-    Remove-Item -LiteralPath $copiedTarget -Recurse -Force
+if (-not $resolvedTarget.StartsWith($resolvedRunDir, [System.StringComparison]::OrdinalIgnoreCase)) {
+    throw "Refusing to copy outside benchmark run directory."
 }
 
-$listenerPath = Join-Path $workspace "src\main\java\dev\opticcode\benchmark\listener\JoinListener.java"
+$copiedBuildDir = Join-Path $sourceWorkspace "target"
+if (Test-Path $copiedBuildDir) {
+    Remove-Item -LiteralPath $copiedBuildDir -Recurse -Force
+}
+
+$listenerPath = Join-Path $sourceWorkspace "src\main\java\dev\opticcode\benchmark\listener\JoinListener.java"
 $listener = Get-Content -Raw -Path $listenerPath
 $brokenBlock = @'
         player.getInventory().addItem(new ItemStack(Material.GUNPOWDER, 1));
@@ -51,47 +55,26 @@ Set-Content -Path $listenerPath -Value $listener
 
 Push-Location $root
 try {
-    & cargo run -q -- build --path $workspace 1> $beforeBuildPath 2>&1
+    & cargo run -q -- build --path $sourceWorkspace 1> $beforeBuildPath 2>&1
     $beforeBuildExit = $LASTEXITCODE
 
-    & cargo run -q -- patch --path $workspace --check 1> $patchOutputPath 2>&1
-    $patchExit = $LASTEXITCODE
+    & cargo run -q -- apply --path $sourceWorkspace --copy-to $targetWorkspace --yes 1> $applyOutputPath 2>&1
+    $applyExit = $LASTEXITCODE
 } finally {
     Pop-Location
 }
 
-$patchOutput = Get-Content -Raw -Path $patchOutputPath
-$diffIndex = $patchOutput.IndexOf("diff --git")
-if ($diffIndex -lt 0) {
-    $diffIndex = $patchOutput.IndexOf("--- a/")
-}
-if ($diffIndex -lt 0) {
-    throw "No unified diff found in patch output."
-}
-
-$notesIndex = $patchOutput.IndexOf("`nNotes:", $diffIndex)
-if ($notesIndex -lt 0) {
-    $notesIndex = $patchOutput.IndexOf("`nPatch check:", $diffIndex)
-}
-if ($notesIndex -lt 0) {
-    $notesIndex = $patchOutput.Length
-}
-
-$patchText = $patchOutput.Substring($diffIndex, $notesIndex - $diffIndex).TrimStart()
-Set-Content -Path $patchPath -Value $patchText
-
-& git -C $workspace apply --ignore-space-change --ignore-whitespace $patchPath
-$applyExit = $LASTEXITCODE
-
 Push-Location $root
 try {
-    & cargo run -q -- build --path $workspace 1> $afterBuildPath 2>&1
+    & cargo run -q -- build --path $targetWorkspace 1> $afterBuildPath 2>&1
     $afterBuildExit = $LASTEXITCODE
 } finally {
     Pop-Location
 }
 
-$patchedListener = Get-Content -Raw -Path $listenerPath
+$patchedListenerPath = Join-Path $targetWorkspace "src\main\java\dev\opticcode\benchmark\listener\JoinListener.java"
+$patchedListener = Get-Content -Raw -Path $patchedListenerPath
+$sourceListener = Get-Content -Raw -Path $listenerPath
 $expected = @(
     "Material.SULPHUR",
     "Material.NETHER_STALK",
@@ -109,28 +92,30 @@ $forbidden = @(
 
 $missing = @($expected | Where-Object { -not $patchedListener.Contains($_) })
 $remainingModern = @($forbidden | Where-Object { $patchedListener.Contains($_) })
+$sourceStillBroken = $sourceListener.Contains("Material.GUNPOWDER")
 
 $success = $beforeBuildExit -ne 0 `
-    -and $patchExit -eq 0 `
     -and $applyExit -eq 0 `
     -and $afterBuildExit -eq 0 `
     -and $missing.Count -eq 0 `
-    -and $remainingModern.Count -eq 0
+    -and $remainingModern.Count -eq 0 `
+    -and $sourceStillBroken
 
 $result = [ordered]@{
     timestamp = (Get-Date).ToString("o")
     project_path = $ProjectPath
-    workspace = $workspace
+    source_workspace = $sourceWorkspace
+    target_workspace = $targetWorkspace
     before_build_exit = $beforeBuildExit
-    patch_check_exit = $patchExit
     apply_exit = $applyExit
     after_build_exit = $afterBuildExit
     expected = $expected
     missing = $missing
     remaining_modern = $remainingModern
+    source_still_broken = $sourceStillBroken
     success = $success
     summary_path = $summaryPath
-    patch_path = $patchPath
+    apply_output_path = $applyOutputPath
     before_build_path = $beforeBuildPath
     after_build_path = $afterBuildPath
 }
@@ -145,8 +130,7 @@ $summary.Add("")
 $summary.Add("| Etape | Exit | Attendu |")
 $summary.Add("| --- | ---: | --- |")
 $summary.Add("| build avant patch | $beforeBuildExit | echec |")
-$summary.Add("| patch --check | $patchExit | succes |")
-$summary.Add("| git apply | $applyExit | succes |")
+$summary.Add("| apply --copy-to --yes | $applyExit | succes |")
 $summary.Add("| build apres patch | $afterBuildExit | succes |")
 $summary.Add("")
 $summary.Add("Succes global : $success")
@@ -157,7 +141,13 @@ $summary.Add("Manquants : $(if ($missing.Count -eq 0) { '-' } else { $missing -j
 $summary.Add("")
 $summary.Add("Symboles modernes restants : $(if ($remainingModern.Count -eq 0) { '-' } else { $remainingModern -join ', ' })")
 $summary.Add("")
-$summary.Add("Patch : $patchPath")
+$summary.Add("Source conservee cassee : $sourceStillBroken")
+$summary.Add("")
+$summary.Add("Source temporaire : $sourceWorkspace")
+$summary.Add("")
+$summary.Add("Cible appliquee : $targetWorkspace")
+$summary.Add("")
+$summary.Add("Apply output : $applyOutputPath")
 $summary.Add("")
 $summary.Add("Build avant : $beforeBuildPath")
 $summary.Add("")

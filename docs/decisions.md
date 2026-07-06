@@ -711,3 +711,22 @@ Raison :
 - le dry-run permet de stabiliser les sorties et tests avant l'application reelle ;
 - separer `apply` de `patch` evite une commande surchagee ;
 - le refus sans `--dry-run` garantit qu'aucune modification reelle n'est possible dans cette etape.
+
+### D-046 - Apply sur copie temporaire avant apply reel
+
+Statut : valide provisoirement.
+
+Decision :
+
+- autoriser `apply --copy-to <path> --yes` ;
+- copier le projet source dans une cible inexistante ;
+- generer et appliquer le patch uniquement dans la copie ;
+- refuser `--copy-to` sans `--yes` ;
+- refuser une cible deja existante ou situee dans le projet source.
+
+Raison :
+
+- c'est la premiere application reelle de patch, mais sans risque pour le projet source ;
+- ce mode permet de tester le workflow complet avant l'application reelle ;
+- `--yes` garde une confirmation explicite meme sur copie ;
+- la cible inexistante evite d'ecraser des donnees.
