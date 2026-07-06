@@ -187,6 +187,7 @@ Etat actuel :
 - `weighted_score` ajoute pour favoriser les correspondances legacy precises par rapport aux synonymes generiques ;
 - script `run-rag-quality.ps1` ajoute pour mesurer la qualite legacy avec/sans RAG ;
 - regle spawn egg ajoutee : `Material.MONSTER_EGG` et `item.monsterPlacer` ;
+- script `run-patch-build-quality.ps1` ajoute pour verifier build echec -> patch -> build OK sur copie temporaire ;
 - compilation et tests OK.
 
 Livrable :
@@ -199,6 +200,7 @@ Livrable :
 - `docs/rag-source-inventory.md`
 - `docs/rag-index.md`
 - `docs/rag-quality.md`
+- `docs/patch-build-quality.md`
 
 ## Phase 5 - Tools code et Java legacy
 
@@ -228,6 +230,7 @@ Etat actuel :
 - `keep_alive=15m` reduit fortement le cout de modele froid ;
 - `patch` propose un diff non applique pour `Material.GUNPOWDER` -> `Material.SULPHUR` ;
 - `patch --check` verifie que le diff est applicable ;
+- `run-patch-build-quality.ps1` valide plusieurs corrections legacy avec rebuild Maven OK ;
 - `ask` et `plan` peuvent charger le profil `minecraft-java-1.8` ;
 - `analyze-java` compare les commandes declarees avec `getCommand(...)` ;
 - table legacy initiale ajoutee : gunpowder, nether wart, spawners, pelles/spades et quelques mobs ;

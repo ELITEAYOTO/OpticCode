@@ -76,6 +76,7 @@ Mesure importante du 2026-07-06 :
 - `rag-debug` affiche aussi `query_scores`, ce qui montre le poids de chaque requete elargie par chunk.
 - le scoring RAG pondere favorise les identifiants legacy precis (`MOB_SPAWNER`, `NETHER_STALK`, `Material.SULPHUR`) par rapport aux synonymes generiques (`shovel`).
 - le benchmark qualite RAG montre un passage de 80 % a 100 % avec RAG apres correction du cas `spawn-egg`.
+- le benchmark patch/build valide une chaine locale build echec -> patch -> build OK sans appel modele.
 
 ## Optimisations prioritaires
 
@@ -353,6 +354,31 @@ Point important :
 - sans RAG, Qwen a donne une reponse generique ;
 - avec RAG et la regle `Material.MONSTER_EGG`, il a cite le bon nom legacy.
 
+### 12. Benchmark patch + build
+
+Statut : ajoute.
+
+Commande :
+
+```powershell
+.\scripts\run-patch-build-quality.ps1
+```
+
+Dernier resultat observe :
+
+```text
+build avant patch : echec
+patch --check : succes
+git apply : succes
+build apres patch : succes
+```
+
+Interpretation :
+
+- le cout est local Maven/Rust, sans appel Qwen ;
+- le test valide la fiabilite des tools avant d'ajouter une commande d'application automatique ;
+- les differences LF/CRLF sont neutralisees lors de l'application du patch dans la copie temporaire.
+
 ## Plan optimisation court terme
 
 1. Ajouter metriques LLM dans la sortie de debug. Fait.
@@ -365,4 +391,5 @@ Point important :
 8. Comparer Ollama avec llama.cpp/Vulkan seulement apres stabilisation des prompts.
 9. Comparer Q4_K_M et Q5_K_M seulement apres mise en place du benchmark reproductible.
 10. Mesurer la qualite du RAG pondere sur plusieurs prompts legacy. Fait.
-11. Ajouter des tests qualite sur correction de code + build Maven. Prochaine cible.
+11. Ajouter des tests qualite sur correction de code + build Maven. Fait.
+12. Concevoir `safe apply` avec confirmation explicite et rollback simple. Prochaine cible.

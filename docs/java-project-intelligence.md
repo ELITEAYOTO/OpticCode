@@ -65,6 +65,7 @@ Build command: mvn -q -DskipTests package
 - pelles modernes `*_SHOVEL` au lieu de `*_SPADE` ;
 - `Material.NETHER_WART` au lieu de `Material.NETHER_STALK` ;
 - `Material.SPAWNER` au lieu de `Material.MOB_SPAWNER` ;
+- `Material.SPAWN_EGG` au lieu de `Material.MONSTER_EGG` ;
 - `EntityType.ZOMBIFIED_PIGLIN`, `MOOSHROOM`, `SNOW_GOLEM` au lieu des noms legacy ;
 - `record` ou `var` ;
 - imports Adventure API ;
@@ -115,7 +116,7 @@ Etat actuel :
 - propose un patch texte sans modifier les fichiers ;
 - verifie le patch avec `git apply --check -` quand `--check` est active ;
 - cible les corrections deterministes Java legacy ;
-- premiere regle : `Material.GUNPOWDER` vers `Material.SULPHUR`.
+- regles actuelles : gunpowder, nether wart, spawner, spawn egg, pelles/spades et quelques `EntityType` legacy.
 
 Test negatif effectue :
 
@@ -126,8 +127,23 @@ Test negatif effectue :
 - fichier restaure ;
 - `build` repasse OK.
 
+Benchmark reproductible :
+
+```powershell
+.\scripts\run-patch-build-quality.ps1
+```
+
+Dernier resultat valide :
+
+```text
+build avant patch : echec
+patch --check : succes
+git apply : succes
+build apres patch : succes
+```
+
 ## Prochaines etapes
 
-1. Ajouter plus de regles legacy sures.
+1. Ajouter une commande `safe apply` avec confirmation explicite.
 2. Relier l'analyse Java au profil `minecraft-java-1.8`.
 3. Ajouter Tree-sitter Java plus tard pour une extraction plus robuste.

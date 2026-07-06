@@ -230,6 +230,11 @@ const LEGACY_SYMBOL_REPLACEMENTS: &[LegacySymbolReplacement] = &[
         reason: "Bukkit 1.8.8 uses MOB_SPAWNER for spawner blocks.",
     },
     LegacySymbolReplacement {
+        modern: "Material.SPAWN_EGG",
+        legacy: "Material.MONSTER_EGG",
+        reason: "Bukkit 1.8.8 uses MONSTER_EGG for spawn egg items.",
+    },
+    LegacySymbolReplacement {
         modern: "Material.WOODEN_SHOVEL",
         legacy: "Material.WOOD_SPADE",
         reason: "Bukkit 1.8.8 uses SPADE names for shovels.",
@@ -2199,14 +2204,15 @@ commands:
 
     #[test]
     fn applies_known_legacy_symbol_replacements() {
-        let original = "Material.WOODEN_SHOVEL\nMaterial.NETHER_WART\nMaterial.SPAWNER\nEntityType.ZOMBIFIED_PIGLIN";
+        let original = "Material.WOODEN_SHOVEL\nMaterial.NETHER_WART\nMaterial.SPAWNER\nMaterial.SPAWN_EGG\nEntityType.ZOMBIFIED_PIGLIN";
         let (proposed, replacements) =
             apply_legacy_replacements(original).expect("legacy replacements should be found");
 
-        assert_eq!(replacements.len(), 4);
+        assert_eq!(replacements.len(), 5);
         assert!(proposed.contains("Material.WOOD_SPADE"));
         assert!(proposed.contains("Material.NETHER_STALK"));
         assert!(proposed.contains("Material.MOB_SPAWNER"));
+        assert!(proposed.contains("Material.MONSTER_EGG"));
         assert!(proposed.contains("EntityType.PIG_ZOMBIE"));
     }
 

@@ -45,6 +45,7 @@ Le prototype sait deja :
 - filtrer les hits RAG faibles sans concept legacy.
 - afficher et utiliser un score RAG pondere par requete legacy.
 - mesurer automatiquement la qualite legacy avec/sans RAG.
+- verifier automatiquement un patch legacy jusqu'au rebuild Maven sur copie temporaire.
 
 Il ne sait pas encore :
 
@@ -93,6 +94,7 @@ cargo run -q -- plan "Verifier nether wart et spawner dans un plugin Bukkit 1.8.
 cargo run -q -- plan "Verifier nether wart et spawner dans un plugin Bukkit 1.8.8" --path benchmarks/mini-bukkit-plugin --brief --max-tokens 80 --metrics-json --no-rag
 .\scripts\run-rag-comparison.ps1
 .\scripts\run-rag-quality.ps1 -MaxTokens 120
+.\scripts\run-patch-build-quality.ps1
 cargo run -q -- search Material.SULPHUR --path . --limit 5
 cargo run -q -- ask "Reponds en une phrase : quelle regle Bukkit 1.8.8 dois-tu respecter pour gunpowder ?" --path .
 cargo run -q -- plan "Ajouter une commande /coins dans un plugin Bukkit 1.8.8" --path . --metrics

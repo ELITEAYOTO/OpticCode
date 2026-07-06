@@ -655,3 +655,23 @@ Raison :
 - les mappings faciles peuvent passer sans RAG, donc il faut des cas discriminants ;
 - le test `spawn-egg` a revele un manque reel dans la doc metier et l'expansion RAG ;
 - apres correction, le score observe est passe de 80 % a 100 % avec RAG sur la batterie courte.
+
+### D-043 - Benchmark patch + build sur copie temporaire
+
+Statut : valide provisoirement.
+
+Decision :
+
+- ajouter `scripts/run-patch-build-quality.ps1` ;
+- travailler uniquement sur une copie temporaire dans `benchmarks/runs` ;
+- injecter des symboles modernes incompatibles Bukkit 1.8.8 ;
+- verifier que le build echoue avant patch ;
+- generer, verifier, appliquer le patch dans la copie ;
+- verifier que le build repasse OK apres patch.
+
+Raison :
+
+- un patch utile doit restaurer un build, pas seulement produire un diff lisible ;
+- le test reste reproductible sans toucher au mini projet source ;
+- cette etape prepare une future commande `safe apply` avec confirmation explicite ;
+- le run valide `patch-build-quality-20260706-221333` montre un passage build echec -> patch -> build OK.

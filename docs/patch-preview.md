@@ -28,7 +28,7 @@ La commande `patch` propose uniquement des corrections deterministes Java legacy
 Regle supportee :
 
 - remplacer plusieurs symboles modernes par leurs noms Bukkit 1.8.8 ;
-- exemples : `Material.GUNPOWDER` -> `Material.SULPHUR`, `Material.WOODEN_SHOVEL` -> `Material.WOOD_SPADE`, `Material.NETHER_WART` -> `Material.NETHER_STALK`.
+- exemples : `Material.GUNPOWDER` -> `Material.SULPHUR`, `Material.WOODEN_SHOVEL` -> `Material.WOOD_SPADE`, `Material.NETHER_WART` -> `Material.NETHER_STALK`, `Material.SPAWN_EGG` -> `Material.MONSTER_EGG`.
 
 ## Resultat sur projet sain
 
@@ -61,6 +61,31 @@ Extrait de patch attendu :
 -        player.getInventory().addItem(new ItemStack(Material.GUNPOWDER, 1));
 +        player.getInventory().addItem(new ItemStack(Material.SULPHUR, 1));
 ```
+
+## Benchmark patch + build
+
+Commande :
+
+```powershell
+.\scripts\run-patch-build-quality.ps1
+```
+
+Resultat observe :
+
+```text
+build avant patch : echec
+patch --check : succes
+git apply : succes
+build apres patch : succes
+```
+
+Run valide :
+
+```text
+benchmarks/runs/patch-build-quality-20260706-221333/summary.md
+```
+
+Ce test travaille sur une copie temporaire du mini plugin et confirme que le patch restaure un build Maven OK.
 
 ## Prochaines etapes
 
