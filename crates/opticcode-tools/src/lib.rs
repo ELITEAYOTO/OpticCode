@@ -101,6 +101,7 @@ pub struct JavaFileAnalysis {
     pub is_command_executor: bool,
     pub is_listener: bool,
     pub imports: Vec<String>,
+    pub registered_commands: Vec<String>,
     pub risks: Vec<String>,
 }
 
@@ -636,6 +637,7 @@ fn parse_java_file(root: &Path, path: &Path, content: &str) -> JavaFileAnalysis 
     let class_name = content.lines().find_map(extract_class_name);
     let is_command_executor = content.contains("CommandExecutor");
     let is_listener = content.contains("Listener") && content.contains("@EventHandler");
+    let registered_commands = extract_string_calls(content, "getCommand");
 
     let mut risks = Vec::new();
     if content.contains("Material.GUNPOWDER") {
@@ -669,6 +671,7 @@ fn parse_java_file(root: &Path, path: &Path, content: &str) -> JavaFileAnalysis 
         is_command_executor,
         is_listener,
         imports,
+        registered_commands,
         risks,
     }
 }
@@ -726,6 +729,15 @@ impl JavaProjectAnalysis {
             .iter()
             .filter(|file| file.is_listener)
             .collect::<Vec<_>>();
+        let registered_commands = self
+            .java_files
+            .iter()
+            .flat_map(|file| {
+                file.registered_commands
+                    .iter()
+                    .map(|command| format!("{} in {}", command, file.path.display()))
+            })
+            .collect::<Vec<_>>();
 
         out.push_str("\nJava:\n");
         out.push_str(&format!("- files: {}\n", self.java_files.len()));
@@ -737,6 +749,10 @@ impl JavaProjectAnalysis {
         for file in listeners {
             out.push_str(&format!("  - {}\n", file.path.display()));
         }
+        out.push_str(&format!(
+            "- registered commands: {}\n",
+            list_or_none(&registered_commands)
+        ));
 
         out.push_str("\nRisks:\n");
         if self.risks.is_empty() {
@@ -983,6 +999,28 @@ fn collect_project_risks(
         if plugin.main.is_none() {
             risks.push("plugin.yml does not declare a main class.".to_string());
         }
+
+        let registered_commands = java_files
+            .iter()
+            .flat_map(|file| file.registered_commands.iter())
+            .cloned()
+            .collect::<Vec<_>>();
+
+        for command in &plugin.commands {
+            if !registered_commands.iter().any(|value| value == command) {
+                risks.push(format!(
+                    "plugin.yml declares command `{command}`, but no getCommand(\"{command}\") call was detected."
+                ));
+            }
+        }
+
+        for command in &registered_commands {
+            if !plugin.commands.iter().any(|value| value == command) {
+                risks.push(format!(
+                    "Java registers command `{command}`, but plugin.yml does not declare it."
+                ));
+            }
+        }
     } else {
         risks.push("plugin.yml not found under src/main/resources.".to_string());
     }
@@ -1052,6 +1090,28 @@ fn extract_class_name(line: &str) -> Option<String> {
         .next()
         .filter(|value| !value.is_empty())
         .map(ToOwned::to_owned)
+}
+
+fn extract_string_calls(content: &str, function_name: &str) -> Vec<String> {
+    let marker = format!("{function_name}(\"");
+    let mut values = Vec::new();
+    let mut rest = content;
+
+    while let Some(start) = rest.find(&marker) {
+        let after_marker = &rest[start + marker.len()..];
+        let Some(end) = after_marker.find('"') else {
+            break;
+        };
+        let value = &after_marker[..end];
+        if !value.is_empty() {
+            values.push(value.to_string());
+        }
+        rest = &after_marker[end + 1..];
+    }
+
+    values.sort();
+    values.dedup();
+    values
 }
 
 fn optional(value: &Option<String>) -> &str {
@@ -1251,9 +1311,10 @@ fn top_extensions(extensions: &BTreeMap<String, usize>, limit: usize) -> Vec<(&s
 #[cfg(test)]
 mod tests {
     use super::{
-        build_unified_diff, context_priority, is_probably_text, parse_java_file, parse_plugin_yml,
-        parse_pom, propose_java_legacy_patch, summarize_build_output, tail_lines, truncate_chars,
-        PatchFileChange, PatchProposal,
+        build_unified_diff, collect_project_risks, context_priority, is_probably_text,
+        parse_java_file, parse_plugin_yml, parse_pom, propose_java_legacy_patch,
+        summarize_build_output, tail_lines, truncate_chars, BuildTool, PatchFileChange,
+        PatchProposal,
     };
     use std::fs;
     use std::path::Path;
@@ -1341,6 +1402,46 @@ commands:
         assert_eq!(file.package_name.as_deref(), Some("dev.test"));
         assert_eq!(file.class_name.as_deref(), Some("Test"));
         assert!(file.is_command_executor);
+    }
+
+    #[test]
+    fn detects_get_command_registrations() {
+        let file = parse_java_file(
+            Path::new("root"),
+            Path::new("root/src/Test.java"),
+            "class Test { void onEnable() { getCommand(\"coins\"); getCommand(\"spawn\"); } }",
+        );
+
+        assert_eq!(file.registered_commands, vec!["coins", "spawn"]);
+    }
+
+    #[test]
+    fn flags_plugin_command_registration_mismatch() {
+        let plugin = parse_plugin_yml(
+            r#"
+name: Demo
+version: 1.0
+main: dev.test.DemoPlugin
+commands:
+  coins:
+    description: Coins
+"#,
+        )
+        .expect("plugin should parse");
+        let java_file = parse_java_file(
+            Path::new("root"),
+            Path::new("root/src/Test.java"),
+            "class Test { void onEnable() { getCommand(\"spawn\"); } }",
+        );
+
+        let risks = collect_project_risks(BuildTool::Maven, None, Some(&plugin), &[java_file]);
+
+        assert!(risks
+            .iter()
+            .any(|risk| risk.contains("plugin.yml declares command `coins`")));
+        assert!(risks
+            .iter()
+            .any(|risk| risk.contains("Java registers command `spawn`")));
     }
 
     #[test]

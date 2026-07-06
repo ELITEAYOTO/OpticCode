@@ -32,7 +32,8 @@ Le prototype sait deja :
 - limiter la generation avec `--brief` et `--max-tokens` ;
 - produire un patch preview deterministe sans modifier les fichiers ;
 - verifier un patch preview avec `git apply --check` ;
-- charger un profil `minecraft-java-1.8` depuis `skills/profiles`.
+- charger un profil `minecraft-java-1.8` depuis `skills/profiles` ;
+- comparer les commandes `plugin.yml` avec les appels `getCommand(...)`.
 
 Il ne sait pas encore :
 
@@ -131,7 +132,7 @@ cargo test --workspace
 Resultat :
 
 ```text
-OK - 15 tests passes
+OK - 17 tests passes
 ```
 
 ### Inspection locale
@@ -219,6 +220,6 @@ Le mode `--metrics-json` produit une sortie JSON exploitable pour comparer plusi
 
 ## Prochaines etapes
 
-1. Comparer les commandes declarees dans `plugin.yml` avec `getCommand(...)`.
-2. Relier le profil `minecraft-java-1.8` aux futures regles RAG.
+1. Relier le profil `minecraft-java-1.8` aux futures regles RAG.
+2. Ajouter plus de regles legacy sures.
 3. Ajouter un cycle `build -> analyse erreur -> suggestion correction`.

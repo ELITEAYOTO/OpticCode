@@ -169,6 +169,7 @@ Etat actuel :
 - commande `patch` fonctionnelle en preview deterministe ;
 - verification `patch --check` fonctionnelle via `git apply --check` ;
 - profil `minecraft-java-1.8` minimal ajoute ;
+- coherence `plugin.yml` / `getCommand(...)` detectee ;
 - compilation et tests OK.
 
 Livrable :
@@ -207,7 +208,8 @@ Etat actuel :
 - `patch` propose un diff non applique pour `Material.GUNPOWDER` -> `Material.SULPHUR` ;
 - `patch --check` verifie que le diff est applicable ;
 - `ask` et `plan` peuvent charger le profil `minecraft-java-1.8` ;
-- prochaine cible : coherence `plugin.yml` / `getCommand(...)`.
+- `analyze-java` compare les commandes declarees avec `getCommand(...)` ;
+- prochaine cible : regles legacy supplementaires et premiere memoire simple.
 
 ## Phase 5.5 - Profils, memoire et optimisation controlee
 

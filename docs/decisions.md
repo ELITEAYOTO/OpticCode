@@ -381,3 +381,19 @@ Raison :
 - OpticCode doit rester controlable ;
 - un patch visible est plus fiable qu'une modification directe ;
 - le meme format servira plus tard aux patchs generes par LLM, a `git apply --check` et au futur safe apply.
+
+### D-027 - Coherence Bukkit plugin.yml et getCommand
+
+Statut : valide provisoirement.
+
+Decision :
+
+- extraire les appels `getCommand("...")` des fichiers Java ;
+- comparer ces commandes avec celles declarees dans `plugin.yml` ;
+- signaler les commandes declarees mais non enregistrees, et inversement.
+
+Raison :
+
+- beaucoup de bugs Bukkit viennent d'une commande oubliee dans `plugin.yml` ou mal enregistree ;
+- cette verification est rapide et deterministe ;
+- elle reduit le besoin d'appeler le modele pour un probleme structurel simple.

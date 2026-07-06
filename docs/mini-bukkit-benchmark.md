@@ -68,6 +68,24 @@ Resultat :
 - extensions detectees : Java, XML, YML, Markdown ;
 - temps observe : moins d'une seconde apres compilation Rust.
 
+### Analyse Java/Bukkit
+
+Commande :
+
+```powershell
+cargo run -q -- analyze-java --path benchmarks/mini-bukkit-plugin
+```
+
+Resultat :
+
+- Maven Java 8 detecte ;
+- `plugin.yml` detecte ;
+- commande declaree : `coins` ;
+- commande enregistree : `getCommand("coins")` dans `MiniBenchmarkPlugin.java` ;
+- `CoinsCommand.java` detecte comme `CommandExecutor` ;
+- `JoinListener.java` detecte comme `Listener` ;
+- aucun risque detecte.
+
 ### Recherche legacy
 
 Commande :

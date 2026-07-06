@@ -29,6 +29,7 @@ cargo run -q -- analyze-java --path benchmarks/mini-bukkit-plugin
 - `plugin.yml` ;
 - main class ;
 - commandes declarees ;
+- commandes enregistrees via `getCommand(...)` ;
 - permissions declarees ;
 - classes Java ;
 - classes `CommandExecutor` ;
@@ -46,6 +47,7 @@ Plugin main: dev.opticcode.benchmark.MiniBenchmarkPlugin
 Commands: coins
 CommandExecutor: CoinsCommand.java
 Listener: JoinListener.java
+Registered command: coins in MiniBenchmarkPlugin.java
 Risks: none detected
 Build command: mvn -q -DskipTests package
 ```
@@ -57,6 +59,8 @@ Build command: mvn -q -DskipTests package
 - Java source/target non Java 8 ;
 - `api-version` present dans `plugin.yml` ;
 - `plugin.yml` sans main class ;
+- commande declaree dans `plugin.yml` sans `getCommand(...)` detecte ;
+- commande enregistree en Java sans declaration dans `plugin.yml` ;
 - `Material.GUNPOWDER` dans du code cible 1.8.8 ;
 - `record` ou `var` ;
 - imports Adventure API ;
@@ -66,7 +70,6 @@ Build command: mvn -q -DskipTests package
 
 - l'analyse Java est encore textuelle ;
 - pas encore de Tree-sitter ;
-- ne valide pas encore les correspondances entre `plugin.yml` et les appels `getCommand(...)` ;
 - n'applique pas encore les patchs automatiquement.
 
 ## Prochaines etapes
@@ -121,6 +124,6 @@ Test negatif effectue :
 
 ## Prochaines etapes
 
-1. Comparer les commandes declarees dans `plugin.yml` avec `getCommand(...)`.
-2. Ajouter un premier profil `minecraft-java-1.8` minimal.
+1. Ajouter plus de regles legacy sures.
+2. Relier l'analyse Java au profil `minecraft-java-1.8`.
 3. Ajouter Tree-sitter Java plus tard pour une extraction plus robuste.
