@@ -173,6 +173,7 @@ Etat actuel :
 - memoire Markdown simple ajoutee ;
 - benchmark JSONL ajoute dans `scripts/run-mini-benchmark.ps1` ;
 - commande `pack-scan` ajoutee pour inventorier les resource packs externes sans les copier ;
+- commande `rag-scan` ajoutee pour inventorier les plugins avances et PandaSpigot en lecture seule ;
 - compilation et tests OK.
 
 Livrable :
@@ -182,6 +183,7 @@ Livrable :
 - `docs/optimization-notes.md`
 - `docs/java-project-intelligence.md`
 - `docs/resource-pack-scan.md`
+- `docs/rag-source-inventory.md`
 
 ## Phase 5 - Tools code et Java legacy
 
@@ -257,6 +259,7 @@ Objectif :
 
 - indexer docs, conventions, exemples de plugins, mappings legacy ;
 - indexer les regles legacy et les inventaires de resource packs utiles ;
+- indexer les inventaires des plugins avances et du fork PandaSpigot ;
 - garder les sources externes a leur emplacement d'origine ;
 - melanger recherche texte, symboles et embeddings ;
 - garder une base de connaissances reutilisable ;

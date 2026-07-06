@@ -44,6 +44,7 @@ Le projet a maintenant un premier squelette Rust fonctionnel.
 - [Regles Minecraft 1.8 legacy](docs/minecraft-legacy-rules.md)
 - [Memoire simple](docs/memory.md)
 - [Scan resource packs](docs/resource-pack-scan.md)
+- [Inventaire sources RAG](docs/rag-source-inventory.md)
 
 ## Arborescence prevue
 
@@ -80,6 +81,7 @@ cargo run -q -- profile --path benchmarks/mini-bukkit-plugin --profile minecraft
 cargo run -q -- memory --path benchmarks/mini-bukkit-plugin --profile minecraft-java-1.8
 cargo run -q -- pack-scan --path "C:\Users\timot\Desktop\RAG-1.8-Minecraft\1.8-JavaDoc\resource-pack-1.8\LegacyPack" --limit 25
 cargo run -q -- pack-scan --path "C:\Users\timot\Desktop\minecraft\Volkaria\Pack-Volkaria" --limit 25
+cargo run -q -- rag-scan --limit 8 --path "C:\Users\timot\Desktop\minecraft\SparrowMCALL\Kspawners" --path "C:\Users\timot\Desktop\KhopeSpigot\PandaSpigot-Fork\PandaSpigot"
 cargo run -q -- search Material.SULPHUR --path . --limit 5
 cargo run -q -- ask "Reponds en une phrase : quelle regle Bukkit 1.8.8 dois-tu respecter pour gunpowder ?" --path .
 cargo run -q -- plan "Ajouter une commande /coins dans un plugin Bukkit 1.8.8" --path . --metrics

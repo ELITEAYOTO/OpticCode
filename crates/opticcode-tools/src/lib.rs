@@ -149,6 +149,17 @@ pub struct ResourcePackReport {
     pub legacy_matches: Vec<PathBuf>,
 }
 
+#[derive(Debug, Clone)]
+pub struct RagSourceReport {
+    pub root: PathBuf,
+    pub total_files: usize,
+    pub indexable_files: usize,
+    pub skipped_large_files: usize,
+    pub indexable_bytes: u64,
+    pub extensions: BTreeMap<String, usize>,
+    pub important_files: Vec<PathBuf>,
+}
+
 #[derive(Debug, Clone, Copy)]
 struct LegacySymbolReplacement {
     modern: &'static str,
@@ -293,6 +304,64 @@ pub fn inspect_resource_pack(root: &Path, limit: usize) -> Result<ResourcePackRe
         if report.legacy_matches.len() < limit && is_legacy_resource_match(&normalized) {
             report.legacy_matches.push(relative);
         }
+    }
+
+    Ok(report)
+}
+
+pub fn inspect_rag_source(root: &Path, limit: usize) -> Result<RagSourceReport> {
+    let root = fs::canonicalize(root)
+        .with_context(|| format!("failed to resolve RAG source path: {}", root.display()))?;
+    let mut report = RagSourceReport {
+        root: root.clone(),
+        total_files: 0,
+        indexable_files: 0,
+        skipped_large_files: 0,
+        indexable_bytes: 0,
+        extensions: BTreeMap::new(),
+        important_files: Vec::new(),
+    };
+
+    for entry in WalkDir::new(&root)
+        .into_iter()
+        .filter_entry(should_enter_rag_source)
+        .filter_map(Result::ok)
+    {
+        if !entry.file_type().is_file() {
+            continue;
+        }
+
+        report.total_files += 1;
+        let relative = to_relative(&root, entry.path());
+
+        let extension = entry
+            .path()
+            .extension()
+            .and_then(|value| value.to_str())
+            .map(|value| value.to_ascii_lowercase())
+            .unwrap_or_else(|| "<none>".to_string());
+        *report.extensions.entry(extension).or_insert(0) += 1;
+
+        if is_important_rag_file(&relative) && report.important_files.len() < limit {
+            report.important_files.push(relative.clone());
+        }
+
+        if !is_rag_indexable_text(entry.path()) {
+            continue;
+        }
+
+        let metadata = match entry.metadata() {
+            Ok(value) => value,
+            Err(_) => continue,
+        };
+
+        if metadata.len() > MAX_READ_BYTES {
+            report.skipped_large_files += 1;
+            continue;
+        }
+
+        report.indexable_files += 1;
+        report.indexable_bytes += metadata.len();
     }
 
     Ok(report)
@@ -716,6 +785,36 @@ impl ResourcePackReport {
     }
 }
 
+impl RagSourceReport {
+    pub fn to_display_string(&self) -> String {
+        let mut out = String::new();
+        out.push_str(&format!("RAG source: {}\n", self.root.display()));
+        out.push_str(&format!("Files: {}\n", self.total_files));
+        out.push_str(&format!("Indexable text files: {}\n", self.indexable_files));
+        out.push_str(&format!("Indexable text bytes: {}\n", self.indexable_bytes));
+        out.push_str(&format!(
+            "Skipped large text files: {}\n",
+            self.skipped_large_files
+        ));
+
+        out.push_str("\nTop extensions:\n");
+        for (extension, count) in top_named_counts(&self.extensions, 14) {
+            out.push_str(&format!("- {}: {}\n", extension, count));
+        }
+
+        out.push_str("\nImportant files:\n");
+        if self.important_files.is_empty() {
+            out.push_str("- none\n");
+        } else {
+            for path in &self.important_files {
+                out.push_str(&format!("- {}\n", path.display()));
+            }
+        }
+
+        out
+    }
+}
+
 fn parse_pom(content: &str) -> Result<MavenAnalysis> {
     let doc = roxmltree::Document::parse(content).context("failed to parse pom.xml")?;
     let root = doc.root_element();
@@ -1092,6 +1191,62 @@ fn is_legacy_resource_match(path: &str) -> bool {
     ]
     .iter()
     .any(|term| lower.contains(term))
+}
+
+fn is_rag_indexable_text(path: &Path) -> bool {
+    let Some(extension) = path.extension().and_then(|value| value.to_str()) else {
+        return true;
+    };
+
+    matches!(
+        extension.to_ascii_lowercase().as_str(),
+        "java"
+            | "kt"
+            | "kts"
+            | "groovy"
+            | "xml"
+            | "yml"
+            | "yaml"
+            | "properties"
+            | "json"
+            | "mcmeta"
+            | "lang"
+            | "md"
+            | "txt"
+            | "patch"
+            | "gradle"
+            | "toml"
+            | "rs"
+    )
+}
+
+fn is_important_rag_file(path: &Path) -> bool {
+    let normalized = path
+        .to_string_lossy()
+        .replace('\\', "/")
+        .to_ascii_lowercase();
+    let file_name = path
+        .file_name()
+        .and_then(|value| value.to_str())
+        .map(|value| value.to_ascii_lowercase())
+        .unwrap_or_default();
+
+    matches!(
+        file_name.as_str(),
+        "pom.xml"
+            | "plugin.yml"
+            | "paper-plugin.yml"
+            | "bukkit.yml"
+            | "build.gradle"
+            | "build.gradle.kts"
+            | "gradle.properties"
+            | "settings.gradle"
+            | "settings.gradle.kts"
+            | "README.md"
+            | "readme.md"
+    ) || normalized.starts_with("patches/")
+        || normalized.contains("/patches/")
+        || normalized.starts_with("src/main/resources/")
 }
 
 fn build_unified_diff(path: &Path, original: &str, proposed: &str, reason: &str) -> String {
@@ -1487,6 +1642,26 @@ fn should_enter_resource_pack(entry: &DirEntry) -> bool {
     )
 }
 
+fn should_enter_rag_source(entry: &DirEntry) -> bool {
+    let name = entry.file_name().to_string_lossy().to_ascii_lowercase();
+    !matches!(
+        name.as_str(),
+        ".git"
+            | ".gradle"
+            | ".idea"
+            | ".settings"
+            | ".vscode"
+            | "target"
+            | "build"
+            | "bin"
+            | "classes"
+            | "out"
+            | "lib"
+            | "libs"
+            | "node_modules"
+    )
+}
+
 fn is_probably_text(path: &Path) -> bool {
     let Some(extension) = path.extension().and_then(|value| value.to_str()) else {
         return true;
@@ -1546,9 +1721,10 @@ fn top_named_counts(values: &BTreeMap<String, usize>, limit: usize) -> Vec<(&str
 mod tests {
     use super::{
         apply_legacy_replacements, build_unified_diff, collect_project_risks, context_priority,
-        is_legacy_resource_match, is_probably_text, parse_java_file, parse_plugin_yml, parse_pom,
-        propose_java_legacy_patch, resource_pack_category, summarize_build_output, tail_lines,
-        truncate_chars, BuildTool, PatchFileChange, PatchProposal,
+        is_important_rag_file, is_legacy_resource_match, is_probably_text, is_rag_indexable_text,
+        parse_java_file, parse_plugin_yml, parse_pom, propose_java_legacy_patch,
+        resource_pack_category, summarize_build_output, tail_lines, truncate_chars, BuildTool,
+        PatchFileChange, PatchProposal,
     };
     use std::fs;
     use std::path::Path;
@@ -1578,6 +1754,22 @@ mod tests {
         assert!(is_legacy_resource_match(
             "assets/minecraft/models/item/mob_spawner.json"
         ));
+    }
+
+    #[test]
+    fn detects_rag_indexable_and_important_files() {
+        assert!(is_rag_indexable_text(Path::new("src/main/java/Main.java")));
+        assert!(is_rag_indexable_text(Path::new(
+            "patches/server/0001.patch"
+        )));
+        assert!(!is_rag_indexable_text(Path::new("target/plugin.jar")));
+        assert!(is_important_rag_file(Path::new("plugin.yml")));
+        assert!(is_important_rag_file(Path::new(
+            "src/main/resources/config.yml"
+        )));
+        assert!(is_important_rag_file(Path::new(
+            "patches/server/0001.patch"
+        )));
     }
 
     #[test]

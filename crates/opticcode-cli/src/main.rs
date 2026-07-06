@@ -8,7 +8,8 @@ use opticcode_core::{
 };
 use opticcode_tools::{
     analyze_java_project, build_java_project, build_project_context, check_patch_with_git,
-    inspect_resource_pack, inspect_workspace, propose_java_legacy_patch, search_workspace,
+    inspect_rag_source, inspect_resource_pack, inspect_workspace, propose_java_legacy_patch,
+    search_workspace,
 };
 use serde::Serialize;
 use std::io::{self, Write};
@@ -62,6 +63,12 @@ enum Command {
         #[arg(long)]
         path: PathBuf,
         #[arg(long, default_value_t = 60)]
+        limit: usize,
+    },
+    RagScan {
+        #[arg(long = "path", required = true)]
+        paths: Vec<PathBuf>,
+        #[arg(long, default_value_t = 20)]
         limit: usize,
     },
     Patch {
@@ -174,6 +181,15 @@ async fn main() -> Result<()> {
         Command::PackScan { path, limit } => {
             let report = inspect_resource_pack(&path, limit)?;
             println!("{}", report.to_display_string());
+        }
+        Command::RagScan { paths, limit } => {
+            for (index, path) in paths.iter().enumerate() {
+                if index > 0 {
+                    println!("\n---\n");
+                }
+                let report = inspect_rag_source(path, limit)?;
+                println!("{}", report.to_display_string());
+            }
         }
         Command::Patch { path, check } => {
             let proposal = propose_java_legacy_patch(&path)?;

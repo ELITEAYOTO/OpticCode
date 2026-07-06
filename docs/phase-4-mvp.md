@@ -35,7 +35,8 @@ Le prototype sait deja :
 - charger un profil `minecraft-java-1.8` depuis `skills/profiles` ;
 - comparer les commandes `plugin.yml` avec les appels `getCommand(...)` ;
 - charger une memoire Markdown simple depuis `skills/memory` ;
-- scanner des resource packs externes en lecture seule.
+- scanner des resource packs externes en lecture seule ;
+- inventorier des sources RAG externes en lecture seule.
 
 Il ne sait pas encore :
 
@@ -76,6 +77,7 @@ cargo run -q -- profile --path benchmarks/mini-bukkit-plugin --profile minecraft
 cargo run -q -- memory --path benchmarks/mini-bukkit-plugin --profile minecraft-java-1.8
 cargo run -q -- pack-scan --path "C:\Users\timot\Desktop\RAG-1.8-Minecraft\1.8-JavaDoc\resource-pack-1.8\LegacyPack" --limit 25
 cargo run -q -- pack-scan --path "C:\Users\timot\Desktop\minecraft\Volkaria\Pack-Volkaria" --limit 25
+cargo run -q -- rag-scan --limit 8 --path "C:\Users\timot\Desktop\minecraft\SparrowMCALL\Kspawners" --path "C:\Users\timot\Desktop\KhopeSpigot\PandaSpigot-Fork\PandaSpigot"
 cargo run -q -- search Material.SULPHUR --path . --limit 5
 cargo run -q -- ask "Reponds en une phrase : quelle regle Bukkit 1.8.8 dois-tu respecter pour gunpowder ?" --path .
 cargo run -q -- plan "Ajouter une commande /coins dans un plugin Bukkit 1.8.8" --path . --metrics
@@ -137,7 +139,7 @@ cargo test --workspace
 Resultat :
 
 ```text
-OK - 19 tests passes
+OK - 20 tests passes
 ```
 
 ### Inspection locale

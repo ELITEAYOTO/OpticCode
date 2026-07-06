@@ -431,3 +431,20 @@ Raison :
 - les packs donnes par l'utilisateur sont des sources de contexte, pas des dependances a modifier ;
 - un scan leger permet de savoir quoi indexer avant de creer une base RAG ;
 - les images ne doivent pas etre injectees directement dans le prompt, mais leurs chemins et noms peuvent aider le contexte Minecraft 1.8.
+
+### D-030 - Scanner les projets externes en lecture seule
+
+Statut : valide provisoirement.
+
+Decision :
+
+- ajouter une commande `rag-scan` read-only ;
+- ne jamais modifier les plugins avances ni le fork PandaSpigot pendant l'inventaire ;
+- ignorer les dossiers de dependances et sorties de build : `libs`, `lib`, `target`, `build`, `bin`, `classes`, `out` ;
+- compter les fichiers texte indexables et reperer les fichiers importants.
+
+Raison :
+
+- l'utilisateur n'a pas forcement de backup de ces projets ;
+- le futur RAG doit apprendre des sources metier sans risquer de les alterer ;
+- les dependances extraites et `.class` polluent les mesures et doivent rester hors index V1.
