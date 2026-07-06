@@ -167,6 +167,7 @@ Etat actuel :
 - commande `analyze-java` fonctionnelle ;
 - commande `build` fonctionnelle pour Maven/Gradle ;
 - commande `patch` fonctionnelle en preview deterministe ;
+- verification `patch --check` fonctionnelle via `git apply --check` ;
 - compilation et tests OK.
 
 Livrable :
@@ -203,7 +204,8 @@ Etat actuel :
 - test negatif `Material.GUNPOWDER` valide avec suggestion `Material.SULPHUR` ;
 - `keep_alive=15m` reduit fortement le cout de modele froid ;
 - `patch` propose un diff non applique pour `Material.GUNPOWDER` -> `Material.SULPHUR` ;
-- prochaine cible : verification `git apply --check`.
+- `patch --check` verifie que le diff est applicable ;
+- prochaine cible : profil `minecraft-java-1.8` minimal et coherence `plugin.yml` / `getCommand(...)`.
 
 ## Phase 5.5 - Profils, memoire et optimisation controlee
 

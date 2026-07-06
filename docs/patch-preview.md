@@ -11,12 +11,14 @@ Cette phase est volontairement prudente :
 - pas d'application automatique ;
 - pas d'appel LLM pour cette premiere regle ;
 - patch lisible par l'utilisateur ;
+- verification possible avec `git apply --check` ;
 - base pour un futur `safe apply`.
 
 ## Commande
 
 ```powershell
 cargo run -q -- patch --path benchmarks/mini-bukkit-plugin
+cargo run -q -- patch --path benchmarks/mini-bukkit-plugin --check
 ```
 
 ## Etat actuel
@@ -45,6 +47,7 @@ Material.SULPHUR -> Material.GUNPOWDER
 Resultat :
 
 - `patch` propose un unified diff ;
+- `patch --check` valide le diff avec `git apply --check -` ;
 - le fichier n'est pas modifie ;
 - `build` echoue comme attendu avant correction ;
 - l'erreur Maven est resumee ;
@@ -60,7 +63,6 @@ Extrait de patch attendu :
 
 ## Prochaines etapes
 
-1. Ajouter `git apply --check` sur les patchs generes.
-2. Ajouter une commande `apply` avec confirmation explicite.
-3. Ajouter d'autres regles legacy sures.
-4. Brancher plus tard la generation LLM de patchs sur ce meme format.
+1. Ajouter une commande `apply` avec confirmation explicite.
+2. Ajouter d'autres regles legacy sures.
+3. Brancher plus tard la generation LLM de patchs sur ce meme format.

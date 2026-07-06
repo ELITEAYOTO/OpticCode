@@ -366,6 +366,7 @@ Statut : valide provisoirement.
 Decision :
 
 - ajouter une commande `patch` qui produit un diff texte sans modifier les fichiers ;
+- ajouter `patch --check` pour valider le diff avec `git apply --check` ;
 - commencer par des corrections deterministes Java legacy ;
 - repousser l'application automatique a une commande separee avec verification.
 

@@ -1,7 +1,8 @@
 use std::collections::BTreeMap;
 use std::fs;
+use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result};
@@ -127,6 +128,15 @@ pub struct PatchFileChange {
     pub path: PathBuf,
     pub reason: String,
     pub diff: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct PatchCheckResult {
+    pub command: String,
+    pub success: bool,
+    pub exit_code: Option<i32>,
+    pub stdout: String,
+    pub stderr: String,
 }
 
 pub fn inspect_workspace(root: &Path) -> Result<WorkspaceReport> {
@@ -397,6 +407,41 @@ pub fn propose_java_legacy_patch(root: &Path) -> Result<PatchProposal> {
     })
 }
 
+pub fn check_patch_with_git(proposal: &PatchProposal) -> Result<Option<PatchCheckResult>> {
+    if proposal.changes.is_empty() {
+        return Ok(None);
+    }
+
+    let patch = proposal.combined_diff();
+    let command_display = "git apply --check -".to_string();
+    let mut command = build_process_command("git", &["apply", "--check", "-"]);
+    let mut child = command
+        .current_dir(&proposal.root)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .with_context(|| format!("failed to run patch check command: {command_display}"))?;
+
+    if let Some(stdin) = &mut child.stdin {
+        stdin
+            .write_all(patch.as_bytes())
+            .context("failed to send patch to git apply --check")?;
+    }
+
+    let output = child
+        .wait_with_output()
+        .context("failed to read patch check result")?;
+
+    Ok(Some(PatchCheckResult {
+        command: command_display,
+        success: output.status.success(),
+        exit_code: output.status.code(),
+        stdout: String::from_utf8_lossy(&output.stdout).to_string(),
+        stderr: String::from_utf8_lossy(&output.stderr).to_string(),
+    }))
+}
+
 fn build_process_command(program: &str, args: &[&str]) -> Command {
     if cfg!(windows) {
         let mut command = Command::new("cmd");
@@ -471,6 +516,52 @@ impl PatchProposal {
             out.push_str(&format!("Reason: {}\n\n", change.reason));
             out.push_str(&change.diff);
             if !change.diff.ends_with('\n') {
+                out.push('\n');
+            }
+        }
+
+        out
+    }
+
+    pub fn combined_diff(&self) -> String {
+        let mut out = String::new();
+        for change in &self.changes {
+            out.push_str(&change.diff);
+            if !change.diff.ends_with('\n') {
+                out.push('\n');
+            }
+        }
+        out
+    }
+}
+
+impl PatchCheckResult {
+    pub fn to_display_string(&self) -> String {
+        let mut out = String::new();
+        out.push_str("\nPatch check:\n");
+        out.push_str(&format!("Command: {}\n", self.command));
+        out.push_str(&format!(
+            "Status: {}\n",
+            if self.success { "OK" } else { "FAILED" }
+        ));
+        out.push_str(&format!(
+            "Exit code: {}\n",
+            self.exit_code
+                .map_or_else(|| "unknown".to_string(), |code| code.to_string())
+        ));
+
+        if !self.stdout.trim().is_empty() {
+            out.push_str("\nStdout:\n");
+            out.push_str(&self.stdout);
+            if !self.stdout.ends_with('\n') {
+                out.push('\n');
+            }
+        }
+
+        if !self.stderr.trim().is_empty() {
+            out.push_str("\nStderr:\n");
+            out.push_str(&self.stderr);
+            if !self.stderr.ends_with('\n') {
                 out.push('\n');
             }
         }
@@ -1162,6 +1253,7 @@ mod tests {
     use super::{
         build_unified_diff, context_priority, is_probably_text, parse_java_file, parse_plugin_yml,
         parse_pom, propose_java_legacy_patch, summarize_build_output, tail_lines, truncate_chars,
+        PatchFileChange, PatchProposal,
     };
     use std::fs;
     use std::path::Path;
@@ -1313,5 +1405,23 @@ commands:
         assert_eq!(proposal.changes.len(), 1);
         assert!(proposal.changes[0].diff.contains("Material.SULPHUR"));
         assert!(unchanged.contains("Material.GUNPOWDER"));
+    }
+
+    #[test]
+    fn combines_patch_diffs() {
+        let proposal = PatchProposal {
+            root: Path::new("root").to_path_buf(),
+            changes: vec![PatchFileChange {
+                path: Path::new("src/Test.java").to_path_buf(),
+                reason: "test".to_string(),
+                diff: "--- a/src/Test.java\n+++ b/src/Test.java\n".to_string(),
+            }],
+            notes: Vec::new(),
+        };
+
+        assert_eq!(
+            proposal.combined_diff(),
+            "--- a/src/Test.java\n+++ b/src/Test.java\n"
+        );
     }
 }

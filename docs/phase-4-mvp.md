@@ -30,12 +30,13 @@ Le prototype sait deja :
 - afficher des metriques LLM avec `--metrics` ;
 - exporter des metriques JSON avec `--metrics-json` ;
 - limiter la generation avec `--brief` et `--max-tokens` ;
-- produire un patch preview deterministe sans modifier les fichiers.
+- produire un patch preview deterministe sans modifier les fichiers ;
+- verifier un patch preview avec `git apply --check`.
 
 Il ne sait pas encore :
 
 - modifier des fichiers ;
-- verifier un patch avec `git apply --check` ;
+- appliquer un patch automatiquement ;
 - indexer avec Tantivy ;
 - parser Java avec Tree-sitter ;
 - utiliser une memoire persistante.
@@ -66,6 +67,7 @@ cargo run -q -- context --path benchmarks/mini-bukkit-plugin
 cargo run -q -- analyze-java --path benchmarks/mini-bukkit-plugin
 cargo run -q -- build --path benchmarks/mini-bukkit-plugin
 cargo run -q -- patch --path benchmarks/mini-bukkit-plugin
+cargo run -q -- patch --path benchmarks/mini-bukkit-plugin --check
 cargo run -q -- search Material.SULPHUR --path . --limit 5
 cargo run -q -- ask "Reponds en une phrase : quelle regle Bukkit 1.8.8 dois-tu respecter pour gunpowder ?" --path .
 cargo run -q -- plan "Ajouter une commande /coins dans un plugin Bukkit 1.8.8" --path . --metrics
@@ -127,7 +129,7 @@ cargo test --workspace
 Resultat :
 
 ```text
-OK - 14 tests passes
+OK - 15 tests passes
 ```
 
 ### Inspection locale
@@ -215,6 +217,6 @@ Le mode `--metrics-json` produit une sortie JSON exploitable pour comparer plusi
 
 ## Prochaines etapes
 
-1. Ajouter verification `git apply --check` sur les patchs preview.
+1. Ajouter un premier profil `minecraft-java-1.8` minimal.
 2. Comparer les commandes declarees dans `plugin.yml` avec `getCommand(...)`.
 3. Ajouter un cycle `build -> analyse erreur -> suggestion correction`.

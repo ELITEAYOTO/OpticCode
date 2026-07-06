@@ -44,6 +44,7 @@ cargo run -q -- inspect --path benchmarks/mini-bukkit-plugin
 cargo run -q -- analyze-java --path benchmarks/mini-bukkit-plugin
 cargo run -q -- build --path benchmarks/mini-bukkit-plugin
 cargo run -q -- patch --path benchmarks/mini-bukkit-plugin
+cargo run -q -- patch --path benchmarks/mini-bukkit-plugin --check
 cargo run -q -- search Material.SULPHUR --path benchmarks/mini-bukkit-plugin --limit 10
 cargo run -q -- plan "Verifier ce plugin Bukkit 1.8.8 et proposer les risques avant compilation" --path benchmarks/mini-bukkit-plugin
 .\scripts\run-mini-benchmark.ps1
@@ -154,6 +155,7 @@ Test negatif :
 
 - remplacement temporaire de `Material.SULPHUR` par `Material.GUNPOWDER` ;
 - patch preview genere un diff `Material.GUNPOWDER` -> `Material.SULPHUR` ;
+- `patch --check` confirme que le diff est applicable ;
 - le fichier est restaure apres test ;
 - la compilation repasse OK.
 

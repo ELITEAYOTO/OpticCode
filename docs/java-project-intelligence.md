@@ -67,7 +67,7 @@ Build command: mvn -q -DskipTests package
 - l'analyse Java est encore textuelle ;
 - pas encore de Tree-sitter ;
 - ne valide pas encore les correspondances entre `plugin.yml` et les appels `getCommand(...)` ;
-- ne verifie pas encore les patchs avec `git apply --check`.
+- n'applique pas encore les patchs automatiquement.
 
 ## Prochaines etapes
 
@@ -100,11 +100,13 @@ Commande :
 
 ```powershell
 cargo run -q -- patch --path benchmarks/mini-bukkit-plugin
+cargo run -q -- patch --path benchmarks/mini-bukkit-plugin --check
 ```
 
 Etat actuel :
 
 - propose un patch texte sans modifier les fichiers ;
+- verifie le patch avec `git apply --check -` quand `--check` est active ;
 - cible les corrections deterministes Java legacy ;
 - premiere regle : `Material.GUNPOWDER` vers `Material.SULPHUR`.
 
@@ -112,12 +114,13 @@ Test negatif effectue :
 
 - remplacement temporaire de `Material.SULPHUR` par `Material.GUNPOWDER` ;
 - `patch` propose un unified diff correct ;
+- `patch --check` valide le diff ;
 - `build` echoue avant correction comme attendu ;
 - fichier restaure ;
 - `build` repasse OK.
 
 ## Prochaines etapes
 
-1. Verifier les patchs preview avec `git apply --check`.
-2. Comparer les commandes declarees dans `plugin.yml` avec `getCommand(...)`.
+1. Comparer les commandes declarees dans `plugin.yml` avec `getCommand(...)`.
+2. Ajouter un premier profil `minecraft-java-1.8` minimal.
 3. Ajouter Tree-sitter Java plus tard pour une extraction plus robuste.

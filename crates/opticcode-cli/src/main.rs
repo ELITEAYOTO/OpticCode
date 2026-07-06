@@ -4,8 +4,8 @@ use anyhow::Result;
 use clap::{Parser, Subcommand};
 use opticcode_core::{parse_keep_alive, AskOptions, GenerateMetrics, OpticCode, PlanOptions};
 use opticcode_tools::{
-    analyze_java_project, build_java_project, build_project_context, inspect_workspace,
-    propose_java_legacy_patch, search_workspace,
+    analyze_java_project, build_java_project, build_project_context, check_patch_with_git,
+    inspect_workspace, propose_java_legacy_patch, search_workspace,
 };
 use serde::Serialize;
 use std::io::{self, Write};
@@ -46,6 +46,8 @@ enum Command {
     Patch {
         #[arg(long, default_value = ".")]
         path: PathBuf,
+        #[arg(long)]
+        check: bool,
     },
     Ask {
         prompt: String,
@@ -130,9 +132,20 @@ async fn main() -> Result<()> {
                 std::process::exit(1);
             }
         }
-        Command::Patch { path } => {
+        Command::Patch { path, check } => {
             let proposal = propose_java_legacy_patch(&path)?;
             println!("{}", proposal.to_display_string());
+            if check {
+                match check_patch_with_git(&proposal)? {
+                    Some(result) => {
+                        println!("{}", result.to_display_string());
+                        if !result.success {
+                            std::process::exit(1);
+                        }
+                    }
+                    None => println!("Patch check: skipped, no changes."),
+                }
+            }
         }
         Command::Ask {
             prompt,
