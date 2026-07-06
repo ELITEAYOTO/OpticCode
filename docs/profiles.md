@@ -46,6 +46,8 @@ Les commandes `ask` et `plan` utilisent par defaut :
 --profile minecraft-java-1.8
 ```
 
+Elles chargent aussi la memoire associee au profil, sauf si `--no-memory` est fourni.
+
 Pour desactiver le profil :
 
 ```powershell

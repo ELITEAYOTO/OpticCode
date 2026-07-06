@@ -16,6 +16,7 @@ pub struct AskOptions {
     pub workspace: PathBuf,
     pub prompt: String,
     pub profile: Option<String>,
+    pub include_memory: bool,
     pub brief: bool,
     pub max_tokens: Option<u32>,
 }
@@ -24,6 +25,7 @@ pub struct PlanOptions {
     pub workspace: PathBuf,
     pub goal: String,
     pub profile: Option<String>,
+    pub include_memory: bool,
     pub brief: bool,
     pub max_tokens: Option<u32>,
 }
@@ -40,7 +42,21 @@ pub struct ProfileContext {
     pub content: String,
 }
 
+#[derive(Debug, Clone, Default)]
+pub struct MemoryContext {
+    pub entries: Vec<MemoryEntry>,
+}
+
+#[derive(Debug, Clone)]
+pub struct MemoryEntry {
+    pub scope: String,
+    pub source: PathBuf,
+    pub content: String,
+}
+
 pub const DEFAULT_PROFILE: &str = "minecraft-java-1.8";
+const MAX_MEMORY_ENTRY_CHARS: usize = 2_500;
+const MAX_MEMORY_TOTAL_CHARS: usize = 7_000;
 
 impl OpticCode {
     pub fn new(ollama_url: impl Into<String>, model: impl Into<String>) -> Self {
@@ -62,10 +78,16 @@ impl OpticCode {
     pub async fn ask_with_metrics(&self, options: AskOptions) -> Result<AssistantOutput> {
         let context = build_project_context(&options.workspace)?;
         let profile = load_profile_for_workspace(&options.workspace, options.profile.as_deref())?;
+        let memory = if options.include_memory {
+            load_memory_for_workspace(&options.workspace, options.profile.as_deref())?
+        } else {
+            MemoryContext::default()
+        };
         let prompt = build_prompt(
             &options.prompt,
             &context.to_prompt_context(),
             profile.as_ref(),
+            &memory,
             options.brief,
         );
         let response = self
@@ -91,10 +113,16 @@ impl OpticCode {
     pub async fn plan_with_metrics(&self, options: PlanOptions) -> Result<AssistantOutput> {
         let context = build_project_context(&options.workspace)?;
         let profile = load_profile_for_workspace(&options.workspace, options.profile.as_deref())?;
+        let memory = if options.include_memory {
+            load_memory_for_workspace(&options.workspace, options.profile.as_deref())?
+        } else {
+            MemoryContext::default()
+        };
         let prompt = build_plan_prompt(
             &options.goal,
             &context.to_prompt_context(),
             profile.as_ref(),
+            &memory,
             options.brief,
         );
         let response = self
@@ -150,6 +178,58 @@ pub fn load_profile_for_workspace(
     anyhow::bail!("profile `{profile_id}` not found under skills/profiles/{profile_id}/profile.md")
 }
 
+pub fn load_memory_for_workspace(
+    workspace: &Path,
+    profile_id: Option<&str>,
+) -> Result<MemoryContext> {
+    let mut candidates = Vec::new();
+    let current_dir = std::env::current_dir()?;
+
+    for root in [workspace.to_path_buf(), current_dir] {
+        candidates.push(("global".to_string(), root.join("skills/memory/global.md")));
+
+        if let Some(profile_id) = normalized_id(profile_id) {
+            candidates.push((
+                format!("profile:{profile_id}"),
+                root.join("skills")
+                    .join("memory")
+                    .join("profiles")
+                    .join(format!("{profile_id}.md")),
+            ));
+        }
+
+        candidates.push(("project".to_string(), root.join(".opticcode/memory.md")));
+    }
+
+    let mut entries = Vec::new();
+    let mut seen = Vec::<PathBuf>::new();
+    let mut total_chars = 0usize;
+
+    for (scope, path) in candidates {
+        if !path.exists() || seen.iter().any(|seen_path| seen_path == &path) {
+            continue;
+        }
+
+        let raw = fs::read_to_string(&path)
+            .with_context(|| format!("failed to read memory {}", path.display()))?;
+        let content = truncate_memory(&raw, MAX_MEMORY_ENTRY_CHARS);
+        let content_chars = content.chars().count();
+        if total_chars + content_chars > MAX_MEMORY_TOTAL_CHARS {
+            break;
+        }
+
+        seen.push(path.clone());
+        total_chars += content_chars;
+        entries.push(MemoryEntry {
+            scope,
+            source: path,
+            content,
+        });
+    }
+
+    Ok(MemoryContext { entries })
+}
+
 impl ProfileContext {
     pub fn to_display_string(&self) -> String {
         format!(
@@ -161,10 +241,31 @@ impl ProfileContext {
     }
 }
 
+impl MemoryContext {
+    pub fn to_display_string(&self) -> String {
+        if self.entries.is_empty() {
+            return "Memory: none".to_string();
+        }
+
+        let mut out = String::new();
+        out.push_str(&format!("Memory entries: {}\n", self.entries.len()));
+        for entry in &self.entries {
+            out.push_str(&format!("\n## {}\n", entry.scope));
+            out.push_str(&format!("Source: {}\n\n", entry.source.display()));
+            out.push_str(&entry.content);
+            if !entry.content.ends_with('\n') {
+                out.push('\n');
+            }
+        }
+        out
+    }
+}
+
 fn build_prompt(
     user_prompt: &str,
     project_context: &str,
     profile: Option<&ProfileContext>,
+    memory: &MemoryContext,
     brief: bool,
 ) -> String {
     let style = if brief {
@@ -173,6 +274,7 @@ fn build_prompt(
         ""
     };
     let profile_context = format_profile_context(profile);
+    let memory_context = format_memory_context(memory);
 
     format!(
         r#"Tu es OpticCode, un assistant code local specialise Java Minecraft legacy.
@@ -190,6 +292,9 @@ Contraintes obligatoires :
 Profil actif :
 {profile_context}
 
+Memoire active :
+{memory_context}
+
 Contexte projet detecte :
 {project_context}
 
@@ -203,6 +308,7 @@ fn build_plan_prompt(
     goal: &str,
     project_context: &str,
     profile: Option<&ProfileContext>,
+    memory: &MemoryContext,
     brief: bool,
 ) -> String {
     let format_instruction = if brief {
@@ -211,6 +317,7 @@ fn build_plan_prompt(
         "Format attendu :\n1. Resume de l'objectif\n2. Fichiers a inspecter ou creer\n3. Plan d'implementation\n4. Points legacy Bukkit/Java 8 a surveiller\n5. Verifications a lancer\n6. Questions bloquantes, seulement si necessaire"
     };
     let profile_context = format_profile_context(profile);
+    let memory_context = format_memory_context(memory);
 
     format!(
         r#"Tu es OpticCode en mode plan.
@@ -238,6 +345,9 @@ Interdictions en mode plan :
 Profil actif :
 {profile_context}
 
+Memoire active :
+{memory_context}
+
 Contexte projet detecte :
 {project_context}
 
@@ -261,9 +371,44 @@ fn format_profile_context(profile: Option<&ProfileContext>) -> String {
     )
 }
 
+fn format_memory_context(memory: &MemoryContext) -> String {
+    if memory.entries.is_empty() {
+        return "none".to_string();
+    }
+
+    memory
+        .entries
+        .iter()
+        .map(|entry| {
+            format!(
+                "scope: {}\nsource: {}\n{}",
+                entry.scope,
+                entry.source.display(),
+                entry.content
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n\n")
+}
+
+fn normalized_id(value: Option<&str>) -> Option<&str> {
+    value
+        .map(str::trim)
+        .filter(|value| !value.is_empty() && !value.eq_ignore_ascii_case("none"))
+}
+
+fn truncate_memory(value: &str, max_chars: usize) -> String {
+    let mut iter = value.chars();
+    let mut content = iter.by_ref().take(max_chars).collect::<String>();
+    if iter.next().is_some() {
+        content.push_str("\n[truncated]\n");
+    }
+    content
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{build_plan_prompt, build_prompt, ProfileContext};
+    use super::{build_plan_prompt, build_prompt, MemoryContext, MemoryEntry, ProfileContext};
     use std::path::PathBuf;
 
     fn test_profile() -> ProfileContext {
@@ -274,22 +419,35 @@ mod tests {
         }
     }
 
+    fn test_memory() -> MemoryContext {
+        MemoryContext {
+            entries: vec![MemoryEntry {
+                scope: "profile:minecraft-java-1.8".to_string(),
+                source: PathBuf::from("skills/memory/profiles/minecraft-java-1.8.md"),
+                content: "Memoire: ne jamais proposer Material.NETHER_WART.".to_string(),
+            }],
+        }
+    }
+
     #[test]
     fn prompt_contains_legacy_guardrails() {
         let profile = test_profile();
-        let prompt = build_prompt("test", "context", Some(&profile), false);
+        let memory = test_memory();
+        let prompt = build_prompt("test", "context", Some(&profile), &memory, false);
 
         assert!(prompt.contains("Java 8"));
         assert!(prompt.contains("PandaSpigot"));
         assert!(prompt.contains("Material.SULPHUR"));
         assert!(prompt.contains("api-version"));
         assert!(prompt.contains("Regle profil"));
+        assert!(prompt.contains("Memoire: ne jamais proposer Material.NETHER_WART"));
     }
 
     #[test]
     fn plan_prompt_forbids_file_modification_claims() {
         let profile = test_profile();
-        let prompt = build_plan_prompt("ajouter /coins", "context", Some(&profile), false);
+        let memory = test_memory();
+        let prompt = build_plan_prompt("ajouter /coins", "context", Some(&profile), &memory, false);
 
         assert!(prompt.contains("mode plan"));
         assert!(prompt.contains("Tu ne dois pas ecrire un patch complet"));
@@ -300,7 +458,13 @@ mod tests {
 
     #[test]
     fn brief_plan_prompt_limits_shape() {
-        let prompt = build_plan_prompt("verifier plugin", "context", None, true);
+        let prompt = build_plan_prompt(
+            "verifier plugin",
+            "context",
+            None,
+            &MemoryContext::default(),
+            true,
+        );
 
         assert!(prompt.contains("6 puces maximum"));
         assert!(!prompt.contains("1. Resume de l'objectif"));

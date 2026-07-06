@@ -33,7 +33,8 @@ Le prototype sait deja :
 - produire un patch preview deterministe sans modifier les fichiers ;
 - verifier un patch preview avec `git apply --check` ;
 - charger un profil `minecraft-java-1.8` depuis `skills/profiles` ;
-- comparer les commandes `plugin.yml` avec les appels `getCommand(...)`.
+- comparer les commandes `plugin.yml` avec les appels `getCommand(...)` ;
+- charger une memoire Markdown simple depuis `skills/memory`.
 
 Il ne sait pas encore :
 
@@ -71,6 +72,7 @@ cargo run -q -- build --path benchmarks/mini-bukkit-plugin
 cargo run -q -- patch --path benchmarks/mini-bukkit-plugin
 cargo run -q -- patch --path benchmarks/mini-bukkit-plugin --check
 cargo run -q -- profile --path benchmarks/mini-bukkit-plugin --profile minecraft-java-1.8
+cargo run -q -- memory --path benchmarks/mini-bukkit-plugin --profile minecraft-java-1.8
 cargo run -q -- search Material.SULPHUR --path . --limit 5
 cargo run -q -- ask "Reponds en une phrase : quelle regle Bukkit 1.8.8 dois-tu respecter pour gunpowder ?" --path .
 cargo run -q -- plan "Ajouter une commande /coins dans un plugin Bukkit 1.8.8" --path . --metrics
@@ -220,6 +222,6 @@ Le mode `--metrics-json` produit une sortie JSON exploitable pour comparer plusi
 
 ## Prochaines etapes
 
-1. Relier le profil `minecraft-java-1.8` aux futures regles RAG.
-2. Ajouter plus de regles legacy sures.
+1. Relier le profil et la memoire aux futures regles RAG.
+2. Ajouter un benchmark JSONL/CSV reproductible.
 3. Ajouter un cycle `build -> analyse erreur -> suggestion correction`.

@@ -42,6 +42,7 @@ Le projet a maintenant un premier squelette Rust fonctionnel.
 - [Patch preview](docs/patch-preview.md)
 - [Profils](docs/profiles.md)
 - [Regles Minecraft 1.8 legacy](docs/minecraft-legacy-rules.md)
+- [Memoire simple](docs/memory.md)
 
 ## Arborescence prevue
 
@@ -75,6 +76,7 @@ cargo run -q -- build --path benchmarks/mini-bukkit-plugin
 cargo run -q -- patch --path benchmarks/mini-bukkit-plugin
 cargo run -q -- patch --path benchmarks/mini-bukkit-plugin --check
 cargo run -q -- profile --path benchmarks/mini-bukkit-plugin --profile minecraft-java-1.8
+cargo run -q -- memory --path benchmarks/mini-bukkit-plugin --profile minecraft-java-1.8
 cargo run -q -- search Material.SULPHUR --path . --limit 5
 cargo run -q -- ask "Reponds en une phrase : quelle regle Bukkit 1.8.8 dois-tu respecter pour gunpowder ?" --path .
 cargo run -q -- plan "Ajouter une commande /coins dans un plugin Bukkit 1.8.8" --path . --metrics

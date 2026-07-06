@@ -3,8 +3,8 @@ use std::path::PathBuf;
 use anyhow::Result;
 use clap::{Parser, Subcommand};
 use opticcode_core::{
-    load_profile_for_workspace, parse_keep_alive, AskOptions, GenerateMetrics, OpticCode,
-    PlanOptions, DEFAULT_PROFILE,
+    load_memory_for_workspace, load_profile_for_workspace, parse_keep_alive, AskOptions,
+    GenerateMetrics, OpticCode, PlanOptions, DEFAULT_PROFILE,
 };
 use opticcode_tools::{
     analyze_java_project, build_java_project, build_project_context, check_patch_with_git,
@@ -52,6 +52,12 @@ enum Command {
         #[arg(long, default_value = DEFAULT_PROFILE)]
         profile: String,
     },
+    Memory {
+        #[arg(long, default_value = ".")]
+        path: PathBuf,
+        #[arg(long, default_value = DEFAULT_PROFILE)]
+        profile: String,
+    },
     Patch {
         #[arg(long, default_value = ".")]
         path: PathBuf,
@@ -70,6 +76,8 @@ enum Command {
         keep_alive: String,
         #[arg(long, default_value = DEFAULT_PROFILE)]
         profile: String,
+        #[arg(long)]
+        no_memory: bool,
         #[arg(long)]
         brief: bool,
         #[arg(long)]
@@ -91,6 +99,8 @@ enum Command {
         keep_alive: String,
         #[arg(long, default_value = DEFAULT_PROFILE)]
         profile: String,
+        #[arg(long)]
+        no_memory: bool,
         #[arg(long)]
         brief: bool,
         #[arg(long)]
@@ -151,6 +161,10 @@ async fn main() -> Result<()> {
                 None => println!("Profile disabled."),
             }
         }
+        Command::Memory { path, profile } => {
+            let memory = load_memory_for_workspace(&path, Some(&profile))?;
+            println!("{}", memory.to_display_string());
+        }
         Command::Patch { path, check } => {
             let proposal = propose_java_legacy_patch(&path)?;
             println!("{}", proposal.to_display_string());
@@ -173,6 +187,7 @@ async fn main() -> Result<()> {
             ollama_url,
             keep_alive,
             profile,
+            no_memory,
             brief,
             max_tokens,
             metrics,
@@ -185,6 +200,7 @@ async fn main() -> Result<()> {
                     workspace: path,
                     prompt,
                     profile: Some(profile),
+                    include_memory: !no_memory,
                     brief,
                     max_tokens,
                 })
@@ -205,6 +221,7 @@ async fn main() -> Result<()> {
             ollama_url,
             keep_alive,
             profile,
+            no_memory,
             brief,
             max_tokens,
             metrics,
@@ -217,6 +234,7 @@ async fn main() -> Result<()> {
                     workspace: path,
                     goal,
                     profile: Some(profile),
+                    include_memory: !no_memory,
                     brief,
                     max_tokens,
                 })

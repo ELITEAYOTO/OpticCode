@@ -170,6 +170,7 @@ Etat actuel :
 - verification `patch --check` fonctionnelle via `git apply --check` ;
 - profil `minecraft-java-1.8` minimal ajoute ;
 - coherence `plugin.yml` / `getCommand(...)` detectee ;
+- memoire Markdown simple ajoutee ;
 - compilation et tests OK.
 
 Livrable :
@@ -210,7 +211,8 @@ Etat actuel :
 - `ask` et `plan` peuvent charger le profil `minecraft-java-1.8` ;
 - `analyze-java` compare les commandes declarees avec `getCommand(...)` ;
 - table legacy initiale ajoutee : gunpowder, nether wart, spawners, pelles/spades et quelques mobs ;
-- prochaine cible : premiere memoire simple et enrichissement RAG depuis les packs/doc locales.
+- `ask` et `plan` chargent une memoire global/profil par defaut ;
+- prochaine cible : enrichissement RAG depuis les packs/doc locales et benchmarks JSONL.
 
 ## Phase 5.5 - Profils, memoire et optimisation controlee
 
@@ -226,9 +228,9 @@ Priorites :
 
 1. Benchmarks JSONL/CSV reproductibles.
 2. Streaming pour confort interactif.
-3. Memoire simple global/profile/project.
-4. Selection de contexte par tache.
-5. Packs RAG lies aux profils.
+3. Selection de contexte par tache.
+4. Packs RAG lies aux profils.
+5. Feedback accepted/rejected.
 
 Decisions :
 
@@ -241,6 +243,7 @@ Livrable :
 
 - `docs/ideas-triage.md`
 - `docs/profiles.md`
+- `docs/memory.md`
 
 ## Phase 6 - RAG local
 

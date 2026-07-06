@@ -397,3 +397,20 @@ Raison :
 - beaucoup de bugs Bukkit viennent d'une commande oubliee dans `plugin.yml` ou mal enregistree ;
 - cette verification est rapide et deterministe ;
 - elle reduit le besoin d'appeler le modele pour un probleme structurel simple.
+
+### D-028 - Memoire Markdown avant SQLite
+
+Statut : valide provisoirement.
+
+Decision :
+
+- ajouter une memoire simple dans `skills/memory` ;
+- charger une memoire globale et une memoire par profil dans `ask` et `plan` ;
+- permettre `--no-memory` pour benchmarker sans memoire ;
+- repousser SQLite a une phase ou les donnees seront plus nombreuses.
+
+Raison :
+
+- OpticCode doit apprendre son contexte avant d'entrainer un modele ;
+- Markdown est lisible, versionnable et suffisant pour les premieres regles ;
+- cela prepare la future memoire global/profile/project sans complexite prematuree.
