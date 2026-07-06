@@ -1,6 +1,6 @@
 # OpticCode - Patch preview
 
-Derniere mise a jour : 2026-07-06
+Derniere mise a jour : 2026-07-07
 
 ## Objectif
 
@@ -91,7 +91,7 @@ Ce test travaille sur une copie temporaire du mini plugin et confirme que le pat
 
 1. Ajouter une commande separee `apply --dry-run`. Fait.
 2. Ajouter l'application sur copie temporaire. Fait.
-3. Ajouter l'application reelle avec confirmation explicite.
+3. Ajouter l'application reelle avec confirmation explicite dans le workspace courant. Fait.
 4. Ajouter rollback/log simple.
 5. Brancher plus tard la generation LLM de patchs sur ce meme format.
 
@@ -110,6 +110,14 @@ cargo run -q -- apply --path benchmarks/mini-bukkit-plugin --copy-to benchmarks/
 ```
 
 Ce mode copie le projet, applique uniquement dans la copie, et refuse de tourner sans `--yes`.
+
+Commande application reelle limitee au workspace courant :
+
+```powershell
+cargo run -q -- apply --path benchmarks/mini-bukkit-plugin --yes
+```
+
+Ce mode refuse les chemins externes pour l'instant. PandaSpigot et les plugins personnels restent en lecture seule ou en mode copie tant que rollback/log n'est pas ajoute.
 
 Roadmap detaillee :
 

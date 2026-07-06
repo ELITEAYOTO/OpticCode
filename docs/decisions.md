@@ -730,3 +730,22 @@ Raison :
 - ce mode permet de tester le workflow complet avant l'application reelle ;
 - `--yes` garde une confirmation explicite meme sur copie ;
 - la cible inexistante evite d'ecraser des donnees.
+
+### D-047 - Apply reel limite au workspace courant
+
+Statut : valide provisoirement.
+
+Decision :
+
+- autoriser `apply --path <dossier> --yes` a appliquer le patch dans le dossier cible ;
+- limiter cette application aux chemins situes dans le workspace courant ;
+- refuser les chemins externes avec une erreur explicite ;
+- garder `git apply --check` obligatoire avant `git apply` ;
+- ne pas lancer de build automatique dans cette premiere version.
+
+Raison :
+
+- c'est la premiere modification reelle de fichiers source par OpticCode ;
+- le workspace courant est controle et versionne, donc le risque est plus faible ;
+- tes projets externes n'ont pas tous un backup garanti ;
+- rollback/log doit exister avant d'autoriser PandaSpigot ou les plugins externes.

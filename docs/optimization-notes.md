@@ -379,6 +379,30 @@ Interpretation :
 - la commande publique `apply --copy-to --yes` est maintenant utilisee par le benchmark ;
 - les differences LF/CRLF sont neutralisees lors de l'application du patch dans la copie temporaire.
 
+### 13. Apply reel local
+
+Statut : ajoute pour le workspace courant.
+
+Commande :
+
+```powershell
+cargo run -q -- apply --path benchmarks/runs/apply-real-20260707-012409/workspace --yes
+```
+
+Resultat observe :
+
+```text
+Patch check : succes
+Patch apply : succes
+Applied in source project.
+```
+
+Interpretation :
+
+- aucun appel Qwen n'est necessaire pour ces corrections legacy deterministes ;
+- le gain est surtout un temps de boucle plus court et moins de tokens LLM depenses ;
+- l'application reelle reste refusee hors workspace courant jusqu'au rollback/log local.
+
 ## Plan optimisation court terme
 
 1. Ajouter metriques LLM dans la sortie de debug. Fait.
@@ -392,4 +416,5 @@ Interpretation :
 9. Comparer Q4_K_M et Q5_K_M seulement apres mise en place du benchmark reproductible.
 10. Mesurer la qualite du RAG pondere sur plusieurs prompts legacy. Fait.
 11. Ajouter des tests qualite sur correction de code + build Maven. Fait.
-12. Concevoir `safe apply` avec confirmation explicite et rollback simple. Prochaine cible.
+12. Concevoir `safe apply` avec confirmation explicite. Fait pour dry-run, copie, et workspace courant.
+13. Ajouter rollback/log local avant projets externes. Prochaine cible.

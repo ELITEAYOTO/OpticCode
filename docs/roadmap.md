@@ -1,6 +1,6 @@
 # OpticCode - Roadmap
 
-Derniere mise a jour : 2026-07-06
+Derniere mise a jour : 2026-07-07
 
 ## Vision courte
 
@@ -235,22 +235,24 @@ Etat actuel :
 - roadmap `safe apply` ajoutee avant implementation de l'application reelle ;
 - `apply --dry-run` ajoute pour verifier un plan d'application sans modifier de fichiers ;
 - `apply --copy-to <path> --yes` ajoute pour appliquer uniquement dans une copie temporaire ;
+- `apply --path <dossier> --yes` ajoute pour appliquer reellement dans le workspace courant uniquement ;
 - `ask` et `plan` peuvent charger le profil `minecraft-java-1.8` ;
 - `analyze-java` compare les commandes declarees avec `getCommand(...)` ;
 - table legacy initiale ajoutee : gunpowder, nether wart, spawners, pelles/spades et quelques mobs ;
 - `ask` et `plan` chargent une memoire global/profil par defaut ;
 - `run-mini-benchmark.ps1` append des runs JSONL comparables ;
-- prochaine cible : `safe apply` V1 en dry-run, puis application confirmee.
+- prochaine cible : journal/rollback avant application reelle sur projets externes.
 
 ## Phase 5.1 - Safe Apply
 
-Statut : demarree.
+Statut : demarree, application reelle limitee au workspace courant.
 
 Objectif :
 
 - appliquer des patchs seulement apres verification et confirmation explicite ;
 - commencer par `apply --dry-run` ;
 - tester l'application sur copie temporaire ;
+- autoriser une premiere application reelle uniquement dans le workspace courant ;
 - refuser toute modification silencieuse ;
 - preparer rollback simple.
 
@@ -258,7 +260,7 @@ Ordre :
 
 1. `apply --dry-run` sans modification. Fait.
 2. Application sur copie temporaire. Fait.
-3. Application reelle avec `--yes` ou confirmation.
+3. Application reelle avec `--yes` dans le workspace courant. Fait.
 4. Verification build optionnelle.
 5. Rollback/log local.
 

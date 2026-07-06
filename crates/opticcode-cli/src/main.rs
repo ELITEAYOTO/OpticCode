@@ -1,4 +1,5 @@
-use std::path::PathBuf;
+use std::fs;
+use std::path::{Path, PathBuf};
 
 use anyhow::{bail, Result};
 use clap::{Parser, Subcommand};
@@ -7,9 +8,9 @@ use opticcode_core::{
     AskOptions, GenerateMetrics, OpticCode, PlanOptions, DEFAULT_PROFILE,
 };
 use opticcode_tools::{
-    analyze_java_project, apply_java_legacy_patch_to_copy, build_java_project,
-    build_project_context, build_rag_index, check_patch_with_git, inspect_rag_source,
-    inspect_resource_pack, inspect_workspace, prepare_java_legacy_apply_plan,
+    analyze_java_project, apply_java_legacy_patch_in_place, apply_java_legacy_patch_to_copy,
+    build_java_project, build_project_context, build_rag_index, check_patch_with_git,
+    inspect_rag_source, inspect_resource_pack, inspect_workspace, prepare_java_legacy_apply_plan,
     propose_java_legacy_patch, search_rag_index, search_workspace,
 };
 use serde::Serialize;
@@ -298,8 +299,11 @@ async fn main() -> Result<()> {
                     bail!("apply with --copy-to requires --yes");
                 }
                 apply_java_legacy_patch_to_copy(&path, &copy_to)?
+            } else if yes {
+                ensure_apply_path_is_inside_current_workspace(&path)?;
+                apply_java_legacy_patch_in_place(&path)?
             } else {
-                bail!("real apply is not enabled yet; use --dry-run or --copy-to <path> --yes");
+                bail!("real apply requires --yes; use --dry-run or --copy-to <path> --yes");
             };
             println!("{}", plan.to_display_string());
             if !plan.success() {
@@ -394,6 +398,21 @@ async fn main() -> Result<()> {
                 print_metrics_json("plan", &output.metrics)?;
             }
         }
+    }
+
+    Ok(())
+}
+
+fn ensure_apply_path_is_inside_current_workspace(path: &Path) -> Result<()> {
+    let workspace = fs::canonicalize(std::env::current_dir()?)?;
+    let target = fs::canonicalize(path)?;
+
+    if !target.starts_with(&workspace) {
+        bail!(
+            "real apply is currently limited to the current workspace: {} is outside {}",
+            target.display(),
+            workspace.display()
+        );
     }
 
     Ok(())

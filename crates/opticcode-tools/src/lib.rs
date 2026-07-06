@@ -907,6 +907,27 @@ pub fn apply_java_legacy_patch_to_copy(source: &Path, copy_to: &Path) -> Result<
         )
     })?);
 
+    if plan.proposal.changes.is_empty() {
+        return Ok(plan);
+    }
+
+    if let Some(check) = &plan.check {
+        if !check.success {
+            return Ok(plan);
+        }
+    }
+
+    plan.apply = apply_patch_with_git(&plan.proposal)?;
+    Ok(plan)
+}
+
+pub fn apply_java_legacy_patch_in_place(root: &Path) -> Result<ApplyPlan> {
+    let mut plan = prepare_java_legacy_apply_plan(root, false)?;
+
+    if plan.proposal.changes.is_empty() {
+        return Ok(plan);
+    }
+
     if let Some(check) = &plan.check {
         if !check.success {
             return Ok(plan);
@@ -1210,6 +1231,8 @@ impl ApplyPlan {
             out.push_str("\nDry run: no file was modified.\n");
         } else if self.copied_from.is_some() {
             out.push_str("\nApplied in copy only; source project was not modified.\n");
+        } else if self.apply.as_ref().is_some_and(|apply| apply.success) {
+            out.push_str("\nApplied in source project.\n");
         }
 
         out
@@ -2268,9 +2291,10 @@ fn top_named_counts(values: &BTreeMap<String, usize>, limit: usize) -> Vec<(&str
 #[cfg(test)]
 mod tests {
     use super::{
-        apply_java_legacy_patch_to_copy, apply_legacy_replacements, build_unified_diff, chunk_text,
-        collect_project_risks, context_priority, is_important_rag_file, is_legacy_resource_match,
-        is_probably_text, is_rag_indexable_text, parse_java_file, parse_plugin_yml, parse_pom,
+        apply_java_legacy_patch_in_place, apply_java_legacy_patch_to_copy,
+        apply_legacy_replacements, build_unified_diff, chunk_text, collect_project_risks,
+        context_priority, is_important_rag_file, is_legacy_resource_match, is_probably_text,
+        is_rag_indexable_text, parse_java_file, parse_plugin_yml, parse_pom,
         propose_java_legacy_patch, resource_pack_category, summarize_build_output, tail_lines,
         truncate_chars, ApplyPlan, BuildTool, PatchCheckResult, PatchFileChange, PatchProposal,
     };
@@ -2625,5 +2649,29 @@ commands:
         assert!(plan
             .to_display_string()
             .contains("Applied in copy only; source project was not modified."));
+    }
+
+    #[test]
+    fn applies_legacy_patch_in_place_with_explicit_function() {
+        let root = unique_temp_dir("opticcode-apply-in-place");
+
+        fs::create_dir_all(root.join("src/main/java/dev/test")).expect("source dirs");
+        let java_path = root.join("src/main/java/dev/test/Test.java");
+        fs::write(
+            &java_path,
+            "package dev.test;\nclass Test { Object item = Material.GUNPOWDER; }\n",
+        )
+        .expect("write source java");
+
+        let plan = apply_java_legacy_patch_in_place(&root).expect("apply in place");
+        let content = fs::read_to_string(&java_path).expect("patched java");
+
+        assert!(plan.success());
+        assert!(plan.apply.as_ref().is_some_and(|apply| apply.success));
+        assert!(content.contains("Material.SULPHUR"));
+        assert!(!content.contains("Material.GUNPOWDER"));
+        assert!(plan
+            .to_display_string()
+            .contains("Applied in source project."));
     }
 }

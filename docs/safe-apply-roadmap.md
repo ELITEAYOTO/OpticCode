@@ -165,15 +165,24 @@ Error: apply with --copy-to requires --yes
 
 ## Phase SA-3 - Safe apply reel avec confirmation
 
+Statut : terminee pour le workspace courant.
+
 Objectif :
 
 - appliquer dans le vrai projet local uniquement si l'utilisateur confirme explicitement ;
-- refuser par defaut si le workspace Git est sale, sauf option explicite.
+- limiter la premiere version au workspace OpticCode courant ;
+- refuser les chemins externes tant que rollback/log n'est pas disponible.
 
 Commande cible :
 
 ```powershell
 cargo run -q -- apply --path benchmarks/mini-bukkit-plugin --yes
+```
+
+Commande validee sur copie de test interne :
+
+```powershell
+cargo run -q -- apply --path benchmarks/runs/apply-real-20260707-012409/workspace --yes
 ```
 
 Garde-fous :
@@ -182,8 +191,7 @@ Garde-fous :
 - afficher chemins modifies ;
 - lancer `git apply --check` ;
 - demander `--yes` pour mode non interactif ;
-- refuser si aucun patch ;
-- refuser si le projet n'est pas sous Git, sauf `--allow-no-git` plus tard ;
+- refuser les chemins hors du workspace courant ;
 - ne pas lancer automatiquement un build long sauf option `--build`.
 
 Critere de reussite :
@@ -191,6 +199,30 @@ Critere de reussite :
 - fichiers modifies uniquement apres confirmation ;
 - `git diff` montre exactement le patch attendu ;
 - build optionnel passe.
+
+Resultat sur copie temporaire interne cassee :
+
+```text
+Mode: apply
+Changes: 1
+Patch check:
+Status: OK
+Patch apply:
+Status: OK
+Applied in source project.
+```
+
+Resultat sur chemin externe :
+
+```text
+Error: real apply is currently limited to the current workspace
+```
+
+Limite volontaire :
+
+- ce mode ne doit pas encore etre utilise sur PandaSpigot ou tes plugins externes ;
+- pour les projets externes, utiliser encore `--copy-to <path> --yes` ;
+- l'application externe attend SA-4 avec journal/rollback.
 
 ## Phase SA-4 - Rollback simple
 
@@ -273,8 +305,9 @@ Ne doit pas montrer de modification dans `benchmarks/mini-bukkit-plugin`.
 1. Implementer `apply --dry-run`. Fait.
 2. Ajouter un test unitaire ou integration leger pour l'application de patch sur dossier temporaire. Fait pour dry-run.
 3. Ajouter `apply --yes` sur copie temporaire. Fait via `--copy-to <path> --yes`.
-4. Valider avec `run-patch-build-quality.ps1`. En cours.
-5. Seulement ensuite activer application reelle avec confirmation stricte.
+4. Valider avec `run-patch-build-quality.ps1`. Fait.
+5. Activer application reelle avec confirmation stricte dans le workspace courant. Fait.
+6. Ajouter rollback/log local avant d'autoriser les projets externes.
 
 ## Risques
 
