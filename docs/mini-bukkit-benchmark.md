@@ -43,6 +43,7 @@ Points legacy volontairement presents :
 cargo run -q -- inspect --path benchmarks/mini-bukkit-plugin
 cargo run -q -- analyze-java --path benchmarks/mini-bukkit-plugin
 cargo run -q -- build --path benchmarks/mini-bukkit-plugin
+cargo run -q -- patch --path benchmarks/mini-bukkit-plugin
 cargo run -q -- search Material.SULPHUR --path benchmarks/mini-bukkit-plugin --limit 10
 cargo run -q -- plan "Verifier ce plugin Bukkit 1.8.8 et proposer les risques avant compilation" --path benchmarks/mini-bukkit-plugin
 .\scripts\run-mini-benchmark.ps1
@@ -135,6 +136,26 @@ Test negatif :
 - build echoue comme attendu ;
 - OpticCode detecte `cannot find symbol`, `GUNPOWDER` et `org.bukkit.Material` ;
 - OpticCode propose la correction legacy : `Material.SULPHUR`.
+
+### Patch preview OpticCode
+
+Commande :
+
+```powershell
+cargo run -q -- patch --path benchmarks/mini-bukkit-plugin
+```
+
+Resultat sur projet sain :
+
+- aucun changement propose ;
+- aucun fichier modifie.
+
+Test negatif :
+
+- remplacement temporaire de `Material.SULPHUR` par `Material.GUNPOWDER` ;
+- patch preview genere un diff `Material.GUNPOWDER` -> `Material.SULPHUR` ;
+- le fichier est restaure apres test ;
+- la compilation repasse OK.
 
 ### Plan OpticCode
 

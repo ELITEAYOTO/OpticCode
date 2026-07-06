@@ -39,6 +39,7 @@ Le projet a maintenant un premier squelette Rust fonctionnel.
 - [Benchmark mini Bukkit](docs/mini-bukkit-benchmark.md)
 - [Notes optimisation](docs/optimization-notes.md)
 - [Tri des idees de recherche](docs/ideas-triage.md)
+- [Patch preview](docs/patch-preview.md)
 
 ## Arborescence prevue
 
@@ -69,6 +70,7 @@ cargo run -q -- inspect --path .
 cargo run -q -- context --path benchmarks/mini-bukkit-plugin
 cargo run -q -- analyze-java --path benchmarks/mini-bukkit-plugin
 cargo run -q -- build --path benchmarks/mini-bukkit-plugin
+cargo run -q -- patch --path benchmarks/mini-bukkit-plugin
 cargo run -q -- search Material.SULPHUR --path . --limit 5
 cargo run -q -- ask "Reponds en une phrase : quelle regle Bukkit 1.8.8 dois-tu respecter pour gunpowder ?" --path .
 cargo run -q -- plan "Ajouter une commande /coins dans un plugin Bukkit 1.8.8" --path . --metrics
@@ -79,4 +81,4 @@ cargo run -q -- inspect --path benchmarks/mini-bukkit-plugin
 
 ## Prochaine etape
 
-Ajouter une generation de patch texte non appliquee, puis introduire un premier profil `minecraft-java-1.8` minimal.
+Ajouter `git apply --check` pour verifier les patchs preview, puis introduire un premier profil `minecraft-java-1.8` minimal.

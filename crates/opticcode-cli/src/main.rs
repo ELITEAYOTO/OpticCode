@@ -5,7 +5,7 @@ use clap::{Parser, Subcommand};
 use opticcode_core::{parse_keep_alive, AskOptions, GenerateMetrics, OpticCode, PlanOptions};
 use opticcode_tools::{
     analyze_java_project, build_java_project, build_project_context, inspect_workspace,
-    search_workspace,
+    propose_java_legacy_patch, search_workspace,
 };
 use serde::Serialize;
 use std::io::{self, Write};
@@ -40,6 +40,10 @@ enum Command {
         path: PathBuf,
     },
     Build {
+        #[arg(long, default_value = ".")]
+        path: PathBuf,
+    },
+    Patch {
         #[arg(long, default_value = ".")]
         path: PathBuf,
     },
@@ -125,6 +129,10 @@ async fn main() -> Result<()> {
             if !result.success {
                 std::process::exit(1);
             }
+        }
+        Command::Patch { path } => {
+            let proposal = propose_java_legacy_patch(&path)?;
+            println!("{}", proposal.to_display_string());
         }
         Command::Ask {
             prompt,

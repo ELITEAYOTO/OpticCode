@@ -115,6 +115,20 @@ pub struct BuildResult {
     pub stderr_tail: String,
 }
 
+#[derive(Debug, Clone)]
+pub struct PatchProposal {
+    pub root: PathBuf,
+    pub changes: Vec<PatchFileChange>,
+    pub notes: Vec<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct PatchFileChange {
+    pub path: PathBuf,
+    pub reason: String,
+    pub diff: String,
+}
+
 pub fn inspect_workspace(root: &Path) -> Result<WorkspaceReport> {
     let root = fs::canonicalize(root)
         .with_context(|| format!("failed to resolve workspace path: {}", root.display()))?;
@@ -334,6 +348,55 @@ pub fn analyze_java_project(root: &Path) -> Result<JavaProjectAnalysis> {
     })
 }
 
+pub fn propose_java_legacy_patch(root: &Path) -> Result<PatchProposal> {
+    let analysis = analyze_java_project(root)?;
+    let mut changes = Vec::new();
+    let mut notes = Vec::new();
+
+    for file in &analysis.java_files {
+        let absolute_path = analysis.root.join(&file.path);
+        let content = match fs::read_to_string(&absolute_path) {
+            Ok(value) => value,
+            Err(_) => continue,
+        };
+
+        if !content.contains("Material.GUNPOWDER") {
+            continue;
+        }
+
+        let proposed = content.replace("Material.GUNPOWDER", "Material.SULPHUR");
+        let diff = build_unified_diff(
+            &file.path,
+            &content,
+            &proposed,
+            "Bukkit 1.8.8 legacy material name.",
+        );
+
+        changes.push(PatchFileChange {
+            path: file.path.clone(),
+            reason: "Replace Material.GUNPOWDER with Material.SULPHUR for Bukkit 1.8.8."
+                .to_string(),
+            diff,
+        });
+    }
+
+    if changes.is_empty() {
+        notes.push("No deterministic Java legacy patch is currently needed.".to_string());
+    } else {
+        notes.push("Patch is a preview only; no file was modified.".to_string());
+        notes.push(
+            "Run `build` after applying the patch manually or via a future safe-apply command."
+                .to_string(),
+        );
+    }
+
+    Ok(PatchProposal {
+        root: analysis.root,
+        changes,
+        notes,
+    })
+}
+
 fn build_process_command(program: &str, args: &[&str]) -> Command {
     if cfg!(windows) {
         let mut command = Command::new("cmd");
@@ -383,6 +446,31 @@ impl BuildResult {
             out.push_str("\nStderr tail:\n");
             out.push_str(&self.stderr_tail);
             if !self.stderr_tail.ends_with('\n') {
+                out.push('\n');
+            }
+        }
+
+        out
+    }
+}
+
+impl PatchProposal {
+    pub fn to_display_string(&self) -> String {
+        let mut out = String::new();
+        out.push_str(&format!("Project: {}\n", self.root.display()));
+        out.push_str("Mode: preview only\n");
+        out.push_str(&format!("Changes: {}\n", self.changes.len()));
+
+        out.push_str("\nNotes:\n");
+        for note in &self.notes {
+            out.push_str(&format!("- {note}\n"));
+        }
+
+        for change in &self.changes {
+            out.push_str(&format!("\n## {}\n", change.path.display()));
+            out.push_str(&format!("Reason: {}\n\n", change.reason));
+            out.push_str(&change.diff);
+            if !change.diff.ends_with('\n') {
                 out.push('\n');
             }
         }
@@ -681,6 +769,86 @@ fn tail_lines(value: &str, limit: usize) -> String {
     let lines = value.lines().collect::<Vec<_>>();
     let start = lines.len().saturating_sub(limit);
     lines[start..].join("\n")
+}
+
+fn build_unified_diff(path: &Path, original: &str, proposed: &str, reason: &str) -> String {
+    let original_lines = original.lines().collect::<Vec<_>>();
+    let proposed_lines = proposed.lines().collect::<Vec<_>>();
+    let path = path.to_string_lossy().replace('\\', "/");
+
+    let mut changed_indices = original_lines
+        .iter()
+        .zip(proposed_lines.iter())
+        .enumerate()
+        .filter_map(|(index, (left, right))| (left != right).then_some(index))
+        .collect::<Vec<_>>();
+
+    if original_lines.len() != proposed_lines.len() {
+        let min_len = original_lines.len().min(proposed_lines.len());
+        changed_indices.extend(min_len..original_lines.len().max(proposed_lines.len()));
+    }
+
+    let mut out = String::new();
+    out.push_str(&format!("# {reason}\n"));
+    out.push_str(&format!("--- a/{path}\n"));
+    out.push_str(&format!("+++ b/{path}\n"));
+
+    if changed_indices.is_empty() {
+        return out;
+    }
+
+    let context = 3usize;
+    let mut groups = Vec::new();
+    let mut start = changed_indices[0];
+    let mut end = changed_indices[0];
+
+    for index in changed_indices.into_iter().skip(1) {
+        if index <= end + context * 2 + 1 {
+            end = index;
+        } else {
+            groups.push((start, end));
+            start = index;
+            end = index;
+        }
+    }
+    groups.push((start, end));
+
+    for (change_start, change_end) in groups {
+        let hunk_start = change_start.saturating_sub(context);
+        let hunk_end = (change_end + context + 1)
+            .min(original_lines.len())
+            .max((change_end + 1).min(proposed_lines.len()));
+        let old_count = hunk_end.saturating_sub(hunk_start);
+        let new_count = old_count;
+
+        out.push_str(&format!(
+            "@@ -{},{} +{},{} @@\n",
+            hunk_start + 1,
+            old_count,
+            hunk_start + 1,
+            new_count
+        ));
+
+        for index in hunk_start..hunk_end {
+            let original_line = original_lines.get(index);
+            let proposed_line = proposed_lines.get(index);
+
+            match (original_line, proposed_line) {
+                (Some(left), Some(right)) if left == right => {
+                    out.push_str(&format!(" {left}\n"));
+                }
+                (Some(left), Some(right)) => {
+                    out.push_str(&format!("-{left}\n"));
+                    out.push_str(&format!("+{right}\n"));
+                }
+                (Some(left), None) => out.push_str(&format!("-{left}\n")),
+                (None, Some(right)) => out.push_str(&format!("+{right}\n")),
+                (None, None) => {}
+            }
+        }
+    }
+
+    out
 }
 
 fn collect_project_risks(
@@ -992,10 +1160,12 @@ fn top_extensions(extensions: &BTreeMap<String, usize>, limit: usize) -> Vec<(&s
 #[cfg(test)]
 mod tests {
     use super::{
-        context_priority, is_probably_text, parse_java_file, parse_plugin_yml, parse_pom,
-        summarize_build_output, tail_lines, truncate_chars,
+        build_unified_diff, context_priority, is_probably_text, parse_java_file, parse_plugin_yml,
+        parse_pom, propose_java_legacy_patch, summarize_build_output, tail_lines, truncate_chars,
     };
+    use std::fs;
     use std::path::Path;
+    use std::time::{SystemTime, UNIX_EPOCH};
 
     #[test]
     fn detects_common_project_text_files() {
@@ -1098,5 +1268,50 @@ commands:
     #[test]
     fn keeps_tail_lines() {
         assert_eq!(tail_lines("a\nb\nc", 2), "b\nc");
+    }
+
+    #[test]
+    fn builds_unified_diff_for_line_replacement() {
+        let diff = build_unified_diff(
+            Path::new("src/Test.java"),
+            "class Test {\n  Material.GUNPOWDER;\n}\n",
+            "class Test {\n  Material.SULPHUR;\n}\n",
+            "test",
+        );
+
+        assert!(diff.contains("--- a/src/Test.java"));
+        assert!(diff.contains("+++ b/src/Test.java"));
+        assert!(diff.contains("-  Material.GUNPOWDER;"));
+        assert!(diff.contains("+  Material.SULPHUR;"));
+    }
+
+    #[test]
+    fn proposes_legacy_material_patch_without_writing_files() {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock should work")
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("opticcode-test-{unique}"));
+        let java_dir = root.join("src/main/java/dev/test");
+        fs::create_dir_all(&java_dir).expect("test dir should be created");
+        fs::write(
+            root.join("pom.xml"),
+            "<project><properties><maven.compiler.source>1.8</maven.compiler.source><maven.compiler.target>1.8</maven.compiler.target></properties><dependencies><dependency><groupId>org.spigotmc</groupId><artifactId>spigot-api</artifactId><version>1.8.8-R0.1-SNAPSHOT</version></dependency></dependencies></project>",
+        )
+        .expect("pom should be written");
+        let java_path = java_dir.join("Test.java");
+        fs::write(
+            &java_path,
+            "package dev.test;\nclass Test { Object item = Material.GUNPOWDER; }\n",
+        )
+        .expect("java should be written");
+
+        let proposal = propose_java_legacy_patch(&root).expect("proposal should succeed");
+        let unchanged = fs::read_to_string(&java_path).expect("java should still exist");
+        fs::remove_dir_all(&root).expect("test dir should be cleaned");
+
+        assert_eq!(proposal.changes.len(), 1);
+        assert!(proposal.changes[0].diff.contains("Material.SULPHUR"));
+        assert!(unchanged.contains("Material.GUNPOWDER"));
     }
 }

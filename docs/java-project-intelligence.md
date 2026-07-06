@@ -67,8 +67,7 @@ Build command: mvn -q -DskipTests package
 - l'analyse Java est encore textuelle ;
 - pas encore de Tree-sitter ;
 - ne valide pas encore les correspondances entre `plugin.yml` et les appels `getCommand(...)` ;
-- ne compile pas encore automatiquement ;
-- ne resume pas encore les erreurs Maven.
+- ne verifie pas encore les patchs avec `git apply --check`.
 
 ## Prochaines etapes
 
@@ -95,8 +94,30 @@ Test negatif effectue :
 - suggestion ajoutee : utiliser `Material.SULPHUR` pour Bukkit 1.8.8 ;
 - fichier restaure apres le test.
 
+## Patch preview
+
+Commande :
+
+```powershell
+cargo run -q -- patch --path benchmarks/mini-bukkit-plugin
+```
+
+Etat actuel :
+
+- propose un patch texte sans modifier les fichiers ;
+- cible les corrections deterministes Java legacy ;
+- premiere regle : `Material.GUNPOWDER` vers `Material.SULPHUR`.
+
+Test negatif effectue :
+
+- remplacement temporaire de `Material.SULPHUR` par `Material.GUNPOWDER` ;
+- `patch` propose un unified diff correct ;
+- `build` echoue avant correction comme attendu ;
+- fichier restaure ;
+- `build` repasse OK.
+
 ## Prochaines etapes
 
-1. Comparer les commandes declarees dans `plugin.yml` avec `getCommand(...)`.
-2. Ajouter generation de patch texte non applique.
+1. Verifier les patchs preview avec `git apply --check`.
+2. Comparer les commandes declarees dans `plugin.yml` avec `getCommand(...)`.
 3. Ajouter Tree-sitter Java plus tard pour une extraction plus robuste.

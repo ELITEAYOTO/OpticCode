@@ -166,6 +166,7 @@ Etat actuel :
 - mini projet benchmark Bukkit Java 8 ajoute ;
 - commande `analyze-java` fonctionnelle ;
 - commande `build` fonctionnelle pour Maven/Gradle ;
+- commande `patch` fonctionnelle en preview deterministe ;
 - compilation et tests OK.
 
 Livrable :
@@ -201,7 +202,8 @@ Etat actuel :
 - `build` resume les erreurs de compilation utiles ;
 - test negatif `Material.GUNPOWDER` valide avec suggestion `Material.SULPHUR` ;
 - `keep_alive=15m` reduit fortement le cout de modele froid ;
-- prochaine cible : generation de patch texte non applique.
+- `patch` propose un diff non applique pour `Material.GUNPOWDER` -> `Material.SULPHUR` ;
+- prochaine cible : verification `git apply --check`.
 
 ## Phase 5.5 - Profils, memoire et optimisation controlee
 

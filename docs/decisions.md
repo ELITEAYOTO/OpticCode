@@ -358,3 +358,19 @@ Raison :
 - les profils doivent fonctionner en CLI, futur daemon et futur IDE ;
 - les regles doivent pouvoir changer selon le projet ;
 - un Modelfile trop gros deviendrait rigide et difficile a benchmarker.
+
+### D-026 - Patch preview avant safe apply
+
+Statut : valide provisoirement.
+
+Decision :
+
+- ajouter une commande `patch` qui produit un diff texte sans modifier les fichiers ;
+- commencer par des corrections deterministes Java legacy ;
+- repousser l'application automatique a une commande separee avec verification.
+
+Raison :
+
+- OpticCode doit rester controlable ;
+- un patch visible est plus fiable qu'une modification directe ;
+- le meme format servira plus tard aux patchs generes par LLM, a `git apply --check` et au futur safe apply.
