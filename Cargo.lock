@@ -760,6 +760,8 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "roxmltree",
+ "serde",
+ "serde_json",
  "serde_yaml",
  "walkdir",
 ]

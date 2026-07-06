@@ -448,3 +448,20 @@ Raison :
 - l'utilisateur n'a pas forcement de backup de ces projets ;
 - le futur RAG doit apprendre des sources metier sans risquer de les alterer ;
 - les dependances extraites et `.class` polluent les mesures et doivent rester hors index V1.
+
+### D-031 - Index JSONL avant Tantivy/Qdrant
+
+Statut : valide provisoirement.
+
+Decision :
+
+- ajouter `rag-index` qui ecrit `documents.jsonl` et `chunks.jsonl` dans `data/index` ;
+- ajouter `rag-search` pour verifier la recherche locale sans embeddings ;
+- garder les artefacts d'index hors Git via `.gitignore` ;
+- retarder Tantivy, SQLite et Qdrant jusqu'a ce que le schema et les mesures soient plus clairs.
+
+Raison :
+
+- JSONL est simple, inspectable et suffisant pour valider les sources ;
+- l'index doit d'abord prouver son utilite sur des requetes Minecraft legacy ;
+- cela evite d'installer une brique lourde avant de connaitre le volume et les besoins reels.

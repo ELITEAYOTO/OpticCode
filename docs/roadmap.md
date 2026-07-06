@@ -174,6 +174,7 @@ Etat actuel :
 - benchmark JSONL ajoute dans `scripts/run-mini-benchmark.ps1` ;
 - commande `pack-scan` ajoutee pour inventorier les resource packs externes sans les copier ;
 - commande `rag-scan` ajoutee pour inventorier les plugins avances et PandaSpigot en lecture seule ;
+- commandes `rag-index` et `rag-search` ajoutees pour un premier index JSONL local ;
 - compilation et tests OK.
 
 Livrable :
@@ -184,6 +185,7 @@ Livrable :
 - `docs/java-project-intelligence.md`
 - `docs/resource-pack-scan.md`
 - `docs/rag-source-inventory.md`
+- `docs/rag-index.md`
 
 ## Phase 5 - Tools code et Java legacy
 
@@ -267,13 +269,14 @@ Objectif :
 
 Approche recommandee :
 
-1. Commencer par un index texte local et deterministe.
+1. Commencer par un index JSONL local et deterministe.
 2. Extraire les fichiers `.md`, `.txt`, `.lang`, `.properties`, `.json` utiles.
 3. Garder les images uniquement comme references de chemins et metadata.
-4. Ajouter SQLite pour metadata et memoire quand les schemas sont stables.
-5. Ajouter Tantivy pour recherche full-text.
-6. Ajouter Tree-sitter pour symboles/classes/methodes.
-7. Ajouter Qdrant seulement quand les embeddings sont valides.
+4. Ameliorer la recherche locale avant d'ajouter des embeddings.
+5. Ajouter SQLite pour metadata et memoire quand les schemas sont stables.
+6. Ajouter Tantivy pour recherche full-text.
+7. Ajouter Tree-sitter pour symboles/classes/methodes.
+8. Ajouter Qdrant seulement quand les embeddings sont valides.
 
 ## Phase 7 - Agent iteratif
 

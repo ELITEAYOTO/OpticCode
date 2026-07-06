@@ -7,9 +7,9 @@ use opticcode_core::{
     GenerateMetrics, OpticCode, PlanOptions, DEFAULT_PROFILE,
 };
 use opticcode_tools::{
-    analyze_java_project, build_java_project, build_project_context, check_patch_with_git,
-    inspect_rag_source, inspect_resource_pack, inspect_workspace, propose_java_legacy_patch,
-    search_workspace,
+    analyze_java_project, build_java_project, build_project_context, build_rag_index,
+    check_patch_with_git, inspect_rag_source, inspect_resource_pack, inspect_workspace,
+    propose_java_legacy_patch, search_rag_index, search_workspace,
 };
 use serde::Serialize;
 use std::io::{self, Write};
@@ -69,6 +69,21 @@ enum Command {
         #[arg(long = "path", required = true)]
         paths: Vec<PathBuf>,
         #[arg(long, default_value_t = 20)]
+        limit: usize,
+    },
+    RagIndex {
+        #[arg(long = "path", required = true)]
+        paths: Vec<PathBuf>,
+        #[arg(long, default_value = "data/index")]
+        output: PathBuf,
+        #[arg(long, default_value_t = 4000)]
+        chunk_chars: usize,
+    },
+    RagSearch {
+        query: String,
+        #[arg(long, default_value = "data/index")]
+        index: PathBuf,
+        #[arg(long, default_value_t = 8)]
         limit: usize,
     },
     Patch {
@@ -189,6 +204,28 @@ async fn main() -> Result<()> {
                 }
                 let report = inspect_rag_source(path, limit)?;
                 println!("{}", report.to_display_string());
+            }
+        }
+        Command::RagIndex {
+            paths,
+            output,
+            chunk_chars,
+        } => {
+            let report = build_rag_index(&paths, &output, chunk_chars)?;
+            println!("{}", report.to_display_string());
+        }
+        Command::RagSearch {
+            query,
+            index,
+            limit,
+        } => {
+            let hits = search_rag_index(&index, &query, limit)?;
+            if hits.is_empty() {
+                println!("No matches found.");
+            } else {
+                for hit in hits {
+                    println!("{}\n", hit.to_display_string());
+                }
             }
         }
         Command::Patch { path, check } => {
