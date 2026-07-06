@@ -200,7 +200,7 @@ OpticCode enrichit maintenant les requetes RAG avec des synonymes deterministes 
 | `pelle`, `pelles` | `shovel`, `spade`, `WOOD_SPADE`, `DIAMOND_SPADE` |
 | `spawner` | `spawner`, `mob_spawner`, `MOB_SPAWNER` |
 | `nether wart` | `nether wart`, `nether_stalk`, `NETHER_STALK` |
-| `spawn egg`, `oeuf` | `spawn_egg`, `monster_placer`, `MONSTER_EGG` |
+| `spawn egg`, `oeuf` | `spawn_egg`, `monster_placer`, `monsterPlacer`, `MONSTER_EGG`, `Material.MONSTER_EGG` |
 | `gunpowder`, `poudre` | `gunpowder`, `SULPHUR`, `Material.SULPHUR` |
 
 Verification rapide :
@@ -331,7 +331,7 @@ Poids actuels :
 
 | Requete | Poids |
 | --- | ---: |
-| `Material.SULPHUR`, `SULPHUR`, `MOB_SPAWNER`, `NETHER_STALK`, `spawn_egg`, `monster_placer` | 4 |
+| `Material.SULPHUR`, `SULPHUR`, `MOB_SPAWNER`, `NETHER_STALK`, `Material.MONSTER_EGG`, `spawn_egg`, `monster_placer`, `monsterPlacer` | 4 |
 | `nether wart`, `gunpowder` | 3 |
 | `spawner`, `spade` | 2 |
 | `shovel`, `WOOD_SPADE`, `DIAMOND_SPADE`, `MONSTER_EGG` | 1 |
@@ -347,6 +347,35 @@ Verification rapide :
 ```powershell
 cargo run -q -- rag-debug "Verifier pelles spawners nether wart gunpowder" --index data/index --limit 4
 ```
+
+## Benchmark qualite RAG
+
+Statut : ajoute.
+
+Commande :
+
+```powershell
+.\scripts\run-rag-quality.ps1 -MaxTokens 120
+```
+
+Dernier run :
+
+```text
+benchmarks/runs/rag-quality-20260706-201036.md
+```
+
+Resultat observe :
+
+| Mode | Score moyen |
+| --- | ---: |
+| avec RAG | 100 % |
+| sans RAG | 80 % |
+
+Correction issue du benchmark :
+
+- le cas `spawn-egg` ne produisait pas `MONSTER_EGG` ;
+- ajout de la regle `Material.MONSTER_EGG` dans `docs/minecraft-legacy-rules.md` ;
+- ajout des expansions `monsterPlacer` et `Material.MONSTER_EGG`.
 
 ## Deduplication RAG
 

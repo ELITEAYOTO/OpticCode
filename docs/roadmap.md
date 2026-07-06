@@ -185,6 +185,8 @@ Etat actuel :
 - `matched_queries` ajoute au debug RAG pour expliquer chaque hit ;
 - `query_scores` ajoute au debug RAG pour voir le score par requete elargie ;
 - `weighted_score` ajoute pour favoriser les correspondances legacy precises par rapport aux synonymes generiques ;
+- script `run-rag-quality.ps1` ajoute pour mesurer la qualite legacy avec/sans RAG ;
+- regle spawn egg ajoutee : `Material.MONSTER_EGG` et `item.monsterPlacer` ;
 - compilation et tests OK.
 
 Livrable :
@@ -196,6 +198,7 @@ Livrable :
 - `docs/resource-pack-scan.md`
 - `docs/rag-source-inventory.md`
 - `docs/rag-index.md`
+- `docs/rag-quality.md`
 
 ## Phase 5 - Tools code et Java legacy
 

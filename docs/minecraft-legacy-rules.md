@@ -38,6 +38,7 @@ La commande `pack-scan` confirme aussi la presence de nombreux `models/block`, `
 | `Material.NETHER_WART` | `Material.NETHER_STALK` | Nether wart/stalk |
 | `Material.SPAWNER` | `Material.MOB_SPAWNER` | Bloc spawner |
 | `Material.MONSTER_SPAWNER` | `Material.MOB_SPAWNER` | Bloc spawner |
+| `Material.SPAWN_EGG`, `Material.*_SPAWN_EGG` | `Material.MONSTER_EGG` | Spawn egg item ; verifier entity id / durability / NBT |
 | `Material.WOODEN_SHOVEL` | `Material.WOOD_SPADE` | Pelle bois |
 | `Material.STONE_SHOVEL` | `Material.STONE_SPADE` | Pelle pierre |
 | `Material.IRON_SHOVEL` | `Material.IRON_SPADE` | Pelle fer |
@@ -58,6 +59,7 @@ La commande `pack-scan` confirme aussi la presence de nombreux `models/block`, `
 - Ne pas convertir automatiquement les laines, vitres, tapis, bois ou variantes de blocs colorees sans verifier les data values.
 - Pour les blocks/items avec metadata en 1.8, preferer signaler le risque plutot que produire une correction approximative.
 - Les noms issus du resource pack ne correspondent pas toujours directement aux enums Bukkit `Material`.
+- `item.monsterPlacer` est le nom resource-pack 1.8 des spawn eggs ; cote Bukkit 1.8, verifier `Material.MONSTER_EGG` et les donnees d'entite associees.
 - Les spawners custom Volkaria devront etre indexes plus tard via RAG/CIT, pas hardcodes dans le moteur.
 
 ## Prochaines extensions possibles

@@ -637,3 +637,21 @@ Raison :
 - le score brut peut favoriser un terme generique tres frequent ;
 - la ponderation est deterministe, peu couteuse et evite d'ajouter un moteur vectoriel trop tot ;
 - l'optimisation vise surtout la qualite du contexte injecte, donc le cout en tokens utiles, pas le debit brut du modele.
+
+### D-042 - Benchmark qualite RAG legacy
+
+Statut : valide provisoirement.
+
+Decision :
+
+- ajouter `scripts/run-rag-quality.ps1` ;
+- tester des cas legacy avec et sans RAG ;
+- scorer automatiquement la presence de termes attendus ;
+- conserver les resultats Markdown et JSONL dans `benchmarks/runs`.
+
+Raison :
+
+- le RAG doit etre juge sur la qualite des reponses, pas seulement sur le temps ;
+- les mappings faciles peuvent passer sans RAG, donc il faut des cas discriminants ;
+- le test `spawn-egg` a revele un manque reel dans la doc metier et l'expansion RAG ;
+- apres correction, le score observe est passe de 80 % a 100 % avec RAG sur la batterie courte.

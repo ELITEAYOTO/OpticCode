@@ -75,6 +75,7 @@ Mesure importante du 2026-07-06 :
 - `rag-debug` affiche maintenant `chunk` et `matched_queries`, utile pour diagnostiquer la qualite sans relancer Qwen.
 - `rag-debug` affiche aussi `query_scores`, ce qui montre le poids de chaque requete elargie par chunk.
 - le scoring RAG pondere favorise les identifiants legacy precis (`MOB_SPAWNER`, `NETHER_STALK`, `Material.SULPHUR`) par rapport aux synonymes generiques (`shovel`).
+- le benchmark qualite RAG montre un passage de 80 % a 100 % avec RAG apres correction du cas `spawn-egg`.
 
 ## Optimisations prioritaires
 
@@ -329,6 +330,29 @@ Interpretation :
 - ce n'est pas une acceleration brute de Qwen ;
 - la prochaine mesure importante est le taux de bonnes reponses avec/sans RAG pondere sur les memes prompts.
 
+### 11. Benchmark qualite RAG
+
+Statut : ajoute.
+
+Commande :
+
+```powershell
+.\scripts\run-rag-quality.ps1 -MaxTokens 120
+```
+
+Dernier resultat observe :
+
+| Mode | Score moyen |
+| --- | ---: |
+| avec RAG | 100 % |
+| sans RAG | 80 % |
+
+Point important :
+
+- le cas `spawn-egg` etait le vrai discriminant ;
+- sans RAG, Qwen a donne une reponse generique ;
+- avec RAG et la regle `Material.MONSTER_EGG`, il a cite le bon nom legacy.
+
 ## Plan optimisation court terme
 
 1. Ajouter metriques LLM dans la sortie de debug. Fait.
@@ -340,4 +364,5 @@ Interpretation :
 7. Tester streaming pour confort utilisateur.
 8. Comparer Ollama avec llama.cpp/Vulkan seulement apres stabilisation des prompts.
 9. Comparer Q4_K_M et Q5_K_M seulement apres mise en place du benchmark reproductible.
-10. Mesurer la qualite du RAG pondere sur plusieurs prompts legacy. En cours.
+10. Mesurer la qualite du RAG pondere sur plusieurs prompts legacy. Fait.
+11. Ajouter des tests qualite sur correction de code + build Maven. Prochaine cible.

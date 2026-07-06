@@ -627,7 +627,9 @@ fn expand_rag_queries(query: &str) -> Vec<String> {
     {
         queries.push("spawn_egg".to_string());
         queries.push("monster_placer".to_string());
+        queries.push("monsterPlacer".to_string());
         queries.push("MONSTER_EGG".to_string());
+        queries.push("Material.MONSTER_EGG".to_string());
     }
 
     if lower.contains("gunpowder") || lower.contains("sulphur") || lower.contains("poudre") {
@@ -680,8 +682,14 @@ fn weighted_query_score(scores: &[RagQueryScore]) -> usize {
 fn rag_query_weight(query: &str) -> usize {
     let lower = query.to_ascii_lowercase();
     match lower.as_str() {
-        "material.sulphur" | "sulphur" | "mob_spawner" | "nether_stalk" | "spawn_egg"
-        | "monster_placer" => 4,
+        "material.sulphur"
+        | "sulphur"
+        | "mob_spawner"
+        | "nether_stalk"
+        | "material.monster_egg"
+        | "spawn_egg"
+        | "monster_placer"
+        | "monsterplacer" => 4,
         "nether wart" | "gunpowder" => 3,
         "spawner" | "spade" => 2,
         "diamond_spade" | "monster_egg" | "wood_spade" => 1,
@@ -802,6 +810,7 @@ fn legacy_concepts(value: &str) -> Vec<&'static str> {
     }
     if lower.contains("spawn_egg")
         || lower.contains("monster_placer")
+        || lower.contains("monsterplacer")
         || lower.contains("monster egg")
     {
         concepts.push("spawn_egg");
@@ -990,6 +999,17 @@ mod tests {
     }
 
     #[test]
+    fn expands_spawn_egg_rag_queries() {
+        let queries = expand_rag_queries("Verifier les spawn eggs en Bukkit 1.8.8");
+
+        assert!(queries.contains(&"spawn_egg".to_string()));
+        assert!(queries.contains(&"monster_placer".to_string()));
+        assert!(queries.contains(&"monsterPlacer".to_string()));
+        assert!(queries.contains(&"MONSTER_EGG".to_string()));
+        assert!(queries.contains(&"Material.MONSTER_EGG".to_string()));
+    }
+
+    #[test]
     fn displays_rag_debug_context() {
         let rag = RagContext {
             index: Some(PathBuf::from("data/index")),
@@ -1016,6 +1036,7 @@ mod tests {
         assert!(rag_query_weight("MOB_SPAWNER") > rag_query_weight("shovel"));
         assert!(rag_query_weight("NETHER_STALK") > rag_query_weight("shovel"));
         assert!(rag_query_weight("Material.SULPHUR") > rag_query_weight("shovel"));
+        assert!(rag_query_weight("Material.MONSTER_EGG") > rag_query_weight("MONSTER_EGG"));
     }
 
     #[test]
