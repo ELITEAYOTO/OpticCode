@@ -313,6 +313,7 @@ Le debug affiche aussi :
 ```text
 chunk: 2024feecdafcac5f:0
 matched_queries: DIAMOND_SPADE, NETHER_STALK, WOOD_SPADE, nether wart, nether_stalk, spade
+query_scores: nether wart=44, spade=6, NETHER_STALK=2, nether_stalk=2, DIAMOND_SPADE=1, WOOD_SPADE=1
 ```
 
 ## Deduplication RAG
@@ -376,12 +377,15 @@ Debug apres filtre :
 Injected hits:
 source: opticcode:docs/minecraft-legacy-rules.md
 matched_queries: DIAMOND_SPADE, NETHER_STALK, WOOD_SPADE, nether wart, nether_stalk, spade
+query_scores: nether wart=44, spade=6, NETHER_STALK=2, nether_stalk=2, DIAMOND_SPADE=1, WOOD_SPADE=1
 
 source: plugin:src/main/java/me/krunsh/kspawner/data/PlayerSpawnerData.java
 matched_queries: spawner
+query_scores: spawner=86
 
 source: resource-pack:assets/minecraft/lang/en_US.lang
 matched_queries: nether wart, shovel
+query_scores: nether wart=27, shovel=10
 ```
 
 Limite restante :
@@ -393,5 +397,5 @@ Limite restante :
 
 Ameliorer encore la requete RAG :
 
-- afficher un score detaille par requete elargie, pas seulement la liste des requetes ;
+- utiliser `query_scores` pour ponderer les synonymes trop larges ;
 - mesurer de nouveau avec plus de prompts.

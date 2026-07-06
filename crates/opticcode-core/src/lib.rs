@@ -74,7 +74,14 @@ pub struct RagContextHit {
     pub chunk_id: String,
     pub score: usize,
     pub matched_queries: Vec<String>,
+    pub query_scores: Vec<RagQueryScore>,
     pub preview: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RagQueryScore {
+    pub query: String,
+    pub score: usize,
 }
 
 pub const DEFAULT_PROFILE: &str = "minecraft-java-1.8";
@@ -291,6 +298,7 @@ pub fn load_rag_context(index_dir: &Path, query: &str, limit: usize) -> Result<R
                     existing.matched_queries.push(expanded_query.clone());
                     existing.matched_queries.sort();
                 }
+                upsert_query_score(&mut existing.query_scores, expanded_query, hit.score);
                 continue;
             }
             hits.push(RagContextHit {
@@ -298,6 +306,10 @@ pub fn load_rag_context(index_dir: &Path, query: &str, limit: usize) -> Result<R
                 chunk_id: hit.chunk_id,
                 score: hit.score,
                 matched_queries: vec![expanded_query.clone()],
+                query_scores: vec![RagQueryScore {
+                    query: expanded_query.clone(),
+                    score: hit.score,
+                }],
                 preview: hit.preview,
             });
         }
@@ -379,6 +391,14 @@ impl RagContext {
                         "none".to_string()
                     } else {
                         hit.matched_queries.join(", ")
+                    }
+                ));
+                out.push_str(&format!(
+                    "query_scores: {}\n",
+                    if hit.query_scores.is_empty() {
+                        "none".to_string()
+                    } else {
+                        format_query_scores(&hit.query_scores)
                     }
                 ));
                 out.push_str(&hit.preview);
@@ -626,6 +646,32 @@ fn sort_rag_hits_for_prompt(hits: &mut [RagContextHit]) {
     });
 }
 
+fn upsert_query_score(scores: &mut Vec<RagQueryScore>, query: &str, score: usize) {
+    if let Some(existing) = scores.iter_mut().find(|entry| entry.query == query) {
+        existing.score = existing.score.max(score);
+    } else {
+        scores.push(RagQueryScore {
+            query: query.to_string(),
+            score,
+        });
+    }
+
+    scores.sort_by(|left, right| {
+        right
+            .score
+            .cmp(&left.score)
+            .then_with(|| left.query.cmp(&right.query))
+    });
+}
+
+fn format_query_scores(scores: &[RagQueryScore]) -> String {
+    scores
+        .iter()
+        .map(|score| format!("{}={}", score.query, score.score))
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
 fn select_rag_hits_for_prompt(hits: &mut Vec<RagContextHit>) {
     sort_rag_hits_for_prompt(hits);
 
@@ -755,7 +801,7 @@ mod tests {
     use super::{
         build_plan_prompt, build_prompt, expand_rag_queries, format_rag_context, rag_duplicate_key,
         select_rag_hits_for_prompt, sort_rag_hits_for_prompt, MemoryContext, MemoryEntry,
-        ProfileContext, RagContext, RagContextHit,
+        ProfileContext, RagContext, RagContextHit, RagQueryScore,
     };
     use std::path::PathBuf;
 
@@ -774,6 +820,26 @@ mod tests {
                 source: PathBuf::from("skills/memory/profiles/minecraft-java-1.8.md"),
                 content: "Memoire: ne jamais proposer Material.NETHER_WART.".to_string(),
             }],
+        }
+    }
+
+    fn test_rag_hit(
+        source: &str,
+        chunk_id: &str,
+        score: usize,
+        query: &str,
+        preview: &str,
+    ) -> RagContextHit {
+        RagContextHit {
+            source: source.to_string(),
+            chunk_id: chunk_id.to_string(),
+            score,
+            matched_queries: vec![query.to_string()],
+            query_scores: vec![RagQueryScore {
+                query: query.to_string(),
+                score,
+            }],
+            preview: preview.to_string(),
         }
     }
 
@@ -838,13 +904,13 @@ mod tests {
         let rag = RagContext {
             index: Some(PathBuf::from("data/index")),
             queries: vec!["nether wart".to_string(), "nether_stalk".to_string()],
-            hits: vec![RagContextHit {
-                source: "resource-pack:assets/minecraft/lang/en_US.lang".to_string(),
-                chunk_id: "lang:0".to_string(),
-                score: 12,
-                matched_queries: vec!["nether wart".to_string()],
-                preview: "tile.netherStalk.name=Nether Wart".to_string(),
-            }],
+            hits: vec![test_rag_hit(
+                "resource-pack:assets/minecraft/lang/en_US.lang",
+                "lang:0",
+                12,
+                "nether wart",
+                "tile.netherStalk.name=Nether Wart",
+            )],
         };
         let prompt = build_prompt(
             "nether wart",
@@ -864,13 +930,13 @@ mod tests {
         let rag = RagContext {
             index: Some(PathBuf::from("data/index")),
             queries: vec!["spade".to_string()],
-            hits: vec![RagContextHit {
-                source: "plugin:big.java".to_string(),
-                chunk_id: "big:0".to_string(),
-                score: 1,
-                matched_queries: vec!["spade".to_string()],
-                preview: "a".repeat(6_000),
-            }],
+            hits: vec![test_rag_hit(
+                "plugin:big.java",
+                "big:0",
+                1,
+                "spade",
+                &"a".repeat(6_000),
+            )],
         };
         let formatted = format_rag_context(&rag);
 
@@ -892,46 +958,46 @@ mod tests {
         let rag = RagContext {
             index: Some(PathBuf::from("data/index")),
             queries: vec!["spade".to_string()],
-            hits: vec![RagContextHit {
-                source: "opticcode:docs/minecraft-legacy-rules.md".to_string(),
-                chunk_id: "rules:0".to_string(),
-                score: 6,
-                matched_queries: vec!["spade".to_string()],
-                preview: "WOOD_SPADE".to_string(),
-            }],
+            hits: vec![test_rag_hit(
+                "opticcode:docs/minecraft-legacy-rules.md",
+                "rules:0",
+                6,
+                "spade",
+                "WOOD_SPADE",
+            )],
         };
         let display = rag.to_display_string();
 
         assert!(display.contains("Expanded queries"));
         assert!(display.contains("matched_queries: spade"));
-        assert!(display.contains("spade"));
+        assert!(display.contains("query_scores: spade=6"));
         assert!(display.contains("WOOD_SPADE"));
     }
 
     #[test]
     fn prioritizes_docs_and_skills_over_internal_code_for_rag() {
         let mut hits = vec![
-            RagContextHit {
-                source: "opticcode:crates/opticcode-tools/src/lib.rs".to_string(),
-                chunk_id: "crates:0".to_string(),
-                score: 20,
-                matched_queries: vec!["spade".to_string()],
-                preview: "internal implementation".to_string(),
-            },
-            RagContextHit {
-                source: "opticcode:skills/profiles/minecraft-java-1.8/profile.md".to_string(),
-                chunk_id: "skills:0".to_string(),
-                score: 6,
-                matched_queries: vec!["spade".to_string()],
-                preview: "profile rule".to_string(),
-            },
-            RagContextHit {
-                source: "opticcode:docs/minecraft-legacy-rules.md".to_string(),
-                chunk_id: "docs:0".to_string(),
-                score: 5,
-                matched_queries: vec!["spade".to_string()],
-                preview: "documented rule".to_string(),
-            },
+            test_rag_hit(
+                "opticcode:crates/opticcode-tools/src/lib.rs",
+                "crates:0",
+                20,
+                "spade",
+                "internal implementation",
+            ),
+            test_rag_hit(
+                "opticcode:skills/profiles/minecraft-java-1.8/profile.md",
+                "skills:0",
+                6,
+                "spade",
+                "profile rule",
+            ),
+            test_rag_hit(
+                "opticcode:docs/minecraft-legacy-rules.md",
+                "docs:0",
+                5,
+                "spade",
+                "documented rule",
+            ),
         ];
 
         sort_rag_hits_for_prompt(&mut hits);
@@ -950,20 +1016,20 @@ mod tests {
     #[test]
     fn prioritizes_legacy_rules_over_other_docs() {
         let mut hits = vec![
-            RagContextHit {
-                source: "opticcode:docs/mini-bukkit-benchmark.md".to_string(),
-                chunk_id: "bench:0".to_string(),
-                score: 20,
-                matched_queries: vec!["SULPHUR".to_string()],
-                preview: "Material.SULPHUR benchmark".to_string(),
-            },
-            RagContextHit {
-                source: "opticcode:docs/minecraft-legacy-rules.md".to_string(),
-                chunk_id: "rules:0".to_string(),
-                score: 1,
-                matched_queries: vec!["SULPHUR".to_string()],
-                preview: "Material.SULPHUR rule".to_string(),
-            },
+            test_rag_hit(
+                "opticcode:docs/mini-bukkit-benchmark.md",
+                "bench:0",
+                20,
+                "SULPHUR",
+                "Material.SULPHUR benchmark",
+            ),
+            test_rag_hit(
+                "opticcode:docs/minecraft-legacy-rules.md",
+                "rules:0",
+                1,
+                "SULPHUR",
+                "Material.SULPHUR rule",
+            ),
         ];
 
         sort_rag_hits_for_prompt(&mut hits);
@@ -974,27 +1040,27 @@ mod tests {
     #[test]
     fn deduplicates_repeated_opticcode_legacy_rules() {
         let mut hits = vec![
-            RagContextHit {
-                source: "opticcode:docs/minecraft-legacy-rules.md".to_string(),
-                chunk_id: "rules:0".to_string(),
-                score: 10,
-                matched_queries: vec!["SULPHUR".to_string()],
-                preview: "Material.GUNPOWDER -> Material.SULPHUR".to_string(),
-            },
-            RagContextHit {
-                source: "opticcode:crates/opticcode-tools/src/lib.rs".to_string(),
-                chunk_id: "crates:0".to_string(),
-                score: 30,
-                matched_queries: vec!["SULPHUR".to_string()],
-                preview: "Material.GUNPOWDER legacy Material.SULPHUR".to_string(),
-            },
-            RagContextHit {
-                source: "plugin:src/main/java/JoinListener.java".to_string(),
-                chunk_id: "plugin:0".to_string(),
-                score: 5,
-                matched_queries: vec!["SULPHUR".to_string()],
-                preview: "new ItemStack(Material.SULPHUR)".to_string(),
-            },
+            test_rag_hit(
+                "opticcode:docs/minecraft-legacy-rules.md",
+                "rules:0",
+                10,
+                "SULPHUR",
+                "Material.GUNPOWDER -> Material.SULPHUR",
+            ),
+            test_rag_hit(
+                "opticcode:crates/opticcode-tools/src/lib.rs",
+                "crates:0",
+                30,
+                "SULPHUR",
+                "Material.GUNPOWDER legacy Material.SULPHUR",
+            ),
+            test_rag_hit(
+                "plugin:src/main/java/JoinListener.java",
+                "plugin:0",
+                5,
+                "SULPHUR",
+                "new ItemStack(Material.SULPHUR)",
+            ),
         ];
 
         select_rag_hits_for_prompt(&mut hits);
@@ -1013,13 +1079,13 @@ mod tests {
 
     #[test]
     fn detects_duplicate_legacy_keys() {
-        let hit = RagContextHit {
-            source: "opticcode:docs/minecraft-legacy-rules.md".to_string(),
-            chunk_id: "rules:0".to_string(),
-            score: 1,
-            matched_queries: vec!["spade".to_string()],
-            preview: "Material.WOODEN_SHOVEL -> Material.WOOD_SPADE".to_string(),
-        };
+        let hit = test_rag_hit(
+            "opticcode:docs/minecraft-legacy-rules.md",
+            "rules:0",
+            1,
+            "spade",
+            "Material.WOODEN_SHOVEL -> Material.WOOD_SPADE",
+        );
 
         assert_eq!(rag_duplicate_key(&hit), Some("opticcode:spade".to_string()));
     }
@@ -1027,20 +1093,20 @@ mod tests {
     #[test]
     fn filters_low_value_hits_without_legacy_concepts() {
         let mut hits = vec![
-            RagContextHit {
-                source: "plugin:docs/config.yml".to_string(),
-                chunk_id: "plugin:0".to_string(),
-                score: 1,
-                matched_queries: vec!["DIAMOND_SPADE".to_string()],
-                preview: "DIAMOND_HELMET DIAMOND_CHESTPLATE".to_string(),
-            },
-            RagContextHit {
-                source: "resource-pack:assets/minecraft/lang/en_US.lang".to_string(),
-                chunk_id: "lang:0".to_string(),
-                score: 1,
-                matched_queries: vec!["nether wart".to_string()],
-                preview: "tile.netherStalk.name=Nether Wart".to_string(),
-            },
+            test_rag_hit(
+                "plugin:docs/config.yml",
+                "plugin:0",
+                1,
+                "DIAMOND_SPADE",
+                "DIAMOND_HELMET DIAMOND_CHESTPLATE",
+            ),
+            test_rag_hit(
+                "resource-pack:assets/minecraft/lang/en_US.lang",
+                "lang:0",
+                1,
+                "nether wart",
+                "tile.netherStalk.name=Nether Wart",
+            ),
         ];
 
         select_rag_hits_for_prompt(&mut hits);

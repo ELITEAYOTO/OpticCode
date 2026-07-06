@@ -73,6 +73,7 @@ Mesure importante du 2026-07-06 :
 - la deduplication RAG reduit les repetitions internes OpticCode avant injection au modele.
 - le filtre anti-bruit supprime les hits faibles sans concept legacy detecte.
 - `rag-debug` affiche maintenant `chunk` et `matched_queries`, utile pour diagnostiquer la qualite sans relancer Qwen.
+- `rag-debug` affiche aussi `query_scores`, ce qui montre le poids de chaque requete elargie par chunk.
 
 ## Optimisations prioritaires
 

@@ -603,3 +603,19 @@ Raison :
 - le score seul n'explique pas pourquoi un chunk a ete selectionne ;
 - savoir si un hit vient de `spade`, `MOB_SPAWNER` ou `nether_stalk` aide a corriger les synonymes ;
 - cela rend le RAG auditable sans appel modele supplementaire.
+
+### D-040 - Score detaille par requete RAG elargie
+
+Statut : valide provisoirement.
+
+Decision :
+
+- conserver un score par requete elargie pour chaque chunk RAG ;
+- fusionner les scores quand le meme chunk est retrouve par plusieurs synonymes ;
+- afficher `query_scores` dans `rag-debug` et `--rag-debug`.
+
+Raison :
+
+- `matched_queries` dit quelles requetes ont match, mais pas lesquelles portent vraiment le resultat ;
+- un score detaille permet de voir rapidement si un hit est principalement porte par `spawner`, `nether wart`, `shovel`, etc. ;
+- cela prepare une future ponderation plus fine sans embeddings.

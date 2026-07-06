@@ -183,6 +183,7 @@ Etat actuel :
 - deduplication RAG ajoutee pour reduire les repetitions internes OpticCode ;
 - filtre anti-bruit RAG ajoute pour ignorer les hits faibles sans concept legacy ;
 - `matched_queries` ajoute au debug RAG pour expliquer chaque hit ;
+- `query_scores` ajoute au debug RAG pour voir le score par requete elargie ;
 - compilation et tests OK.
 
 Livrable :
