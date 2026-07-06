@@ -33,6 +33,8 @@ Mesures initiales sur la machine :
 | `run-mini-benchmark.ps1`, chaud, profil+memoire, 80 tokens | 4.03 s | prompt 10 919 caracteres |
 | `plan`, chaud, profil+memoire+RAG, 80 tokens | 3.70 s | prompt 11 299 caracteres |
 | `plan`, chaud, profil+memoire sans RAG, 80 tokens | 4.05 s | prompt 10 969 caracteres |
+| `run-rag-comparison.ps1`, RAG avec expansion, 50 tokens | 2.85-4.53 s | prompt 11 961 caracteres |
+| `run-rag-comparison.ps1`, sans RAG, 50 tokens | 2.81-2.86 s | prompt 10 969 caracteres |
 
 Conclusion :
 
@@ -65,6 +67,7 @@ Mesure importante du 2026-07-06 :
 - OpticCode envoie maintenant `keep_alive=15m` par defaut pour eviter de recharger Qwen a chaque appel ;
 - Ollama charge actuellement le modele avec un contexte actif de 4096 tokens, suffisant pour le mini projet.
 - le premier branchement RAG ajoute peu de contexte sur une requete ciblee, mais la qualite doit etre mesuree sur plusieurs prompts.
+- l'expansion de requete RAG augmente le rappel sur les termes francais/legacy, avec environ +1 000 caracteres sur le test court.
 
 ## Optimisations prioritaires
 

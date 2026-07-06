@@ -189,12 +189,56 @@ Interpretation provisoire :
 - les prompts vagues en francais peuvent mal matcher les sources anglaises/Java ;
 - la prochaine optimisation doit porter sur la requete RAG et les synonymes legacy.
 
+## Expansion de requete legacy
+
+Statut : ajoute.
+
+OpticCode enrichit maintenant les requetes RAG avec des synonymes deterministes :
+
+| Terme utilisateur | Requetes ajoutees |
+| --- | --- |
+| `pelle`, `pelles` | `shovel`, `spade`, `WOOD_SPADE`, `DIAMOND_SPADE` |
+| `spawner` | `spawner`, `mob_spawner`, `MOB_SPAWNER` |
+| `nether wart` | `nether wart`, `nether_stalk`, `NETHER_STALK` |
+| `spawn egg`, `oeuf` | `spawn_egg`, `monster_placer`, `MONSTER_EGG` |
+| `gunpowder`, `poudre` | `gunpowder`, `SULPHUR`, `Material.SULPHUR` |
+
+Verification rapide :
+
+```powershell
+cargo run -q -- rag-search "spade" --index data/index --limit 5
+```
+
+Resultats utiles observes :
+
+```text
+opticcode:crates/opticcode-tools/src/lib.rs
+opticcode:docs/minecraft-legacy-rules.md
+opticcode:skills/profiles/minecraft-java-1.8/profile.md
+resource-pack:assets/minecraft/lang/en_AU.lang
+```
+
+Deuxieme essai court apres expansion :
+
+| Prompt | Mode | Prompt chars | Client s | Prompt eval | Eval tok/s |
+| --- | --- | ---: | ---: | ---: | ---: |
+| `Verifier nether wart et spawner...` | avec RAG | 11 961 | 4.53 s | 1.86 s | 26.22 |
+| `Verifier nether wart et spawner...` | sans RAG | 10 969 | 2.86 s | 0.07 s | 26.37 |
+| `Quels risques legacy verifier pour des pelles et spawners ?` | avec RAG | 11 961 | 2.85 s | 0.07 s | 25.95 |
+| `Quels risques legacy verifier pour des pelles et spawners ?` | sans RAG | 10 969 | 2.81 s | 0.07 s | 26.26 |
+
+Interpretation provisoire :
+
+- l'expansion augmente le rappel sur les termes francais ;
+- le cout normal ajoute environ 1 000 caracteres dans ce test ;
+- le premier `prompt_eval` a montre un pic isole, a confirmer sur plus de runs ;
+- le debit de generation reste stable.
+
 ## Prochaine etape
 
-Ameliorer la requete RAG :
+Ameliorer encore la requete RAG :
 
-- extraire les termes legacy importants ;
-- ajouter synonymes francais/anglais comme `pelle -> shovel/spade` ;
-- ajouter `spawner -> mob_spawner/MOB_SPAWNER` ;
-- ajouter `nether wart -> nether_stalk/NETHER_STALK` ;
-- mesurer de nouveau avec le script de comparaison.
+- afficher les requetes RAG utilisees en mode debug ;
+- eviter les doublons proches entre docs/profil/code ;
+- ponderer les sources `docs` et `skills` au-dessus du code interne ;
+- mesurer de nouveau avec plus de prompts.

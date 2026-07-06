@@ -1,3 +1,4 @@
+use std::collections::BTreeSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -273,14 +274,30 @@ pub fn load_rag_context(index_dir: &Path, query: &str, limit: usize) -> Result<R
     }
 
     let limit = limit.clamp(1, MAX_RAG_HITS);
-    let hits = search_rag_index(index_dir, query, limit)?
-        .into_iter()
-        .map(|hit| RagContextHit {
-            source: hit.document_path,
-            score: hit.score,
-            preview: hit.preview,
-        })
-        .collect::<Vec<_>>();
+    let mut seen = BTreeSet::new();
+    let mut hits = Vec::new();
+
+    for expanded_query in expand_rag_queries(query) {
+        for hit in search_rag_index(index_dir, &expanded_query, limit)? {
+            let key = format!("{}:{}", hit.document_path, hit.chunk_id);
+            if !seen.insert(key) {
+                continue;
+            }
+            hits.push(RagContextHit {
+                source: hit.document_path,
+                score: hit.score,
+                preview: hit.preview,
+            });
+        }
+    }
+
+    hits.sort_by(|left, right| {
+        right
+            .score
+            .cmp(&left.score)
+            .then_with(|| left.source.cmp(&right.source))
+    });
+    hits.truncate(limit);
 
     Ok(RagContext {
         index: Some(index_dir.to_path_buf()),
@@ -491,6 +508,59 @@ fn format_rag_context(rag: &RagContext) -> String {
     out
 }
 
+fn expand_rag_queries(query: &str) -> Vec<String> {
+    let lower = query.to_ascii_lowercase();
+    let mut queries = vec![query.trim().to_string()];
+
+    if lower.contains("spawner") {
+        queries.push("spawner".to_string());
+        queries.push("mob_spawner".to_string());
+        queries.push("MOB_SPAWNER".to_string());
+    }
+
+    if lower.contains("nether wart")
+        || lower.contains("nether_wart")
+        || lower.contains("nether stalk")
+        || lower.contains("nether_stalk")
+    {
+        queries.push("nether wart".to_string());
+        queries.push("nether_stalk".to_string());
+        queries.push("NETHER_STALK".to_string());
+    }
+
+    if lower.contains("pelle")
+        || lower.contains("pelles")
+        || lower.contains("shovel")
+        || lower.contains("spade")
+    {
+        queries.push("shovel".to_string());
+        queries.push("spade".to_string());
+        queries.push("WOOD_SPADE".to_string());
+        queries.push("DIAMOND_SPADE".to_string());
+    }
+
+    if lower.contains("spawn egg")
+        || lower.contains("spawn_egg")
+        || lower.contains("oeuf")
+        || lower.contains("oeufs")
+    {
+        queries.push("spawn_egg".to_string());
+        queries.push("monster_placer".to_string());
+        queries.push("MONSTER_EGG".to_string());
+    }
+
+    if lower.contains("gunpowder") || lower.contains("sulphur") || lower.contains("poudre") {
+        queries.push("gunpowder".to_string());
+        queries.push("SULPHUR".to_string());
+        queries.push("Material.SULPHUR".to_string());
+    }
+
+    queries.retain(|value| !value.trim().is_empty());
+    queries.sort();
+    queries.dedup();
+    queries
+}
+
 fn normalized_id(value: Option<&str>) -> Option<&str> {
     value
         .map(str::trim)
@@ -513,8 +583,8 @@ fn truncate_memory(value: &str, max_chars: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::{
-        build_plan_prompt, build_prompt, format_rag_context, MemoryContext, MemoryEntry,
-        ProfileContext, RagContext, RagContextHit,
+        build_plan_prompt, build_prompt, expand_rag_queries, format_rag_context, MemoryContext,
+        MemoryEntry, ProfileContext, RagContext, RagContextHit,
     };
     use std::path::PathBuf;
 
@@ -629,5 +699,14 @@ mod tests {
 
         assert!(formatted.contains("[truncated]"));
         assert!(formatted.chars().count() < 4_800);
+    }
+
+    #[test]
+    fn expands_legacy_rag_queries() {
+        let queries = expand_rag_queries("Verifier les pelles, spawners et nether wart");
+
+        assert!(queries.contains(&"spade".to_string()));
+        assert!(queries.contains(&"mob_spawner".to_string()));
+        assert!(queries.contains(&"nether_stalk".to_string()));
     }
 }

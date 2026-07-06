@@ -500,3 +500,22 @@ Raison :
 - le RAG doit etre juge sur le cout et la qualite, pas seulement sur sa presence ;
 - les prompts legacy doivent couvrir les cas Minecraft reels : spawners, pelles/spades, nether wart/stalk, materials modernes ;
 - les resultats montrent aussi quand la requete RAG est trop vague et doit etre enrichie.
+
+### D-034 - Expansion de requete RAG legacy
+
+Statut : valide provisoirement.
+
+Decision :
+
+- enrichir les requetes RAG avec des synonymes Minecraft legacy ;
+- mapper `pelle/pelles` vers `shovel`, `spade`, `*_SPADE` ;
+- mapper `spawner` vers `mob_spawner` et `MOB_SPAWNER` ;
+- mapper `nether wart` vers `nether_stalk` et `NETHER_STALK` ;
+- mapper `spawn egg` vers `spawn_egg` et `monster_placer` ;
+- mapper `gunpowder` vers `SULPHUR`.
+
+Raison :
+
+- les demandes utilisateur peuvent etre en francais alors que les sources sont souvent en anglais ou en noms Bukkit ;
+- la recherche stricte multi-mots reduit le bruit, mais elle a besoin de synonymes courts ;
+- cette approche reste deterministe et mesurable avant d'ajouter embeddings ou Tantivy.

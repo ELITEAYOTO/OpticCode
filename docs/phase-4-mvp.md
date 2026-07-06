@@ -38,7 +38,8 @@ Le prototype sait deja :
 - scanner des resource packs externes en lecture seule ;
 - inventorier des sources RAG externes en lecture seule ;
 - construire et interroger un premier index RAG JSONL local ;
-- injecter le RAG dans `ask` et `plan` avec `--no-rag`.
+- injecter le RAG dans `ask` et `plan` avec `--no-rag` ;
+- enrichir les requetes RAG avec des synonymes legacy.
 
 Il ne sait pas encore :
 
@@ -146,7 +147,7 @@ cargo test --workspace
 Resultat :
 
 ```text
-OK - 23 tests passes
+OK - 24 tests passes
 ```
 
 ### Inspection locale
