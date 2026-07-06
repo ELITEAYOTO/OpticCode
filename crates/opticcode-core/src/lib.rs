@@ -1,9 +1,9 @@
 use std::path::PathBuf;
 
 use anyhow::Result;
-pub use opticcode_llm::GenerateMetrics;
 use opticcode_llm::GenerateOptions;
 use opticcode_llm::OllamaClient;
+pub use opticcode_llm::{parse_keep_alive, GenerateMetrics};
 use opticcode_tools::build_project_context;
 
 pub struct OpticCode {
@@ -36,6 +36,11 @@ impl OpticCode {
             llm: OllamaClient::new(ollama_url),
             model: model.into(),
         }
+    }
+
+    pub fn with_keep_alive(mut self, keep_alive: Option<String>) -> Self {
+        self.llm = self.llm.with_keep_alive(keep_alive);
+        self
     }
 
     pub async fn ask_with_project_context(&self, options: AskOptions) -> Result<String> {

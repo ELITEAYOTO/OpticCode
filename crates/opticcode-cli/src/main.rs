@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use anyhow::Result;
 use clap::{Parser, Subcommand};
-use opticcode_core::{AskOptions, GenerateMetrics, OpticCode, PlanOptions};
+use opticcode_core::{parse_keep_alive, AskOptions, GenerateMetrics, OpticCode, PlanOptions};
 use opticcode_tools::{
     analyze_java_project, build_java_project, build_project_context, inspect_workspace,
     search_workspace,
@@ -51,6 +51,8 @@ enum Command {
         model: String,
         #[arg(long, default_value = "http://localhost:11434")]
         ollama_url: String,
+        #[arg(long, default_value = "15m")]
+        keep_alive: String,
         #[arg(long)]
         brief: bool,
         #[arg(long)]
@@ -68,6 +70,8 @@ enum Command {
         model: String,
         #[arg(long, default_value = "http://localhost:11434")]
         ollama_url: String,
+        #[arg(long, default_value = "15m")]
+        keep_alive: String,
         #[arg(long)]
         brief: bool,
         #[arg(long)]
@@ -127,12 +131,14 @@ async fn main() -> Result<()> {
             path,
             model,
             ollama_url,
+            keep_alive,
             brief,
             max_tokens,
             metrics,
             metrics_json,
         } => {
-            let app = OpticCode::new(ollama_url, model);
+            let app =
+                OpticCode::new(ollama_url, model).with_keep_alive(parse_keep_alive(&keep_alive));
             let output = app
                 .ask_with_metrics(AskOptions {
                     workspace: path,
@@ -155,12 +161,14 @@ async fn main() -> Result<()> {
             path,
             model,
             ollama_url,
+            keep_alive,
             brief,
             max_tokens,
             metrics,
             metrics_json,
         } => {
-            let app = OpticCode::new(ollama_url, model);
+            let app =
+                OpticCode::new(ollama_url, model).with_keep_alive(parse_keep_alive(&keep_alive));
             let output = app
                 .plan_with_metrics(PlanOptions {
                     workspace: path,
@@ -189,6 +197,8 @@ struct MetricsJson<'a> {
     client_seconds: f64,
     prompt_chars: usize,
     ollama_total_seconds: Option<f64>,
+    ollama_load_seconds: Option<f64>,
+    keep_alive: Option<String>,
     prompt_eval_count: Option<u64>,
     prompt_eval_seconds: Option<f64>,
     eval_count: Option<u64>,
@@ -212,6 +222,10 @@ fn print_metrics_json(command: &str, metrics: &GenerateMetrics) -> Result<()> {
         ollama_total_seconds: metrics
             .ollama_total_duration
             .map(|value| value.as_secs_f64()),
+        ollama_load_seconds: metrics
+            .ollama_load_duration
+            .map(|value| value.as_secs_f64()),
+        keep_alive: metrics.keep_alive.clone(),
         prompt_eval_count: metrics.prompt_eval_count,
         prompt_eval_seconds: metrics
             .prompt_eval_duration
@@ -237,6 +251,12 @@ fn print_metrics(metrics: &GenerateMetrics) {
     eprintln!("prompt_chars={}", metrics.prompt_chars);
     if let Some(duration) = metrics.ollama_total_duration {
         eprintln!("ollama_total_seconds={:.2}", duration.as_secs_f64());
+    }
+    if let Some(duration) = metrics.ollama_load_duration {
+        eprintln!("ollama_load_seconds={:.2}", duration.as_secs_f64());
+    }
+    if let Some(keep_alive) = &metrics.keep_alive {
+        eprintln!("keep_alive={keep_alive}");
     }
     if let Some(count) = metrics.prompt_eval_count {
         eprintln!("prompt_eval_count={}", count);

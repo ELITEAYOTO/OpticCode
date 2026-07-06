@@ -26,6 +26,8 @@ Mesures initiales sur la machine :
 | `plan` via Ollama/Qwen 14B, contexte simple | 25.52 s | cout dominant cote modele |
 | `plan --metrics`, contexte enrichi | 26.35 s | 7177 caracteres de prompt, 645 tokens generes |
 | `plan --brief --metrics`, contexte enrichi | 6.41 s | 7090 caracteres de prompt, 114 tokens generes |
+| `plan --brief --metrics-json`, modele froid | 77.82 s | modele non charge au depart, generation reelle ~3.38 s |
+| `plan --brief --metrics-json`, modele chaud | 5.86 s | `keep_alive=15m`, chargement mesure ~0.23 s |
 
 Conclusion :
 
@@ -50,6 +52,14 @@ Conclusion :
 
 Le mode court est une optimisation prioritaire validee. Il conserve le contexte utile tout en reduisant fortement les tokens generes.
 
+Mesure importante du 2026-07-06 :
+
+- le debit chaud reste stable autour de 26.5 tokens/s ;
+- le premier appel apres dechargement peut etre beaucoup plus lent a cause du chargement du modele ;
+- sur un run froid observe, le total etait ~77.8 s alors que la generation ne prenait que ~3.4 s ;
+- OpticCode envoie maintenant `keep_alive=15m` par defaut pour eviter de recharger Qwen a chaque appel ;
+- Ollama charge actuellement le modele avec un contexte actif de 4096 tokens, suffisant pour le mini projet.
+
 ## Optimisations prioritaires
 
 ### 1. Mesurer les appels LLM
@@ -62,6 +72,8 @@ Deja disponible avec `--metrics` :
 
 - duree totale cote client ;
 - taille du prompt en caracteres ;
+- `load_duration` Ollama ;
+- `keep_alive` demande ;
 - `prompt_eval_count` ;
 - `prompt_eval_duration` ;
 - `eval_count` ;
@@ -90,7 +102,41 @@ But :
 
 - savoir si une reponse est lente a cause du prompt, du modele, du runtime ou du nombre de tokens generes.
 
-### 2. Reduire le preprompt
+### 2. Garder le modele chaud
+
+Statut : ajoute.
+
+Par defaut, les commandes `ask` et `plan` envoient :
+
+```text
+keep_alive=15m
+```
+
+Usage explicite :
+
+```powershell
+cargo run -q -- plan "Verifier ce plugin Bukkit 1.8.8" --path benchmarks/mini-bukkit-plugin --brief --metrics-json --keep-alive 15m
+```
+
+Pour forcer Ollama a decharger apres l'appel :
+
+```powershell
+cargo run -q -- plan "Verifier ce plugin Bukkit 1.8.8" --path benchmarks/mini-bukkit-plugin --brief --metrics-json --keep-alive 0
+```
+
+Pour ne pas envoyer le parametre :
+
+```powershell
+cargo run -q -- plan "Verifier ce plugin Bukkit 1.8.8" --path benchmarks/mini-bukkit-plugin --brief --metrics-json --keep-alive none
+```
+
+Effet attendu :
+
+- reduit fortement le temps percu entre deux appels ;
+- consomme de la VRAM/RAM pendant la duree de maintien ;
+- ne change pas le debit tokens/s du modele, mais evite le cout de chargement.
+
+### 3. Reduire le preprompt
 
 Le preprompt actuel est volontairement explicite pour la securite legacy.
 
@@ -105,7 +151,7 @@ But :
 - eviter de faire penser le modele a des sujets non pertinents ;
 - reduire latence et hallucinations hors sujet.
 
-### 3. Construire un contexte utile
+### 4. Construire un contexte utile
 
 Actuellement `plan` recoit surtout :
 
@@ -127,9 +173,7 @@ But :
 - eviter les plans trop generiques ;
 - permettre au modele de raisonner sur le vrai code.
 
-### 4. Streaming
-
-### 4. Mode bref pour iteration rapide
+### 5. Mode bref pour iteration rapide
 
 Statut : ajoute avec `--brief`.
 
@@ -145,7 +189,7 @@ Effet :
 - utilise `num_predict` cote Ollama ;
 - reduit nettement le temps de generation.
 
-### 5. Streaming
+### 6. Streaming
 
 Actuellement Ollama est utilise avec `stream=false`.
 
@@ -163,7 +207,7 @@ Evolution :
 - ajouter streaming plus tard pour rendre l'agent plus confortable ;
 - garder `stream=false` pour les benchmarks reproductibles.
 
-### 6. llama.cpp / C++
+### 7. llama.cpp / C++
 
 llama.cpp reste important pour :
 
@@ -182,10 +226,11 @@ Mais il ne faut pas le faire avant d'avoir :
 
 ## Plan optimisation court terme
 
-1. Ajouter metriques LLM dans la sortie de debug.
-2. Ajouter une commande `context` ou un context builder interne.
-3. Reduire le prompt `plan`.
-4. Ajouter un mode reponse courte pour iteration rapide.
-5. Comparer deux prompts sur le mini plugin.
+1. Ajouter metriques LLM dans la sortie de debug. Fait.
+2. Ajouter une commande `context` ou un context builder interne. Fait.
+3. Ajouter un mode reponse courte pour iteration rapide. Fait.
+4. Ajouter `keep_alive` et `load_duration`. Fait.
+5. Reduire encore le prompt `plan` avec des profils.
 6. Ajouter export benchmark CSV ou fichier JSONL.
-7. Ensuite seulement tester llama.cpp.
+7. Tester streaming pour confort utilisateur.
+8. Comparer Ollama avec llama.cpp/Vulkan seulement apres stabilisation des prompts.
