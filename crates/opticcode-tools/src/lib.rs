@@ -1,6 +1,8 @@
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::process::Command;
+use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result};
 use serde_yaml::Value;
@@ -99,6 +101,18 @@ pub struct JavaFileAnalysis {
     pub is_listener: bool,
     pub imports: Vec<String>,
     pub risks: Vec<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct BuildResult {
+    pub root: PathBuf,
+    pub command: String,
+    pub success: bool,
+    pub exit_code: Option<i32>,
+    pub duration: Duration,
+    pub summary: Vec<String>,
+    pub stdout_tail: String,
+    pub stderr_tail: String,
 }
 
 pub fn inspect_workspace(root: &Path) -> Result<WorkspaceReport> {
@@ -206,6 +220,43 @@ pub fn build_project_context_with_limits(
     })
 }
 
+pub fn build_java_project(root: &Path) -> Result<BuildResult> {
+    let analysis = analyze_java_project(root)?;
+    let (program, args, command_display) = match analysis.build_tool {
+        BuildTool::Maven => (
+            "mvn",
+            vec!["-q", "-DskipTests", "package"],
+            "mvn -q -DskipTests package".to_string(),
+        ),
+        BuildTool::Gradle => ("gradle", vec!["build"], "gradle build".to_string()),
+        BuildTool::Unknown => anyhow::bail!("No Maven or Gradle build file detected."),
+    };
+
+    let started_at = Instant::now();
+    let mut command = build_process_command(program, &args);
+    let output = command
+        .current_dir(&analysis.root)
+        .output()
+        .with_context(|| format!("failed to run build command: {command_display}"))?;
+    let duration = started_at.elapsed();
+
+    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+    let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+    let success = output.status.success();
+    let summary = summarize_build_output(&stdout, &stderr, success);
+
+    Ok(BuildResult {
+        root: analysis.root,
+        command: command_display,
+        success,
+        exit_code: output.status.code(),
+        duration,
+        summary,
+        stdout_tail: tail_lines(&stdout, 30),
+        stderr_tail: tail_lines(&stderr, 30),
+    })
+}
+
 pub fn analyze_java_project(root: &Path) -> Result<JavaProjectAnalysis> {
     let root = fs::canonicalize(root)
         .with_context(|| format!("failed to resolve workspace path: {}", root.display()))?;
@@ -281,6 +332,63 @@ pub fn analyze_java_project(root: &Path) -> Result<JavaProjectAnalysis> {
         risks,
         build_command,
     })
+}
+
+fn build_process_command(program: &str, args: &[&str]) -> Command {
+    if cfg!(windows) {
+        let mut command = Command::new("cmd");
+        command.arg("/C").arg(program).args(args);
+        command
+    } else {
+        let mut command = Command::new(program);
+        command.args(args);
+        command
+    }
+}
+
+impl BuildResult {
+    pub fn to_display_string(&self) -> String {
+        let mut out = String::new();
+        out.push_str(&format!("Project: {}\n", self.root.display()));
+        out.push_str(&format!("Command: {}\n", self.command));
+        out.push_str(&format!(
+            "Status: {}\n",
+            if self.success { "OK" } else { "FAILED" }
+        ));
+        out.push_str(&format!(
+            "Exit code: {}\n",
+            self.exit_code
+                .map_or_else(|| "unknown".to_string(), |code| code.to_string())
+        ));
+        out.push_str(&format!("Duration: {:.2}s\n", self.duration.as_secs_f64()));
+
+        out.push_str("\nSummary:\n");
+        if self.summary.is_empty() {
+            out.push_str("- no notable errors detected\n");
+        } else {
+            for item in &self.summary {
+                out.push_str(&format!("- {item}\n"));
+            }
+        }
+
+        if !self.stdout_tail.trim().is_empty() {
+            out.push_str("\nStdout tail:\n");
+            out.push_str(&self.stdout_tail);
+            if !self.stdout_tail.ends_with('\n') {
+                out.push('\n');
+            }
+        }
+
+        if !self.stderr_tail.trim().is_empty() {
+            out.push_str("\nStderr tail:\n");
+            out.push_str(&self.stderr_tail);
+            if !self.stderr_tail.ends_with('\n') {
+                out.push('\n');
+            }
+        }
+
+        out
+    }
 }
 
 fn parse_pom(content: &str) -> Result<MavenAnalysis> {
@@ -523,6 +631,56 @@ pub fn search_workspace(root: &Path, pattern: &str, limit: usize) -> Result<Vec<
     }
 
     Ok(hits)
+}
+
+fn summarize_build_output(stdout: &str, stderr: &str, success: bool) -> Vec<String> {
+    let combined = format!("{stdout}\n{stderr}");
+    let mut summary = Vec::new();
+
+    if success {
+        summary.push("Build completed successfully.".to_string());
+        return summary;
+    }
+
+    for line in combined
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+    {
+        let lower = line.to_ascii_lowercase();
+        if lower.contains("compilation failure")
+            || lower.contains("cannot find symbol")
+            || lower.contains("package") && lower.contains("does not exist")
+            || lower.contains("[error]")
+            || lower.contains("failed to execute goal")
+            || lower.contains("error:")
+        {
+            summary.push(line.to_string());
+        }
+
+        if summary.len() >= 12 {
+            break;
+        }
+    }
+
+    if combined.contains("Material") && combined.contains("GUNPOWDER") {
+        summary.push(
+            "Likely Bukkit 1.8.8 legacy fix: use Material.SULPHUR instead of Material.GUNPOWDER."
+                .to_string(),
+        );
+    }
+
+    if summary.is_empty() {
+        summary.push("Build failed, but no known error pattern was extracted.".to_string());
+    }
+
+    summary
+}
+
+fn tail_lines(value: &str, limit: usize) -> String {
+    let lines = value.lines().collect::<Vec<_>>();
+    let start = lines.len().saturating_sub(limit);
+    lines[start..].join("\n")
 }
 
 fn collect_project_risks(
@@ -835,7 +993,7 @@ fn top_extensions(extensions: &BTreeMap<String, usize>, limit: usize) -> Vec<(&s
 mod tests {
     use super::{
         context_priority, is_probably_text, parse_java_file, parse_plugin_yml, parse_pom,
-        truncate_chars,
+        summarize_build_output, tail_lines, truncate_chars,
     };
     use std::path::Path;
 
@@ -921,5 +1079,24 @@ commands:
         assert_eq!(file.package_name.as_deref(), Some("dev.test"));
         assert_eq!(file.class_name.as_deref(), Some("Test"));
         assert!(file.is_command_executor);
+    }
+
+    #[test]
+    fn summarizes_maven_errors() {
+        let summary = summarize_build_output(
+            "",
+            "[ERROR] Failed to execute goal\n[ERROR] cannot find symbol\n[ERROR] symbol: variable GUNPOWDER\n[ERROR] location: class org.bukkit.Material\n",
+            false,
+        );
+
+        assert!(summary
+            .iter()
+            .any(|line| line.contains("cannot find symbol")));
+        assert!(summary.iter().any(|line| line.contains("Material.SULPHUR")));
+    }
+
+    #[test]
+    fn keeps_tail_lines() {
+        assert_eq!(tail_lines("a\nb\nc", 2), "b\nc");
     }
 }

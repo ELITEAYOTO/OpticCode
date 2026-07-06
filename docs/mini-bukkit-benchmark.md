@@ -42,6 +42,7 @@ Points legacy volontairement presents :
 ```powershell
 cargo run -q -- inspect --path benchmarks/mini-bukkit-plugin
 cargo run -q -- analyze-java --path benchmarks/mini-bukkit-plugin
+cargo run -q -- build --path benchmarks/mini-bukkit-plugin
 cargo run -q -- search Material.SULPHUR --path benchmarks/mini-bukkit-plugin --limit 10
 cargo run -q -- plan "Verifier ce plugin Bukkit 1.8.8 et proposer les risques avant compilation" --path benchmarks/mini-bukkit-plugin
 .\scripts\run-mini-benchmark.ps1
@@ -112,6 +113,28 @@ Resultat :
 - compilation OK ;
 - dependency `spigot-api:1.8.8-R0.1-SNAPSHOT` resolue ;
 - temps observe : environ 5.5 secondes sur ce premier passage.
+
+### Build controle via OpticCode
+
+Commande :
+
+```powershell
+cargo run -q -- build --path benchmarks/mini-bukkit-plugin
+```
+
+Resultat :
+
+- build OK ;
+- commande lancee : `mvn -q -DskipTests package` ;
+- temps observe : environ 2.7 secondes apres cache Maven ;
+- sortie resumee en statut, code de sortie et duree.
+
+Test negatif :
+
+- remplacement temporaire de `Material.SULPHUR` par `Material.GUNPOWDER` ;
+- build echoue comme attendu ;
+- OpticCode detecte `cannot find symbol`, `GUNPOWDER` et `org.bukkit.Material` ;
+- OpticCode propose la correction legacy : `Material.SULPHUR`.
 
 ### Plan OpticCode
 

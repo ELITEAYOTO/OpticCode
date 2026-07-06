@@ -35,7 +35,6 @@ Il ne sait pas encore :
 
 - modifier des fichiers ;
 - produire un vrai patch unified diff ;
-- compiler un projet Java ;
 - indexer avec Tantivy ;
 - parser Java avec Tree-sitter ;
 - utiliser une memoire persistante.
@@ -64,6 +63,7 @@ Commandes actuelles :
 cargo run -q -- inspect --path .
 cargo run -q -- context --path benchmarks/mini-bukkit-plugin
 cargo run -q -- analyze-java --path benchmarks/mini-bukkit-plugin
+cargo run -q -- build --path benchmarks/mini-bukkit-plugin
 cargo run -q -- search Material.SULPHUR --path . --limit 5
 cargo run -q -- ask "Reponds en une phrase : quelle regle Bukkit 1.8.8 dois-tu respecter pour gunpowder ?" --path .
 cargo run -q -- plan "Ajouter une commande /coins dans un plugin Bukkit 1.8.8" --path . --metrics
@@ -213,6 +213,6 @@ Le mode `--metrics-json` produit une sortie JSON exploitable pour comparer plusi
 
 ## Prochaines etapes
 
-1. Ajouter commande `build`.
-2. Ajouter resume d'erreurs Maven/Gradle.
-3. Ajouter generation de patch texte non applique.
+1. Ajouter generation de patch texte non applique.
+2. Comparer les commandes declarees dans `plugin.yml` avec `getCommand(...)`.
+3. Ajouter un cycle `build -> analyse erreur -> suggestion correction`.

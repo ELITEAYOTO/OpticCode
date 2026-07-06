@@ -72,7 +72,31 @@ Build command: mvn -q -DskipTests package
 
 ## Prochaines etapes
 
-1. Ajouter `opticcode build`.
-2. Capturer et resumer les erreurs Maven/Gradle.
-3. Comparer les commandes declarees dans `plugin.yml` avec `getCommand(...)`.
-4. Ajouter Tree-sitter Java plus tard pour une extraction plus robuste.
+## Build controle
+
+Commande :
+
+```powershell
+cargo run -q -- build --path benchmarks/mini-bukkit-plugin
+```
+
+Etat actuel :
+
+- detecte Maven via `pom.xml` ;
+- lance `mvn -q -DskipTests package` ;
+- affiche le statut, le code de sortie et la duree ;
+- resume les erreurs utiles au lieu de noyer l'utilisateur dans tout le log.
+
+Test negatif effectue :
+
+- remplacement temporaire de `Material.SULPHUR` par `Material.GUNPOWDER` ;
+- build Maven en echec comme attendu ;
+- erreur detectee : `cannot find symbol`, fichier Java, ligne, symbole `GUNPOWDER` ;
+- suggestion ajoutee : utiliser `Material.SULPHUR` pour Bukkit 1.8.8 ;
+- fichier restaure apres le test.
+
+## Prochaines etapes
+
+1. Comparer les commandes declarees dans `plugin.yml` avec `getCommand(...)`.
+2. Ajouter generation de patch texte non applique.
+3. Ajouter Tree-sitter Java plus tard pour une extraction plus robuste.

@@ -164,6 +164,7 @@ Etat actuel :
 - limite de generation disponible via `--max-tokens` ;
 - mini projet benchmark Bukkit Java 8 ajoute ;
 - commande `analyze-java` fonctionnelle ;
+- commande `build` fonctionnelle pour Maven/Gradle ;
 - compilation et tests OK.
 
 Livrable :
@@ -195,7 +196,10 @@ Priorite metier :
 Etat actuel :
 
 - `analyze-java` detecte Maven, `pom.xml`, `plugin.yml`, commandes, listeners et risques simples ;
-- prochaine commande cible : `build`.
+- `build` lance Maven/Gradle de facon controlee ;
+- `build` resume les erreurs de compilation utiles ;
+- test negatif `Material.GUNPOWDER` valide avec suggestion `Material.SULPHUR` ;
+- prochaine cible : generation de patch texte non applique.
 
 ## Phase 6 - RAG local
 

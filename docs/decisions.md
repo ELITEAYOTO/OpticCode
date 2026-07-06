@@ -276,3 +276,20 @@ Raison :
 - OpticCode doit comprendre un projet Bukkit avant de le modifier ;
 - une analyse deterministe est plus rapide et plus fiable qu'un appel modele ;
 - cela reduira le contexte necessaire pour les futures generations.
+
+### D-021 - Build controle avant correction
+
+Statut : valide provisoirement.
+
+Decision :
+
+- ajouter une commande `build` avant la correction assistee ;
+- lancer uniquement les commandes connues du type de projet detecte ;
+- resumer les erreurs utiles plutot que transmettre tout le log brut ;
+- garder la sortie complete en queue courte pour diagnostiquer si besoin.
+
+Raison :
+
+- un agent code doit verifier ses hypotheses par compilation ;
+- Maven produit beaucoup de bruit, surtout sur Windows ;
+- isoler les erreurs comme `cannot find symbol` permet de relier plus vite un probleme a une correction legacy, par exemple `Material.GUNPOWDER` vers `Material.SULPHUR`.
