@@ -164,6 +164,15 @@ pub struct ApplyLogEntry {
 }
 
 #[derive(Debug, Clone)]
+pub struct ApplyUndoResult {
+    pub root: PathBuf,
+    pub run_id: String,
+    pub patch_path: PathBuf,
+    pub check: PatchCheckResult,
+    pub undo: Option<PatchCheckResult>,
+}
+
+#[derive(Debug, Clone)]
 pub struct ResourcePackReport {
     pub root: PathBuf,
     pub total_files: usize,
@@ -897,6 +906,47 @@ pub fn apply_patch_with_git(proposal: &PatchProposal) -> Result<Option<PatchChec
     }))
 }
 
+fn check_reverse_patch_file_with_git(root: &Path, patch_path: &Path) -> Result<PatchCheckResult> {
+    run_git_apply_patch_file(root, patch_path, true, true)
+}
+
+fn apply_reverse_patch_file_with_git(root: &Path, patch_path: &Path) -> Result<PatchCheckResult> {
+    run_git_apply_patch_file(root, patch_path, true, false)
+}
+
+fn run_git_apply_patch_file(
+    root: &Path,
+    patch_path: &Path,
+    reverse: bool,
+    check: bool,
+) -> Result<PatchCheckResult> {
+    let relative_patch = to_relative(root, patch_path);
+    let mut args = vec!["apply"];
+    if check {
+        args.push("--check");
+    }
+    if reverse {
+        args.push("-R");
+    }
+
+    let relative_patch_arg = relative_patch.to_string_lossy().to_string();
+    args.push(&relative_patch_arg);
+
+    let command_display = format!("git {}", args.join(" "));
+    let output = build_process_command("git", &args)
+        .current_dir(root)
+        .output()
+        .with_context(|| format!("failed to run patch file command: {command_display}"))?;
+
+    Ok(PatchCheckResult {
+        command: command_display,
+        success: output.status.success(),
+        exit_code: output.status.code(),
+        stdout: String::from_utf8_lossy(&output.stdout).to_string(),
+        stderr: String::from_utf8_lossy(&output.stderr).to_string(),
+    })
+}
+
 pub fn prepare_java_legacy_apply_plan(root: &Path, dry_run: bool) -> Result<ApplyPlan> {
     let proposal = propose_java_legacy_patch(root)?;
     let check = check_patch_with_git(&proposal)?;
@@ -958,6 +1008,44 @@ pub fn apply_java_legacy_patch_in_place(root: &Path) -> Result<ApplyPlan> {
     Ok(plan)
 }
 
+pub fn undo_apply_run(root: &Path, run_id: &str) -> Result<ApplyUndoResult> {
+    validate_apply_run_id(run_id)?;
+
+    let root = fs::canonicalize(root)
+        .with_context(|| format!("failed to resolve project path: {}", root.display()))?;
+    let patch_path = root
+        .join(".opticcode")
+        .join("runs")
+        .join(run_id)
+        .join("patch.diff");
+    if !patch_path.is_file() {
+        anyhow::bail!(
+            "apply run patch not found: {}",
+            to_relative(&root, &patch_path).display()
+        );
+    }
+
+    let check = check_reverse_patch_file_with_git(&root, &patch_path)?;
+    if !check.success {
+        return Ok(ApplyUndoResult {
+            root,
+            run_id: run_id.to_string(),
+            patch_path,
+            check,
+            undo: None,
+        });
+    }
+
+    let undo = apply_reverse_patch_file_with_git(&root, &patch_path)?;
+    Ok(ApplyUndoResult {
+        root,
+        run_id: run_id.to_string(),
+        patch_path,
+        check,
+        undo: Some(undo),
+    })
+}
+
 fn write_apply_log(plan: &ApplyPlan) -> Result<ApplyLogEntry> {
     let applied_at_unix_ms = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -1009,6 +1097,23 @@ fn write_apply_log(plan: &ApplyPlan) -> Result<ApplyLogEntry> {
     log.write_all(b"\n")?;
 
     Ok(entry)
+}
+
+fn validate_apply_run_id(run_id: &str) -> Result<()> {
+    if run_id.is_empty() {
+        anyhow::bail!("apply run id is empty");
+    }
+    if run_id.len() > 120 {
+        anyhow::bail!("apply run id is too long");
+    }
+    if !run_id
+        .chars()
+        .all(|value| value.is_ascii_alphanumeric() || value == '-' || value == '_')
+    {
+        anyhow::bail!("apply run id contains invalid characters: {run_id}");
+    }
+
+    Ok(())
 }
 
 fn copy_project_to(source: &Path, copy_to: &Path) -> Result<PathBuf> {
@@ -1313,6 +1418,72 @@ impl ApplyPlan {
             out.push_str(&format!("Run id: {}\n", log.run_id));
             out.push_str(&format!("Patch: {}\n", log.patch_path));
             out.push_str(&format!("Rollback: {}\n", log.rollback_command));
+        }
+
+        out
+    }
+}
+
+impl ApplyUndoResult {
+    pub fn success(&self) -> bool {
+        self.undo.as_ref().is_some_and(|undo| undo.success)
+    }
+
+    pub fn to_display_string(&self) -> String {
+        let mut out = String::new();
+        out.push_str(&format!("Project: {}\n", self.root.display()));
+        out.push_str("Mode: apply undo\n");
+        out.push_str(&format!("Run id: {}\n", self.run_id));
+        out.push_str(&format!(
+            "Patch: {}\n",
+            to_relative(&self.root, &self.patch_path).display()
+        ));
+
+        out.push_str("\nRollback check:\n");
+        out.push_str(&format!("Command: {}\n", self.check.command));
+        out.push_str(&format!(
+            "Status: {}\n",
+            if self.check.success { "OK" } else { "FAILED" }
+        ));
+        out.push_str(&format!(
+            "Exit code: {}\n",
+            self.check
+                .exit_code
+                .map_or_else(|| "unknown".to_string(), |code| code.to_string())
+        ));
+        if !self.check.stderr.trim().is_empty() {
+            out.push_str("\nStderr:\n");
+            out.push_str(&self.check.stderr);
+            if !self.check.stderr.ends_with('\n') {
+                out.push('\n');
+            }
+        }
+
+        if let Some(undo) = &self.undo {
+            out.push_str("\nRollback apply:\n");
+            out.push_str(&format!("Command: {}\n", undo.command));
+            out.push_str(&format!(
+                "Status: {}\n",
+                if undo.success { "OK" } else { "FAILED" }
+            ));
+            out.push_str(&format!(
+                "Exit code: {}\n",
+                undo.exit_code
+                    .map_or_else(|| "unknown".to_string(), |code| code.to_string())
+            ));
+            if !undo.stderr.trim().is_empty() {
+                out.push_str("\nStderr:\n");
+                out.push_str(&undo.stderr);
+                if !undo.stderr.ends_with('\n') {
+                    out.push('\n');
+                }
+            }
+        }
+
+        if self.success() {
+            out.push_str("\nUndo applied.\n");
+        } else {
+            out.push_str("\nUndo was not applied.\n");
         }
 
         out
@@ -2378,8 +2549,8 @@ mod tests {
         context_priority, is_important_rag_file, is_legacy_resource_match, is_probably_text,
         is_rag_indexable_text, parse_java_file, parse_plugin_yml, parse_pom,
         propose_java_legacy_patch, resource_pack_category, summarize_build_output, tail_lines,
-        truncate_chars, ApplyLogEntry, ApplyPlan, BuildTool, PatchCheckResult, PatchFileChange,
-        PatchProposal,
+        truncate_chars, undo_apply_run, ApplyLogEntry, ApplyPlan, BuildTool, PatchCheckResult,
+        PatchFileChange, PatchProposal,
     };
     use std::fs;
     use std::path::{Path, PathBuf};
@@ -2780,5 +2951,33 @@ commands:
             .to_display_string()
             .contains("Applied in source project."));
         assert!(plan.to_display_string().contains("Apply log:"));
+    }
+
+    #[test]
+    fn undoes_legacy_patch_from_apply_run() {
+        let root = unique_temp_dir("opticcode-apply-undo");
+
+        fs::create_dir_all(root.join("src/main/java/dev/test")).expect("source dirs");
+        let java_path = root.join("src/main/java/dev/test/Test.java");
+        fs::write(
+            &java_path,
+            "package dev.test;\nclass Test { Object item = Material.GUNPOWDER; }\n",
+        )
+        .expect("write source java");
+
+        let plan = apply_java_legacy_patch_in_place(&root).expect("apply in place");
+        let run_id = plan.log.as_ref().expect("apply log").run_id.clone();
+        assert!(fs::read_to_string(&java_path)
+            .expect("patched java")
+            .contains("Material.SULPHUR"));
+
+        let undo = undo_apply_run(&root, &run_id).expect("undo apply run");
+        let content = fs::read_to_string(&java_path).expect("undone java");
+
+        assert!(undo.success());
+        assert!(content.contains("Material.GUNPOWDER"));
+        assert!(!content.contains("Material.SULPHUR"));
+        assert!(undo.to_display_string().contains("Mode: apply undo"));
+        assert!(undo.to_display_string().contains("Undo applied."));
     }
 }

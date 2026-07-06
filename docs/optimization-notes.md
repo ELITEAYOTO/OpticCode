@@ -381,7 +381,7 @@ Interpretation :
 
 ### 13. Apply reel local
 
-Statut : ajoute pour le workspace courant, avec journal rollback manuel.
+Statut : ajoute pour le workspace courant, avec journal et undo.
 
 Commande :
 
@@ -401,11 +401,11 @@ Interpretation :
 
 - aucun appel Qwen n'est necessaire pour ces corrections legacy deterministes ;
 - le gain est surtout un temps de boucle plus court et moins de tokens LLM depenses ;
-- l'application reelle reste refusee hors workspace courant jusqu'a la commande `apply --undo <run-id>`.
+- l'application reelle reste refusee hors workspace courant jusqu'a une decision d'elargissement explicite.
 
 ### 14. Log apply et rollback manuel
 
-Statut : ajoute.
+Statut : ajoute, avec undo automatique.
 
 Chaque application reussie cree :
 
@@ -419,6 +419,20 @@ Interpretation :
 - le cout runtime est negligeable par rapport a Maven ou Qwen ;
 - le rollback manuel repose sur `git apply -R` et ne consomme aucun token ;
 - le patch est stocke en chemin relatif pour eviter les problemes Windows `\\?\`.
+
+Commande undo :
+
+```powershell
+cargo run -q -- apply --path benchmarks/runs/apply-undo-20260707-014200/workspace --undo apply-1783381326069-21596 --yes
+```
+
+Resultat observe :
+
+```text
+Rollback check : succes
+Rollback apply : succes
+Undo applied.
+```
 
 ## Plan optimisation court terme
 
@@ -435,4 +449,5 @@ Interpretation :
 11. Ajouter des tests qualite sur correction de code + build Maven. Fait.
 12. Concevoir `safe apply` avec confirmation explicite. Fait pour dry-run, copie, et workspace courant.
 13. Ajouter rollback/log local avant projets externes. Fait pour journal + rollback manuel.
-14. Ajouter `apply --undo <run-id>`. Prochaine cible.
+14. Ajouter `apply --undo <run-id>`. Fait.
+15. Definir les conditions d'elargissement hors workspace courant. Prochaine cible.

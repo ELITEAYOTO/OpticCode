@@ -92,7 +92,7 @@ Ce test travaille sur une copie temporaire du mini plugin et confirme que le pat
 1. Ajouter une commande separee `apply --dry-run`. Fait.
 2. Ajouter l'application sur copie temporaire. Fait.
 3. Ajouter l'application reelle avec confirmation explicite dans le workspace courant. Fait.
-4. Ajouter rollback/log simple.
+4. Ajouter rollback/log simple. Fait.
 5. Brancher plus tard la generation LLM de patchs sur ce meme format.
 
 Commande dry-run :
@@ -117,7 +117,7 @@ Commande application reelle limitee au workspace courant :
 cargo run -q -- apply --path benchmarks/mini-bukkit-plugin --yes
 ```
 
-Ce mode refuse les chemins externes pour l'instant. PandaSpigot et les plugins personnels restent en lecture seule ou en mode copie tant que `apply --undo <run-id>` n'est pas ajoute.
+Ce mode refuse les chemins externes pour l'instant. PandaSpigot et les plugins personnels restent en lecture seule ou en mode copie tant que les conditions d'elargissement hors workspace courant ne sont pas decidees.
 
 Journal rollback :
 
@@ -134,7 +134,15 @@ La sortie affiche aussi :
 git apply -R ".opticcode\runs\<run-id>\patch.diff"
 ```
 
-Ce rollback manuel a ete valide sur une copie temporaire. La commande automatique `apply --undo <run-id>` reste a faire.
+Ce rollback manuel a ete valide sur une copie temporaire.
+
+Commande undo :
+
+```powershell
+cargo run -q -- apply --path benchmarks/runs/apply-test --undo <run-id> --yes
+```
+
+`apply --undo` verifie d'abord le reverse patch avec `git apply --check -R`, puis applique `git apply -R`.
 
 Roadmap detaillee :
 

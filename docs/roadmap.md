@@ -237,16 +237,17 @@ Etat actuel :
 - `apply --copy-to <path> --yes` ajoute pour appliquer uniquement dans une copie temporaire ;
 - `apply --path <dossier> --yes` ajoute pour appliquer reellement dans le workspace courant uniquement ;
 - journal `.opticcode/apply-log.jsonl` et patch rollback `.opticcode/runs/<run-id>/patch.diff` ajoutes apres apply reussi ;
+- `apply --undo <run-id> --yes` ajoute pour annuler un apply depuis le patch sauvegarde ;
 - `ask` et `plan` peuvent charger le profil `minecraft-java-1.8` ;
 - `analyze-java` compare les commandes declarees avec `getCommand(...)` ;
 - table legacy initiale ajoutee : gunpowder, nether wart, spawners, pelles/spades et quelques mobs ;
 - `ask` et `plan` chargent une memoire global/profil par defaut ;
 - `run-mini-benchmark.ps1` append des runs JSONL comparables ;
-- prochaine cible : commande `apply --undo <run-id>` avant application reelle sur projets externes.
+- prochaine cible : definir les conditions d'elargissement aux projets externes.
 
 ## Phase 5.1 - Safe Apply
 
-Statut : demarree, application reelle limitee au workspace courant avec journal rollback manuel.
+Statut : demarree, application reelle limitee au workspace courant avec journal et undo.
 
 Objectif :
 
@@ -255,6 +256,7 @@ Objectif :
 - tester l'application sur copie temporaire ;
 - autoriser une premiere application reelle uniquement dans le workspace courant ;
 - journaliser chaque application reussie ;
+- annuler une application avec `apply --undo <run-id> --yes` ;
 - refuser toute modification silencieuse ;
 - preparer rollback simple.
 
@@ -264,8 +266,9 @@ Ordre :
 2. Application sur copie temporaire. Fait.
 3. Application reelle avec `--yes` dans le workspace courant. Fait.
 4. Journal + rollback manuel. Fait.
-5. Verification build optionnelle.
-6. Commande `apply --undo <run-id>`.
+5. Commande `apply --undo <run-id>`. Fait.
+6. Verification build optionnelle.
+7. Regles d'elargissement hors workspace courant.
 
 Livrable :
 

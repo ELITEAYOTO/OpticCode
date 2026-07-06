@@ -11,7 +11,7 @@ use opticcode_tools::{
     analyze_java_project, apply_java_legacy_patch_in_place, apply_java_legacy_patch_to_copy,
     build_java_project, build_project_context, build_rag_index, check_patch_with_git,
     inspect_rag_source, inspect_resource_pack, inspect_workspace, prepare_java_legacy_apply_plan,
-    propose_java_legacy_patch, search_rag_index, search_workspace,
+    propose_java_legacy_patch, search_rag_index, search_workspace, undo_apply_run,
 };
 use serde::Serialize;
 use std::io::{self, Write};
@@ -108,6 +108,8 @@ enum Command {
         dry_run: bool,
         #[arg(long)]
         copy_to: Option<PathBuf>,
+        #[arg(long)]
+        undo: Option<String>,
         #[arg(long)]
         yes: bool,
     },
@@ -290,8 +292,25 @@ async fn main() -> Result<()> {
             path,
             dry_run,
             copy_to,
+            undo,
             yes,
         } => {
+            if let Some(run_id) = undo {
+                if dry_run || copy_to.is_some() {
+                    bail!("apply --undo cannot be combined with --dry-run or --copy-to");
+                }
+                if !yes {
+                    bail!("apply --undo requires --yes");
+                }
+                ensure_apply_path_is_inside_current_workspace(&path)?;
+                let result = undo_apply_run(&path, &run_id)?;
+                println!("{}", result.to_display_string());
+                if !result.success() {
+                    std::process::exit(1);
+                }
+                return Ok(());
+            }
+
             let plan = if dry_run {
                 prepare_java_legacy_apply_plan(&path, true)?
             } else if let Some(copy_to) = copy_to {

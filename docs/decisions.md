@@ -768,3 +768,24 @@ Raison :
 - le patch applique est le rollback le plus simple pour les projets Git ;
 - les chemins relatifs evitent les problemes Windows avec les prefixes `\\?\\` ;
 - cette etape prepare une future commande `apply --undo <run-id>`.
+
+### D-049 - Undo applique depuis le patch journalise
+
+Statut : valide provisoirement.
+
+Decision :
+
+- ajouter `apply --undo <run-id> --yes` ;
+- charger le patch depuis `.opticcode/runs/<run-id>/patch.diff` ;
+- valider strictement le `run-id` pour interdire les chemins arbitraires ;
+- verifier avec `git apply --check -R` avant `git apply -R` ;
+- refuser `--undo` sans `--yes` ;
+- refuser les combinaisons `--undo` avec `--dry-run` ou `--copy-to` ;
+- garder l'undo limite au workspace courant pour l'instant.
+
+Raison :
+
+- l'annulation doit etre aussi explicite que l'application ;
+- le patch journalise est suffisant pour un rollback Git simple ;
+- `git apply --check -R` evite d'appliquer un rollback non applicable ;
+- cette brique rend safe apply beaucoup plus credible avant toute discussion sur les projets externes.

@@ -222,11 +222,11 @@ Limite volontaire :
 
 - ce mode ne doit pas encore etre utilise sur PandaSpigot ou tes plugins externes ;
 - pour les projets externes, utiliser encore `--copy-to <path> --yes` ;
-- l'application externe attend une commande `apply --undo <run-id>` en plus du journal rollback.
+- l'application externe attend une decision explicite d'elargissement hors workspace courant.
 
 ## Phase SA-4 - Rollback simple
 
-Statut : terminee pour journal + rollback manuel.
+Statut : terminee pour journal, rollback manuel et `apply --undo`.
 
 Objectif :
 
@@ -237,12 +237,20 @@ Approche V1 :
 - sauvegarder le patch applique dans `.opticcode/runs/<run-id>/patch.diff` ;
 - ajouter une ligne JSONL dans `.opticcode/apply-log.jsonl` ;
 - afficher la commande Git manuelle de rollback dans la sortie `apply` ;
+- ajouter `apply --undo <run-id> --yes` ;
+- verifier l'annulation avec `git apply --check -R` avant `git apply -R` ;
 - si le projet est sous Git, recommander `git diff` puis revert manuel.
 
 Commande de rollback affichee :
 
 ```powershell
 git apply -R ".opticcode\runs\<run-id>\patch.diff"
+```
+
+Commande rollback OpticCode :
+
+```powershell
+cargo run -q -- apply --path benchmarks/runs/apply-undo-20260707-014200/workspace --undo apply-1783381326069-21596 --yes
 ```
 
 Resultat valide :
@@ -254,17 +262,28 @@ Patch: .opticcode\runs\apply-...\patch.diff
 Rollback: git apply -R ".opticcode\runs\apply-...\patch.diff"
 ```
 
+Resultat `apply --undo` valide :
+
+```text
+Mode: apply undo
+Rollback check:
+Status: OK
+Rollback apply:
+Status: OK
+Undo applied.
+```
+
 Validation effectuee :
 
 - application sur copie temporaire interne ;
 - creation de `.opticcode/apply-log.jsonl` ;
 - creation du `patch.diff` ;
 - rollback manuel avec `git apply -R` ;
+- rollback automatique avec `apply --undo <run-id> --yes` ;
 - verification que le fichier revient a l'etat avant patch.
 
 Approche plus tard :
 
-- commande `apply --undo <run-id>` ;
 - backups fichier par fichier pour projets non Git.
 
 ## Phase SA-5 - Integration agent
@@ -333,7 +352,8 @@ Ne doit pas montrer de modification dans `benchmarks/mini-bukkit-plugin`.
 4. Valider avec `run-patch-build-quality.ps1`. Fait.
 5. Activer application reelle avec confirmation stricte dans le workspace courant. Fait.
 6. Ajouter rollback/log local avant d'autoriser les projets externes. Fait pour journal + rollback manuel.
-7. Ajouter `apply --undo <run-id>` avant d'elargir aux vrais projets externes.
+7. Ajouter `apply --undo <run-id>` avant d'elargir aux vrais projets externes. Fait.
+8. Decider les conditions d'elargissement aux projets externes, probablement avec copie obligatoire ou Git propre.
 
 ## Risques
 
