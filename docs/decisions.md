@@ -359,6 +359,12 @@ Raison :
 - les regles doivent pouvoir changer selon le projet ;
 - un Modelfile trop gros deviendrait rigide et difficile a benchmarker.
 
+Etat :
+
+- profil `minecraft-java-1.8` ajoute dans `skills/profiles` ;
+- `ask` et `plan` chargent ce profil par defaut ;
+- `--profile none` permet de desactiver l'injection.
+
 ### D-026 - Patch preview avant safe apply
 
 Statut : valide provisoirement.

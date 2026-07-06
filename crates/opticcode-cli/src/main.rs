@@ -2,7 +2,10 @@ use std::path::PathBuf;
 
 use anyhow::Result;
 use clap::{Parser, Subcommand};
-use opticcode_core::{parse_keep_alive, AskOptions, GenerateMetrics, OpticCode, PlanOptions};
+use opticcode_core::{
+    load_profile_for_workspace, parse_keep_alive, AskOptions, GenerateMetrics, OpticCode,
+    PlanOptions, DEFAULT_PROFILE,
+};
 use opticcode_tools::{
     analyze_java_project, build_java_project, build_project_context, check_patch_with_git,
     inspect_workspace, propose_java_legacy_patch, search_workspace,
@@ -43,6 +46,12 @@ enum Command {
         #[arg(long, default_value = ".")]
         path: PathBuf,
     },
+    Profile {
+        #[arg(long, default_value = ".")]
+        path: PathBuf,
+        #[arg(long, default_value = DEFAULT_PROFILE)]
+        profile: String,
+    },
     Patch {
         #[arg(long, default_value = ".")]
         path: PathBuf,
@@ -59,6 +68,8 @@ enum Command {
         ollama_url: String,
         #[arg(long, default_value = "15m")]
         keep_alive: String,
+        #[arg(long, default_value = DEFAULT_PROFILE)]
+        profile: String,
         #[arg(long)]
         brief: bool,
         #[arg(long)]
@@ -78,6 +89,8 @@ enum Command {
         ollama_url: String,
         #[arg(long, default_value = "15m")]
         keep_alive: String,
+        #[arg(long, default_value = DEFAULT_PROFILE)]
+        profile: String,
         #[arg(long)]
         brief: bool,
         #[arg(long)]
@@ -132,6 +145,12 @@ async fn main() -> Result<()> {
                 std::process::exit(1);
             }
         }
+        Command::Profile { path, profile } => {
+            match load_profile_for_workspace(&path, Some(&profile))? {
+                Some(profile) => println!("{}", profile.to_display_string()),
+                None => println!("Profile disabled."),
+            }
+        }
         Command::Patch { path, check } => {
             let proposal = propose_java_legacy_patch(&path)?;
             println!("{}", proposal.to_display_string());
@@ -153,6 +172,7 @@ async fn main() -> Result<()> {
             model,
             ollama_url,
             keep_alive,
+            profile,
             brief,
             max_tokens,
             metrics,
@@ -164,6 +184,7 @@ async fn main() -> Result<()> {
                 .ask_with_metrics(AskOptions {
                     workspace: path,
                     prompt,
+                    profile: Some(profile),
                     brief,
                     max_tokens,
                 })
@@ -183,6 +204,7 @@ async fn main() -> Result<()> {
             model,
             ollama_url,
             keep_alive,
+            profile,
             brief,
             max_tokens,
             metrics,
@@ -194,6 +216,7 @@ async fn main() -> Result<()> {
                 .plan_with_metrics(PlanOptions {
                     workspace: path,
                     goal,
+                    profile: Some(profile),
                     brief,
                     max_tokens,
                 })

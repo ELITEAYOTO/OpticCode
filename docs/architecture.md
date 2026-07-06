@@ -141,6 +141,12 @@ Chaque profil peut definir :
 
 Le premier profil cible est `minecraft-java-1.8`.
 
+Etat actuel :
+
+- profil Markdown minimal dans `skills/profiles/minecraft-java-1.8/profile.md` ;
+- commande CLI `profile` pour verifier le chargement ;
+- commandes `ask` et `plan` avec `--profile`, par defaut `minecraft-java-1.8`.
+
 ## Memoire
 
 Memoire cible en trois couches :

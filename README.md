@@ -40,6 +40,7 @@ Le projet a maintenant un premier squelette Rust fonctionnel.
 - [Notes optimisation](docs/optimization-notes.md)
 - [Tri des idees de recherche](docs/ideas-triage.md)
 - [Patch preview](docs/patch-preview.md)
+- [Profils](docs/profiles.md)
 
 ## Arborescence prevue
 
@@ -72,6 +73,7 @@ cargo run -q -- analyze-java --path benchmarks/mini-bukkit-plugin
 cargo run -q -- build --path benchmarks/mini-bukkit-plugin
 cargo run -q -- patch --path benchmarks/mini-bukkit-plugin
 cargo run -q -- patch --path benchmarks/mini-bukkit-plugin --check
+cargo run -q -- profile --path benchmarks/mini-bukkit-plugin --profile minecraft-java-1.8
 cargo run -q -- search Material.SULPHUR --path . --limit 5
 cargo run -q -- ask "Reponds en une phrase : quelle regle Bukkit 1.8.8 dois-tu respecter pour gunpowder ?" --path .
 cargo run -q -- plan "Ajouter une commande /coins dans un plugin Bukkit 1.8.8" --path . --metrics
@@ -82,4 +84,4 @@ cargo run -q -- inspect --path benchmarks/mini-bukkit-plugin
 
 ## Prochaine etape
 
-Introduire un premier profil `minecraft-java-1.8` minimal, puis comparer les commandes declarees dans `plugin.yml` avec les appels `getCommand(...)`.
+Comparer les commandes declarees dans `plugin.yml` avec les appels `getCommand(...)`, puis relier le profil `minecraft-java-1.8` aux futures regles RAG.

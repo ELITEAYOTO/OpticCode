@@ -168,6 +168,7 @@ Etat actuel :
 - commande `build` fonctionnelle pour Maven/Gradle ;
 - commande `patch` fonctionnelle en preview deterministe ;
 - verification `patch --check` fonctionnelle via `git apply --check` ;
+- profil `minecraft-java-1.8` minimal ajoute ;
 - compilation et tests OK.
 
 Livrable :
@@ -205,7 +206,8 @@ Etat actuel :
 - `keep_alive=15m` reduit fortement le cout de modele froid ;
 - `patch` propose un diff non applique pour `Material.GUNPOWDER` -> `Material.SULPHUR` ;
 - `patch --check` verifie que le diff est applicable ;
-- prochaine cible : profil `minecraft-java-1.8` minimal et coherence `plugin.yml` / `getCommand(...)`.
+- `ask` et `plan` peuvent charger le profil `minecraft-java-1.8` ;
+- prochaine cible : coherence `plugin.yml` / `getCommand(...)`.
 
 ## Phase 5.5 - Profils, memoire et optimisation controlee
 
@@ -219,11 +221,11 @@ Objectif :
 
 Priorites :
 
-1. Profil `minecraft-java-1.8` minimal.
-2. Benchmarks JSONL/CSV reproductibles.
-3. Streaming pour confort interactif.
-4. Memoire simple global/profile/project.
-5. Selection de contexte par tache.
+1. Benchmarks JSONL/CSV reproductibles.
+2. Streaming pour confort interactif.
+3. Memoire simple global/profile/project.
+4. Selection de contexte par tache.
+5. Packs RAG lies aux profils.
 
 Decisions :
 
@@ -235,6 +237,7 @@ Decisions :
 Livrable :
 
 - `docs/ideas-triage.md`
+- `docs/profiles.md`
 
 ## Phase 6 - RAG local
 
