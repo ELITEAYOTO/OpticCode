@@ -92,6 +92,7 @@ cargo run -q -- plan "Ajouter une commande /coins dans un plugin Bukkit 1.8.8" -
 cargo run -q -- plan "Verifier ce plugin Bukkit 1.8.8 et proposer les risques avant compilation" --path benchmarks/mini-bukkit-plugin --brief --metrics
 cargo run -q -- plan "Verifier ce plugin Bukkit 1.8.8 et proposer les risques avant compilation" --path benchmarks/mini-bukkit-plugin --brief --metrics-json
 cargo run -q -- inspect --path benchmarks/mini-bukkit-plugin
+.\scripts\run-rag-comparison.ps1
 ```
 
 ## Prochaine etape

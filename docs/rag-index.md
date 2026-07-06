@@ -145,11 +145,56 @@ Interpretation :
 - le cout prompt reste negligeable face aux tokens generes ;
 - la mesure est courte, donc il faudra repeter via le script benchmark.
 
+## Benchmark compare
+
+Statut : ajoute.
+
+Commande :
+
+```powershell
+.\scripts\run-rag-comparison.ps1
+```
+
+La commande lance chaque prompt en deux modes :
+
+- avec RAG ;
+- sans RAG.
+
+Elle ecrit :
+
+```text
+benchmarks/runs/rag-comparison-<timestamp>.md
+benchmarks/runs/rag-comparison-<timestamp>.jsonl
+```
+
+Les reponses completes restent dans :
+
+```text
+benchmarks/runs/mini-bukkit-*.answer.md
+```
+
+Premier essai court :
+
+| Prompt | Mode | Prompt chars | Client s | Eval tok/s |
+| --- | --- | ---: | ---: | ---: |
+| `Verifier nether wart et spawner...` | avec RAG | 11 299 | 2.87 s | 25.97 |
+| `Verifier nether wart et spawner...` | sans RAG | 10 969 | 2.85 s | 26.03 |
+| `Quels risques legacy verifier pour des pelles et spawners ?` | avec RAG | 10 987 | 4.31 s | 26.36 |
+| `Quels risques legacy verifier pour des pelles et spawners ?` | sans RAG | 10 969 | 2.82 s | 26.46 |
+
+Interpretation provisoire :
+
+- le debit modele reste stable autour de 26 tokens/s ;
+- le RAG est peu couteux quand il ramene peu ou quelques extraits ;
+- les prompts vagues en francais peuvent mal matcher les sources anglaises/Java ;
+- la prochaine optimisation doit porter sur la requete RAG et les synonymes legacy.
+
 ## Prochaine etape
 
-Ajouter un mode benchmark compare :
+Ameliorer la requete RAG :
 
-- avec/sans RAG ;
-- plusieurs prompts legacy ;
-- export JSONL deja exploitable ;
-- comparaison qualite manuelle des reponses.
+- extraire les termes legacy importants ;
+- ajouter synonymes francais/anglais comme `pelle -> shovel/spade` ;
+- ajouter `spawner -> mob_spawner/MOB_SPAWNER` ;
+- ajouter `nether wart -> nether_stalk/NETHER_STALK` ;
+- mesurer de nouveau avec le script de comparaison.

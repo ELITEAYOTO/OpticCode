@@ -116,11 +116,19 @@ Exemple :
 .\scripts\run-mini-benchmark.ps1 -Prompt "Verifier rapidement le mini plugin Bukkit 1.8.8" -MaxTokens 80
 .\scripts\run-mini-benchmark.ps1 -Prompt "Verifier rapidement le mini plugin Bukkit 1.8.8" -MaxTokens 80 -NoMemory
 .\scripts\run-mini-benchmark.ps1 -Prompt "Verifier rapidement le mini plugin Bukkit 1.8.8" -MaxTokens 80 -NoRag
+.\scripts\run-rag-comparison.ps1
 ```
 
 But :
 
 - savoir si une reponse est lente a cause du prompt, du modele, du runtime ou du nombre de tokens generes.
+- comparer le meme prompt avec et sans RAG.
+
+Benchmark RAG :
+
+- `run-rag-comparison.ps1` lance plusieurs prompts en mode avec/sans RAG ;
+- genere un Markdown de synthese et un JSONL detaille dans `benchmarks/runs/` ;
+- utile pour mesurer le cout prompt et evaluer manuellement la qualite.
 
 ### 2. Garder le modele chaud
 

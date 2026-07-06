@@ -483,3 +483,20 @@ Raison :
 - le RAG doit ameliorer le contexte sans exploser les tokens ;
 - les benchmarks doivent rester comparables ;
 - OpticCode doit rester utilisable meme avant la construction d'un index local.
+
+### D-033 - Comparer le RAG par prompts repetables
+
+Statut : valide provisoirement.
+
+Decision :
+
+- ajouter `scripts/run-rag-comparison.ps1` ;
+- executer chaque prompt avec RAG puis sans RAG ;
+- stocker un resume Markdown et un detail JSONL dans `benchmarks/runs` ;
+- garder les artefacts de benchmark hors Git.
+
+Raison :
+
+- le RAG doit etre juge sur le cout et la qualite, pas seulement sur sa presence ;
+- les prompts legacy doivent couvrir les cas Minecraft reels : spawners, pelles/spades, nether wart/stalk, materials modernes ;
+- les resultats montrent aussi quand la requete RAG est trop vague et doit etre enrichie.

@@ -84,6 +84,7 @@ cargo run -q -- rag-index --output data/index --path . --path "C:\Users\timot\De
 cargo run -q -- rag-search "nether wart" --index data/index --limit 5
 cargo run -q -- plan "Verifier nether wart et spawner dans un plugin Bukkit 1.8.8" --path benchmarks/mini-bukkit-plugin --brief --max-tokens 80 --metrics-json --rag-limit 3
 cargo run -q -- plan "Verifier nether wart et spawner dans un plugin Bukkit 1.8.8" --path benchmarks/mini-bukkit-plugin --brief --max-tokens 80 --metrics-json --no-rag
+.\scripts\run-rag-comparison.ps1
 cargo run -q -- search Material.SULPHUR --path . --limit 5
 cargo run -q -- ask "Reponds en une phrase : quelle regle Bukkit 1.8.8 dois-tu respecter pour gunpowder ?" --path .
 cargo run -q -- plan "Ajouter une commande /coins dans un plugin Bukkit 1.8.8" --path . --metrics

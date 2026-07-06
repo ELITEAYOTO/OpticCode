@@ -4,6 +4,7 @@ param(
     [string]$Model = "qwen2.5-coder:14b",
     [string]$Profile = "minecraft-java-1.8",
     [string]$KeepAlive = "15m",
+    [string]$RunTag = "manual",
     [string]$RagIndex = "data/index",
     [int]$RagLimit = 4,
     [int]$MaxTokens = 160,
@@ -77,6 +78,7 @@ $metrics = $metricsJson | ConvertFrom-Json
 
 $record = [ordered]@{
     timestamp = (Get-Date).ToString("o")
+    run_tag = $RunTag
     prompt = $Prompt
     project_path = $ProjectPath
     model = $Model
