@@ -458,6 +458,25 @@ Interpretation :
 - le gain est un controle de risque, pas un gain tokens/s ;
 - un repo deja sale est refuse avant que le patch soit genere/applique.
 
+### 16. Test copie reelle Kspawners
+
+Statut : ajoute.
+
+Resultats :
+
+- analyse OpticCode OK ;
+- build Maven OK avant patch : 9.70s ;
+- patch `plugin.yml api-version` ajoute ;
+- build Maven OK apres apply : 7.58s ;
+- undo OK apres alignement whitespace/CRLF ;
+- build Maven OK apres undo : 5.19s.
+
+Point de vigilance :
+
+- Git peut conserver un bruit LF/CRLF sur `plugin.yml` apres undo ;
+- `git diff --ignore-space-at-eol` ne montre pas de difference metier ;
+- la prochaine optimisation doit preserver les fins de ligne avant application sur originaux.
+
 ## Plan optimisation court terme
 
 1. Ajouter metriques LLM dans la sortie de debug. Fait.
@@ -475,4 +494,5 @@ Interpretation :
 13. Ajouter rollback/log local avant projets externes. Fait pour journal + rollback manuel.
 14. Ajouter `apply --undo <run-id>`. Fait.
 15. Definir les conditions d'elargissement hors workspace courant. Fait via `--allow-external`.
-16. Tester sur une copie locale d'un vrai plugin. Prochaine cible.
+16. Tester sur une copie locale d'un vrai plugin. Fait avec Kspawners.
+17. Preserver LF/CRLF dans les patchs. Prochaine cible.

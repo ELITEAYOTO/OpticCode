@@ -23,12 +23,13 @@ cargo run -q -- patch --path benchmarks/mini-bukkit-plugin --check
 
 ## Etat actuel
 
-La commande `patch` propose uniquement des corrections deterministes Java legacy.
+La commande `patch` propose uniquement des corrections deterministes legacy.
 
-Regle supportee :
+Regles supportees :
 
 - remplacer plusieurs symboles modernes par leurs noms Bukkit 1.8.8 ;
 - exemples : `Material.GUNPOWDER` -> `Material.SULPHUR`, `Material.WOODEN_SHOVEL` -> `Material.WOOD_SPADE`, `Material.NETHER_WART` -> `Material.NETHER_STALK`, `Material.SPAWN_EGG` -> `Material.MONSTER_EGG`.
+- neutraliser `api-version` dans `plugin.yml` avec un commentaire YAML compatible Bukkit 1.8.8.
 
 ## Resultat sur projet sain
 
@@ -48,7 +49,7 @@ Material.SULPHUR -> Material.GUNPOWDER
 Resultat :
 
 - `patch` propose un unified diff ;
-- `patch --check` valide le diff avec `git apply --check -` ;
+- `patch --check` valide le diff avec `git apply --check --ignore-space-change --ignore-whitespace -` ;
 - le fichier n'est pas modifie ;
 - `build` echoue comme attendu avant correction ;
 - l'erreur Maven est resumee ;
@@ -60,6 +61,13 @@ Extrait de patch attendu :
 ```diff
 -        player.getInventory().addItem(new ItemStack(Material.GUNPOWDER, 1));
 +        player.getInventory().addItem(new ItemStack(Material.SULPHUR, 1));
+```
+
+Extrait plugin.yml attendu :
+
+```diff
+-api-version: 1.8
++# api-version disabled for Bukkit 1.8.8 compatibility
 ```
 
 ## Benchmark patch + build

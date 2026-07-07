@@ -202,6 +202,7 @@ Livrable :
 - `docs/rag-quality.md`
 - `docs/patch-build-quality.md`
 - `docs/safe-apply-roadmap.md`
+- `docs/real-plugin-kspawners-test.md`
 
 ## Phase 5 - Tools code et Java legacy
 
@@ -239,12 +240,13 @@ Etat actuel :
 - journal `.opticcode/apply-log.jsonl` et patch rollback `.opticcode/runs/<run-id>/patch.diff` ajoutes apres apply reussi ;
 - `apply --undo <run-id> --yes` ajoute pour annuler un apply depuis le patch sauvegarde ;
 - `--allow-external` ajoute pour autoriser explicitement un apply hors workspace courant sur repo Git propre ;
+- test sur copie reelle `Kspawners` effectue : analyse OK, build OK, patch `plugin.yml` OK, apply/undo OK avec bruit LF/CRLF detecte ;
 - `ask` et `plan` peuvent charger le profil `minecraft-java-1.8` ;
 - `analyze-java` compare les commandes declarees avec `getCommand(...)` ;
 - table legacy initiale ajoutee : gunpowder, nether wart, spawners, pelles/spades et quelques mobs ;
 - `ask` et `plan` chargent une memoire global/profil par defaut ;
 - `run-mini-benchmark.ps1` append des runs JSONL comparables ;
-- prochaine cible : tester sur une copie locale d'un vrai plugin avant tout dossier personnel original.
+- prochaine cible : traiter la preservation LF/CRLF avant tout dossier personnel original.
 
 ## Phase 5.1 - Safe Apply
 
@@ -271,11 +273,13 @@ Ordre :
 5. Commande `apply --undo <run-id>`. Fait.
 6. Regles d'elargissement hors workspace courant. Fait via `--allow-external`.
 7. Verification build optionnelle.
-8. Test sur copie locale d'un vrai plugin.
+8. Test sur copie locale d'un vrai plugin. Fait avec Kspawners.
+9. Preservation LF/CRLF avant originaux.
 
 Livrable :
 
 - `docs/safe-apply-roadmap.md`
+- `docs/real-plugin-kspawners-test.md`
 
 ## Phase 5.5 - Profils, memoire et optimisation controlee
 

@@ -338,6 +338,40 @@ Regle :
 - les tools deterministes verifient ;
 - l'application reste confirmee.
 
+## Phase SA-4.6 - Test copie reelle Kspawners
+
+Statut : termine sur copie.
+
+Objectif :
+
+- valider safe apply sur une copie d'un vrai plugin personnel ;
+- ne pas modifier l'original ;
+- mesurer les limites reelles avant PandaSpigot ou plugins originaux.
+
+Resultats :
+
+- copie Git creee dans `benchmarks/runs/real-plugin-kspawners-20260707-015407/Kspawners-copy` ;
+- `inspect` OK ;
+- `analyze-java` OK ;
+- risque detecte : `plugin.yml` contient `api-version` ;
+- build Maven OK avant patch ;
+- correction deterministe ajoutee pour neutraliser `api-version` avec un commentaire YAML ;
+- `patch --check` OK ;
+- `apply --yes` OK ;
+- build Maven OK apres apply ;
+- `apply --undo <run-id> --yes` OK apres alignement whitespace/CRLF ;
+- build Maven OK apres undo.
+
+Limite detectee :
+
+- `plugin.yml` reste marque modifie par Git apres undo a cause d'un bruit de fin de ligne ;
+- `git diff --ignore-space-at-eol` ne montre pas de difference metier.
+
+Decision :
+
+- continuer uniquement sur copies tant que la preservation LF/CRLF n'est pas amelioree ;
+- ne pas appliquer sur originaux avant un garde-fou line endings.
+
 ## Tests obligatoires
 
 ### Tests unitaires Rust
@@ -390,7 +424,8 @@ Ne doit pas montrer de modification dans `benchmarks/mini-bukkit-plugin`.
 6. Ajouter rollback/log local avant d'autoriser les projets externes. Fait pour journal + rollback manuel.
 7. Ajouter `apply --undo <run-id>` avant d'elargir aux vrais projets externes. Fait.
 8. Decider les conditions d'elargissement aux projets externes. Fait via `--allow-external` + Git propre.
-9. Tester sur une copie locale de projet reel avant tout vrai dossier personnel.
+9. Tester sur une copie locale de projet reel avant tout vrai dossier personnel. Fait avec Kspawners.
+10. Ajouter un garde-fou LF/CRLF avant projets originaux.
 
 ## Risques
 
@@ -401,6 +436,7 @@ Ne doit pas montrer de modification dans `benchmarks/mini-bukkit-plugin`.
 - build Maven lent ou dependant du cache local ;
 - modification accidentelle d'un projet externe.
 - repo externe deja sale avant patch.
+- bruit de fin de ligne apres apply/undo.
 
 Mitigation :
 
@@ -410,3 +446,4 @@ Mitigation :
 - utiliser `git apply --check` avant application ;
 - separer preview, dry-run et apply reel.
 - exiger `--allow-external` et Git propre pour les chemins externes.
+- verifier les diffs avec et sans `--ignore-space-at-eol` sur les copies reelles.

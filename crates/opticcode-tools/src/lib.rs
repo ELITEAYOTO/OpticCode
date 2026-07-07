@@ -816,6 +816,37 @@ pub fn propose_java_legacy_patch(root: &Path) -> Result<PatchProposal> {
         });
     }
 
+    for plugin_path in [
+        PathBuf::from("src/main/resources/plugin.yml"),
+        PathBuf::from("src/main/resources/plugin.yaml"),
+    ] {
+        let absolute_path = analysis.root.join(&plugin_path);
+        if !absolute_path.exists() {
+            continue;
+        }
+
+        let content = match fs::read_to_string(&absolute_path) {
+            Ok(value) => value,
+            Err(_) => continue,
+        };
+
+        let Some(proposed) = remove_plugin_api_version(&content) else {
+            continue;
+        };
+        let diff = build_unified_diff(
+            &plugin_path,
+            &content,
+            &proposed,
+            "Bukkit 1.8.8 plugin.yml compatibility.",
+        );
+
+        changes.push(PatchFileChange {
+            path: plugin_path,
+            reason: "Disable plugin.yml api-version with a YAML comment; Bukkit 1.8.8 does not expect it.".to_string(),
+            diff,
+        });
+    }
+
     if changes.is_empty() {
         notes.push("No deterministic Java legacy patch is currently needed.".to_string());
     } else {
@@ -839,8 +870,18 @@ pub fn check_patch_with_git(proposal: &PatchProposal) -> Result<Option<PatchChec
     }
 
     let patch = proposal.combined_diff();
-    let command_display = "git apply --check -".to_string();
-    let mut command = build_process_command("git", &["apply", "--check", "-"]);
+    let command_display =
+        "git apply --check --ignore-space-change --ignore-whitespace -".to_string();
+    let mut command = build_process_command(
+        "git",
+        &[
+            "apply",
+            "--check",
+            "--ignore-space-change",
+            "--ignore-whitespace",
+            "-",
+        ],
+    );
     let mut child = command
         .current_dir(&proposal.root)
         .stdin(Stdio::piped())
@@ -928,6 +969,8 @@ fn run_git_apply_patch_file(
     if reverse {
         args.push("-R");
     }
+    args.push("--ignore-space-change");
+    args.push("--ignore-whitespace");
 
     let relative_patch_arg = relative_patch.to_string_lossy().to_string();
     args.push(&relative_patch_arg);
@@ -1903,6 +1946,36 @@ fn apply_legacy_replacements(content: &str) -> Option<(String, Vec<LegacySymbolR
     Some((proposed, replacements))
 }
 
+fn remove_plugin_api_version(content: &str) -> Option<String> {
+    let mut proposed = String::new();
+    let mut removed = false;
+
+    for line in content.split_inclusive('\n') {
+        let logical = line.trim_end_matches(['\r', '\n']);
+        let is_top_level = logical
+            .chars()
+            .next()
+            .is_some_and(|value| !value.is_whitespace());
+        if is_top_level && logical.starts_with("api-version:") {
+            removed = true;
+            let newline = if line.ends_with("\r\n") {
+                "\r\n"
+            } else if line.ends_with('\n') {
+                "\n"
+            } else {
+                ""
+            };
+            proposed.push_str("# api-version disabled for Bukkit 1.8.8 compatibility");
+            proposed.push_str(newline);
+            continue;
+        }
+
+        proposed.push_str(line);
+    }
+
+    removed.then_some(proposed)
+}
+
 fn symbol_name_appears(content: &str, qualified_symbol: &str) -> bool {
     qualified_symbol
         .rsplit_once('.')
@@ -2755,6 +2828,37 @@ commands:
         assert!(proposed.contains("Material.MOB_SPAWNER"));
         assert!(proposed.contains("Material.MONSTER_EGG"));
         assert!(proposed.contains("EntityType.PIG_ZOMBIE"));
+    }
+
+    #[test]
+    fn removes_plugin_yml_api_version_for_legacy_bukkit_patch() {
+        let root = unique_temp_dir("opticcode-plugin-yml-patch");
+        fs::create_dir_all(root.join("src/main/resources")).expect("resource dirs");
+        fs::write(
+            root.join("pom.xml"),
+            "<project><dependencies><dependency><groupId>org.spigotmc</groupId><artifactId>spigot-api</artifactId><version>1.8.8-R0.1-SNAPSHOT</version></dependency></dependencies></project>",
+        )
+        .expect("pom");
+        let plugin_path = root.join("src/main/resources/plugin.yml");
+        fs::write(
+            &plugin_path,
+            "name: Demo\nversion: 1.0\nmain: dev.test.DemoPlugin\napi-version: 1.13\ncommands:\n  demo:\n    description: Demo\n",
+        )
+        .expect("plugin.yml");
+
+        let proposal = propose_java_legacy_patch(&root).expect("proposal");
+        let unchanged = fs::read_to_string(&plugin_path).expect("plugin.yml unchanged");
+
+        assert_eq!(proposal.changes.len(), 1);
+        assert_eq!(
+            proposal.changes[0].path,
+            Path::new("src/main/resources/plugin.yml")
+        );
+        assert!(proposal.changes[0].diff.contains("-api-version: 1.13"));
+        assert!(proposal.changes[0]
+            .diff
+            .contains("+# api-version disabled for Bukkit 1.8.8 compatibility"));
+        assert!(unchanged.contains("api-version: 1.13"));
     }
 
     #[test]

@@ -809,3 +809,22 @@ Raison :
 - un repo Git propre donne un point de comparaison clair avant modification ;
 - `--allow-external` rend l'intention impossible a confondre avec un test interne ;
 - l'undo doit rester possible meme quand l'apply a rendu le repo sale.
+
+### D-051 - Copies reelles avant originaux et garde-fou LF/CRLF
+
+Statut : valide provisoirement.
+
+Decision :
+
+- tester les vrais plugins uniquement via copies Git dans `benchmarks/runs` ;
+- exclure les artefacts comme `target/` et les dossiers extraits trop longs pour Git ;
+- ajouter une correction deterministic pour neutraliser `plugin.yml api-version` en commentaire YAML ;
+- aligner `patch --check`, `apply` et `undo` avec `--ignore-space-change --ignore-whitespace` ;
+- ne pas appliquer sur des originaux tant que la preservation LF/CRLF n'est pas mieux controlee.
+
+Raison :
+
+- le test Kspawners a valide analyse, build, apply et undo sur copie ;
+- il a aussi revele un bruit de fin de ligne apres undo sur `plugin.yml` ;
+- le contenu metier etait restaure, mais Git gardait un diff non utile ;
+- ce type de bruit est acceptable en copie de test, pas sur un projet original important.

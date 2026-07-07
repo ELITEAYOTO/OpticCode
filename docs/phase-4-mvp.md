@@ -54,6 +54,7 @@ Le prototype sait deja :
 - sauvegarder le patch de rollback dans `.opticcode/runs/<run-id>/patch.diff`.
 - annuler une application avec `apply --undo <run-id> --yes`.
 - autoriser explicitement un projet externe avec `--allow-external` si le repo Git est propre.
+- proposer une correction deterministic pour `plugin.yml api-version`.
 
 Il ne sait pas encore :
 
@@ -168,7 +169,7 @@ cargo test --workspace
 Resultat :
 
 ```text
-OK - 38 tests passes
+OK - 39 tests passes
 ```
 
 ### Inspection locale
