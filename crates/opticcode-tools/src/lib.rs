@@ -914,6 +914,10 @@ pub fn apply_patch_with_git(proposal: &PatchProposal) -> Result<Option<PatchChec
         return Ok(None);
     }
 
+    let line_endings = collect_line_ending_styles(
+        &proposal.root,
+        proposal.changes.iter().map(|change| change.path.as_path()),
+    )?;
     let patch = proposal.combined_diff();
     let command_display = "git apply --ignore-space-change --ignore-whitespace -".to_string();
     let mut command = build_process_command(
@@ -937,6 +941,9 @@ pub fn apply_patch_with_git(proposal: &PatchProposal) -> Result<Option<PatchChec
     let output = child
         .wait_with_output()
         .context("failed to read patch apply result")?;
+    if output.status.success() {
+        restore_line_endings(&proposal.root, &line_endings)?;
+    }
 
     Ok(Some(PatchCheckResult {
         command: command_display,
@@ -961,6 +968,12 @@ fn run_git_apply_patch_file(
     reverse: bool,
     check: bool,
 ) -> Result<PatchCheckResult> {
+    let line_endings = if check {
+        Vec::new()
+    } else {
+        let patch_paths = patch_file_paths(patch_path)?;
+        collect_line_ending_styles(root, patch_paths.iter().map(|path| path.as_path()))?
+    };
     let relative_patch = to_relative(root, patch_path);
     let mut args = vec!["apply"];
     if check {
@@ -980,6 +993,9 @@ fn run_git_apply_patch_file(
         .current_dir(root)
         .output()
         .with_context(|| format!("failed to run patch file command: {command_display}"))?;
+    if output.status.success() && !check {
+        restore_line_endings(root, &line_endings)?;
+    }
 
     Ok(PatchCheckResult {
         command: command_display,
@@ -1157,6 +1173,140 @@ fn validate_apply_run_id(run_id: &str) -> Result<()> {
     }
 
     Ok(())
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum LineEndingStyle {
+    Lf,
+    Crlf,
+}
+
+fn collect_line_ending_styles<'a>(
+    root: &Path,
+    paths: impl Iterator<Item = &'a Path>,
+) -> Result<Vec<(PathBuf, Option<LineEndingStyle>)>> {
+    let mut styles = Vec::new();
+    for relative_path in paths {
+        let absolute_path = root.join(relative_path);
+        let bytes = fs::read(&absolute_path).with_context(|| {
+            format!(
+                "failed to read line ending style: {}",
+                absolute_path.display()
+            )
+        })?;
+        styles.push((
+            relative_path.to_path_buf(),
+            detect_line_ending_style(&bytes),
+        ));
+    }
+
+    Ok(styles)
+}
+
+fn restore_line_endings(root: &Path, styles: &[(PathBuf, Option<LineEndingStyle>)]) -> Result<()> {
+    for (relative_path, style) in styles {
+        let Some(style) = style else {
+            continue;
+        };
+        let absolute_path = root.join(relative_path);
+        let bytes = fs::read(&absolute_path).with_context(|| {
+            format!(
+                "failed to read file for line ending restore: {}",
+                absolute_path.display()
+            )
+        })?;
+        let normalized = normalize_line_endings(&bytes, *style);
+        if normalized != bytes {
+            fs::write(&absolute_path, normalized).with_context(|| {
+                format!(
+                    "failed to restore line endings: {}",
+                    absolute_path.display()
+                )
+            })?;
+        }
+    }
+
+    Ok(())
+}
+
+fn detect_line_ending_style(bytes: &[u8]) -> Option<LineEndingStyle> {
+    let mut crlf = 0usize;
+    let mut lf = 0usize;
+    let mut index = 0usize;
+
+    while index < bytes.len() {
+        match bytes[index] {
+            b'\r' if bytes.get(index + 1) == Some(&b'\n') => {
+                crlf += 1;
+                index += 2;
+            }
+            b'\n' => {
+                lf += 1;
+                index += 1;
+            }
+            _ => index += 1,
+        }
+    }
+
+    match (crlf, lf) {
+        (0, 0) => None,
+        (crlf, lf) if crlf >= lf => Some(LineEndingStyle::Crlf),
+        _ => Some(LineEndingStyle::Lf),
+    }
+}
+
+fn normalize_line_endings(bytes: &[u8], style: LineEndingStyle) -> Vec<u8> {
+    let mut lf_normalized = Vec::with_capacity(bytes.len());
+    let mut index = 0usize;
+
+    while index < bytes.len() {
+        if bytes[index] == b'\r' {
+            if bytes.get(index + 1) == Some(&b'\n') {
+                index += 2;
+            } else {
+                index += 1;
+            }
+            lf_normalized.push(b'\n');
+        } else {
+            lf_normalized.push(bytes[index]);
+            index += 1;
+        }
+    }
+
+    if style == LineEndingStyle::Lf {
+        return lf_normalized;
+    }
+
+    let mut crlf_normalized = Vec::with_capacity(lf_normalized.len());
+    for byte in lf_normalized {
+        if byte == b'\n' {
+            crlf_normalized.extend_from_slice(b"\r\n");
+        } else {
+            crlf_normalized.push(byte);
+        }
+    }
+
+    crlf_normalized
+}
+
+fn patch_file_paths(patch_path: &Path) -> Result<Vec<PathBuf>> {
+    let content = fs::read_to_string(patch_path)
+        .with_context(|| format!("failed to read patch file: {}", patch_path.display()))?;
+    let mut paths = Vec::new();
+
+    for line in content.lines() {
+        let Some(path) = line.strip_prefix("+++ b/") else {
+            continue;
+        };
+        if path == "/dev/null" {
+            continue;
+        }
+        paths.push(PathBuf::from(path));
+    }
+
+    paths.sort();
+    paths.dedup();
+    Ok(paths)
 }
 
 fn copy_project_to(source: &Path, copy_to: &Path) -> Result<PathBuf> {
@@ -2622,8 +2772,8 @@ mod tests {
         context_priority, is_important_rag_file, is_legacy_resource_match, is_probably_text,
         is_rag_indexable_text, parse_java_file, parse_plugin_yml, parse_pom,
         propose_java_legacy_patch, resource_pack_category, summarize_build_output, tail_lines,
-        truncate_chars, undo_apply_run, ApplyLogEntry, ApplyPlan, BuildTool, PatchCheckResult,
-        PatchFileChange, PatchProposal,
+        truncate_chars, undo_apply_run, ApplyLogEntry, ApplyPlan, BuildTool, LineEndingStyle,
+        PatchCheckResult, PatchFileChange, PatchProposal,
     };
     use std::fs;
     use std::path::{Path, PathBuf};
@@ -2635,6 +2785,14 @@ mod tests {
             .expect("system time should be after unix epoch")
             .as_nanos();
         std::env::temp_dir().join(format!("{prefix}-{stamp}"))
+    }
+
+    fn all_newlines_are_crlf(bytes: &[u8]) -> bool {
+        bytes
+            .iter()
+            .enumerate()
+            .filter(|(_, byte)| **byte == b'\n')
+            .all(|(index, _)| index > 0 && bytes[index - 1] == b'\r')
     }
 
     #[test]
@@ -2859,6 +3017,57 @@ commands:
             .diff
             .contains("+# api-version disabled for Bukkit 1.8.8 compatibility"));
         assert!(unchanged.contains("api-version: 1.13"));
+    }
+
+    #[test]
+    fn normalizes_line_endings_to_detected_style() {
+        let mixed = b"a\r\nb\nc\r\nd\n";
+
+        assert_eq!(
+            super::detect_line_ending_style(mixed),
+            Some(LineEndingStyle::Crlf)
+        );
+        assert_eq!(
+            super::normalize_line_endings(mixed, LineEndingStyle::Lf),
+            b"a\nb\nc\nd\n"
+        );
+        assert_eq!(
+            super::normalize_line_endings(mixed, LineEndingStyle::Crlf),
+            b"a\r\nb\r\nc\r\nd\r\n"
+        );
+    }
+
+    #[test]
+    fn preserves_crlf_when_applying_and_undoing_plugin_yml_patch() {
+        let root = unique_temp_dir("opticcode-plugin-yml-crlf");
+        fs::create_dir_all(root.join("src/main/resources")).expect("resource dirs");
+        fs::write(
+            root.join("pom.xml"),
+            "<project><dependencies><dependency><groupId>org.spigotmc</groupId><artifactId>spigot-api</artifactId><version>1.8.8-R0.1-SNAPSHOT</version></dependency></dependencies></project>",
+        )
+        .expect("pom");
+        let plugin_path = root.join("src/main/resources/plugin.yml");
+        fs::write(
+            &plugin_path,
+            b"name: Demo\r\nversion: 1.0\r\nmain: dev.test.DemoPlugin\r\napi-version: 1.13\r\ncommands:\r\n  demo:\r\n    description: Demo\r\n",
+        )
+        .expect("plugin.yml");
+
+        let plan = apply_java_legacy_patch_in_place(&root).expect("apply plugin.yml patch");
+        let applied = fs::read(&plugin_path).expect("patched plugin.yml");
+        let run_id = plan.log.as_ref().expect("apply log").run_id.clone();
+
+        assert!(plan.success());
+        assert!(all_newlines_are_crlf(&applied));
+        assert!(String::from_utf8_lossy(&applied)
+            .contains("# api-version disabled for Bukkit 1.8.8 compatibility"));
+
+        let undo = undo_apply_run(&root, &run_id).expect("undo plugin.yml patch");
+        let undone = fs::read(&plugin_path).expect("undone plugin.yml");
+
+        assert!(undo.success());
+        assert!(all_newlines_are_crlf(&undone));
+        assert!(String::from_utf8_lossy(&undone).contains("api-version: 1.13"));
     }
 
     #[test]

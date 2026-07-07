@@ -55,6 +55,7 @@ Le prototype sait deja :
 - annuler une application avec `apply --undo <run-id> --yes`.
 - autoriser explicitement un projet externe avec `--allow-external` si le repo Git est propre.
 - proposer une correction deterministic pour `plugin.yml api-version`.
+- preserver le style LF/CRLF des fichiers touches par apply et undo.
 
 Il ne sait pas encore :
 
@@ -169,7 +170,7 @@ cargo test --workspace
 Resultat :
 
 ```text
-OK - 39 tests passes
+OK - 41 tests passes
 ```
 
 ### Inspection locale

@@ -362,15 +362,21 @@ Resultats :
 - `apply --undo <run-id> --yes` OK apres alignement whitespace/CRLF ;
 - build Maven OK apres undo.
 
-Limite detectee :
+Limite traitee :
 
-- `plugin.yml` reste marque modifie par Git apres undo a cause d'un bruit de fin de ligne ;
-- `git diff --ignore-space-at-eol` ne montre pas de difference metier.
+- `plugin.yml` etait marque modifie par Git apres undo a cause d'un bruit de fin de ligne ;
+- OpticCode restaure maintenant le style LF/CRLF dominant des fichiers touches apres apply et undo ;
+- apres apply puis undo sans build, seul `.opticcode/` reste non suivi.
+
+Limite restante :
+
+- apres build Maven, `dependency-reduced-pom.xml` peut etre modifie ;
+- ce bruit doit etre distingue des changements OpticCode avant de toucher des originaux.
 
 Decision :
 
-- continuer uniquement sur copies tant que la preservation LF/CRLF n'est pas amelioree ;
-- ne pas appliquer sur originaux avant un garde-fou line endings.
+- continuer uniquement sur copies tant que le bruit de build Maven n'est pas encadre ;
+- ne pas appliquer sur originaux avant un garde-fou d'etat Git apres build.
 
 ## Tests obligatoires
 
@@ -425,7 +431,8 @@ Ne doit pas montrer de modification dans `benchmarks/mini-bukkit-plugin`.
 7. Ajouter `apply --undo <run-id>` avant d'elargir aux vrais projets externes. Fait.
 8. Decider les conditions d'elargissement aux projets externes. Fait via `--allow-external` + Git propre.
 9. Tester sur une copie locale de projet reel avant tout vrai dossier personnel. Fait avec Kspawners.
-10. Ajouter un garde-fou LF/CRLF avant projets originaux.
+10. Ajouter un garde-fou LF/CRLF avant projets originaux. Fait.
+11. Ajouter un garde-fou d'etat Git apres build.
 
 ## Risques
 
@@ -436,7 +443,7 @@ Ne doit pas montrer de modification dans `benchmarks/mini-bukkit-plugin`.
 - build Maven lent ou dependant du cache local ;
 - modification accidentelle d'un projet externe.
 - repo externe deja sale avant patch.
-- bruit de fin de ligne apres apply/undo.
+- bruit de build Maven apres verification.
 
 Mitigation :
 
@@ -446,4 +453,4 @@ Mitigation :
 - utiliser `git apply --check` avant application ;
 - separer preview, dry-run et apply reel.
 - exiger `--allow-external` et Git propre pour les chemins externes.
-- verifier les diffs avec et sans `--ignore-space-at-eol` sur les copies reelles.
+- verifier l'etat Git apres build et separer les changements outil/build.

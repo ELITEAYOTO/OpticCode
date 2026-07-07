@@ -820,11 +820,13 @@ Decision :
 - exclure les artefacts comme `target/` et les dossiers extraits trop longs pour Git ;
 - ajouter une correction deterministic pour neutraliser `plugin.yml api-version` en commentaire YAML ;
 - aligner `patch --check`, `apply` et `undo` avec `--ignore-space-change --ignore-whitespace` ;
-- ne pas appliquer sur des originaux tant que la preservation LF/CRLF n'est pas mieux controlee.
+- restaurer le style LF/CRLF dominant des fichiers touches apres apply et undo ;
+- ne pas appliquer sur des originaux tant que le bruit de build Maven n'est pas mieux controle.
 
 Raison :
 
 - le test Kspawners a valide analyse, build, apply et undo sur copie ;
 - il a aussi revele un bruit de fin de ligne apres undo sur `plugin.yml` ;
-- le contenu metier etait restaure, mais Git gardait un diff non utile ;
-- ce type de bruit est acceptable en copie de test, pas sur un projet original important.
+- le contenu metier etait restaure, mais Git gardait initialement un diff non utile ;
+- la normalisation LF/CRLF post-apply a supprime ce bruit ;
+- le build Maven peut encore modifier `dependency-reduced-pom.xml`, ce qui doit etre separe des changements OpticCode.

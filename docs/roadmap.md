@@ -240,13 +240,14 @@ Etat actuel :
 - journal `.opticcode/apply-log.jsonl` et patch rollback `.opticcode/runs/<run-id>/patch.diff` ajoutes apres apply reussi ;
 - `apply --undo <run-id> --yes` ajoute pour annuler un apply depuis le patch sauvegarde ;
 - `--allow-external` ajoute pour autoriser explicitement un apply hors workspace courant sur repo Git propre ;
-- test sur copie reelle `Kspawners` effectue : analyse OK, build OK, patch `plugin.yml` OK, apply/undo OK avec bruit LF/CRLF detecte ;
+- test sur copie reelle `Kspawners` effectue : analyse OK, build OK, patch `plugin.yml` OK, apply/undo OK ;
+- preservation LF/CRLF ajoutee apres apply et undo ;
 - `ask` et `plan` peuvent charger le profil `minecraft-java-1.8` ;
 - `analyze-java` compare les commandes declarees avec `getCommand(...)` ;
 - table legacy initiale ajoutee : gunpowder, nether wart, spawners, pelles/spades et quelques mobs ;
 - `ask` et `plan` chargent une memoire global/profil par defaut ;
 - `run-mini-benchmark.ps1` append des runs JSONL comparables ;
-- prochaine cible : traiter la preservation LF/CRLF avant tout dossier personnel original.
+- prochaine cible : isoler le bruit de build Maven avant tout dossier personnel original.
 
 ## Phase 5.1 - Safe Apply
 
@@ -274,7 +275,8 @@ Ordre :
 6. Regles d'elargissement hors workspace courant. Fait via `--allow-external`.
 7. Verification build optionnelle.
 8. Test sur copie locale d'un vrai plugin. Fait avec Kspawners.
-9. Preservation LF/CRLF avant originaux.
+9. Preservation LF/CRLF avant originaux. Fait.
+10. Isolation du bruit de build Maven.
 
 Livrable :
 

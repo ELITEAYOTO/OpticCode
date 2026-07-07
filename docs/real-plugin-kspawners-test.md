@@ -92,36 +92,40 @@ Validation :
 - `apply --undo <run-id> --yes` : OK apres alignement whitespace/CRLF ;
 - build apres undo : OK, 5.19s.
 
-## Point important detecte
+## Point important traite
 
-Le test a revele un bruit de fin de ligne sur `plugin.yml` apres undo :
+Le test a d'abord revele un bruit de fin de ligne sur `plugin.yml` apres undo :
 
 ```text
 -api-version: 1.8
 +api-version: 1.8
 ```
 
-Le contenu metier est identique, et :
+Correction ajoutee :
 
-```powershell
-git diff --ignore-space-at-eol -- src/main/resources/plugin.yml
-```
+- OpticCode detecte le style dominant LF/CRLF avant apply ;
+- apres apply ou undo, OpticCode restaure ce style sur les fichiers touches ;
+- un test unitaire couvre un `plugin.yml` CRLF avec apply puis undo.
 
-ne montre pas de difference.
+Validation apres correction :
+
+- apply puis undo ne laisse plus de diff sur `plugin.yml` ;
+- apres un build Maven, le seul fichier suivi modifie observe est `dependency-reduced-pom.xml`.
 
 Conclusion :
 
 - le safe apply fonctionne sur copie reelle ;
 - le build reste OK ;
 - l'undo restaure le contenu attendu ;
-- avant d'appliquer sur un original, il faut ameliorer la preservation des fins de ligne ou normaliser explicitement la strategie LF/CRLF.
+- la preservation LF/CRLF est traitee pour les fichiers touches par apply/undo ;
+- avant d'appliquer sur un original, il faut encore gerer le bruit de build Maven.
 
 ## Prochaine action recommandee
 
-Ajouter un garde-fou de fin de ligne avant projets originaux :
+Ajouter un garde-fou de build avant projets originaux :
 
-- soit un patch writer qui preserve les line endings du fichier ;
-- soit une detection qui avertit si l'apply cree uniquement du bruit CRLF ;
-- soit une strategie documentee `.gitattributes` pour les copies de test.
+- detecter les fichiers modifies par le build ;
+- separer clairement les modifications OpticCode des modifications Maven ;
+- idealement lancer le build avec une strategie qui evite de modifier `dependency-reduced-pom.xml`.
 
 Tant que ce point n'est pas traite, continuer les essais sur copies Git uniquement.
