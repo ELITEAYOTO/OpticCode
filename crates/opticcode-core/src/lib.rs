@@ -204,9 +204,10 @@ pub fn load_profile_for_workspace(
         .join("profiles")
         .join(profile_id)
         .join("profile.md");
-    let mut candidates = Vec::new();
-    candidates.push(workspace.join(&relative));
-    candidates.push(std::env::current_dir()?.join(&relative));
+    let candidates = vec![
+        workspace.join(&relative),
+        std::env::current_dir()?.join(&relative),
+    ];
 
     for candidate in candidates {
         if candidate.exists() {

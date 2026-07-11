@@ -561,7 +561,7 @@ fn print_metrics_json(command: &str, metrics: &GenerateMetrics) -> Result<()> {
     Ok(())
 }
 
-fn print_rag_debug(index: &PathBuf, query: &str, limit: usize) -> Result<()> {
+fn print_rag_debug(index: &Path, query: &str, limit: usize) -> Result<()> {
     let rag = load_rag_context(index, query, limit)?;
     eprintln!();
     eprintln!("=== rag_debug ===");

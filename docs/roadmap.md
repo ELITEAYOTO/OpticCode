@@ -1,5 +1,11 @@
 # OpticCode - Roadmap
 
+Etat audite et roadmap consolidee au 2026-07-11 :
+[`project-audit-2026-07-11.md`](project-audit-2026-07-11.md).
+
+Ce document conserve l'historique detaille des phases. L'audit consolide fait
+foi pour les priorites et les criteres de sortie actuels.
+
 Derniere mise a jour : 2026-07-07
 
 ## Vision courte

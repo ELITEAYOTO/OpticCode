@@ -17,17 +17,22 @@ Le projet ne vise pas a entrainer un modele IA depuis zero. Il construit une cou
 
 ## Etat actuel
 
-Le projet a maintenant un premier squelette Rust fonctionnel.
+Le projet a maintenant un MVP Rust fonctionnel : inspection, analyse Java/Bukkit,
+Ollama/Qwen, RAG JSONL, patch legacy, safe apply journalise et undo.
 
 - Phase 0 : audit environnement Windows 10 termine.
-- Phase 1 : documentation de cadrage en cours.
+- Phase 1 : documentation de cadrage terminee.
 - Phase 1.5 : initialisation projet local terminee.
 - Phase 2 : benchmark Ollama / Qwen2.5-Coder 14B termine.
 - Phase 3 : recherche depots externes et analyse Qwen Code terminees.
-- Phase 4 : squelette Rust MVP demarre.
+- Phase 4 : MVP Rust fonctionnel.
+- Phase 5 : tools Java et safe apply en cours.
+- Phase 6 : prototype RAG JSONL fonctionnel, index scalable a faire.
+- Phase 7 : agent iteratif non commence.
 
 ## Documentation
 
+- [Audit complet du projet au 2026-07-11](docs/project-audit-2026-07-11.md)
 - [Etat environnement](docs/environment-audit.md)
 - [Roadmap](docs/roadmap.md)
 - [Architecture cible](docs/architecture.md)
@@ -99,4 +104,6 @@ cargo run -q -- inspect --path benchmarks/mini-bukkit-plugin
 
 ## Prochaine etape
 
-Construire le premier index RAG local a partir des docs, regles legacy et inventaires de resource packs, sans copier les packs originaux.
+Ajouter un garde-fou d'etat Git autour des builds Maven afin de separer les
+modifications OpticCode des fichiers generes par le build, puis le valider sur
+une copie de Kspawners avant tout projet original.
