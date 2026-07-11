@@ -9,7 +9,7 @@ Base Git au debut de l'audit : `bf550ed626891c8202ccf6e30e70d1da8984035b`
 Mise a jour apres audit : le sprint `Build Git State Guard` recommande dans la
 section 16 a ete implemente le 2026-07-11. Voir
 [`build-git-state-guard.md`](build-git-state-guard.md). Le process runner borne
-a ensuite ete implemente ; la prochaine priorite P0 est l'apply transactionnel.
+a ensuite ete implemente.
 
 Durcissement supplementaire termine le meme jour : BLAKE3, metriques de
 snapshot, commande read-only `git-state`, test CLI Rust, test des fichiers
@@ -17,6 +17,16 @@ ignores et benchmark PandaSpigot. Le backlog courant est consolide dans
 [`optimization-backlog.md`](optimization-backlog.md). Voir aussi
 [`process-runner.md`](process-runner.md) pour le timeout, la capture bornee et le
 Job Object Windows valides avant l'apply transactionnel.
+
+Mise a jour APPLY-001 : l'apply transactionnel est maintenant implemente avec
+journal `prepared`, backups BLAKE3, etats append-only, rollback automatique,
+recovery explicite, concurrence optimiste et tests CLI reels. Voir
+[`apply-transaction.md`](apply-transaction.md). La prochaine cible est `GIT-002`,
+verification patch/build dans un worktree jetable.
+
+Validation post-audit : fmt et Clippy stricts OK, 96 tests workspace passes,
+build release OK. Les tests APPLY-001 utilisent uniquement des fixtures Git
+temporaires.
 
 ## 1. Resume executif
 
@@ -30,7 +40,7 @@ OpticCode n'est plus une simple idee ni un assemblage de documentation. Le depot
 - charger un profil Minecraft Java 1.8 et une memoire Markdown ;
 - construire et interroger un index RAG JSONL local ;
 - proposer et verifier des corrections legacy deterministes ;
-- appliquer ces corrections avec confirmation, journal et undo ;
+- appliquer ces corrections avec confirmation, transaction, rollback et recovery ;
 - compiler un projet Java et resumer certaines erreurs ;
 - mesurer la latence, les tokens Ollama et la qualite de scenarios repetables.
 
@@ -42,16 +52,18 @@ Verdict global :
 | --- | --- | --- |
 | Cadrage et architecture | solide | la direction Rust + Ollama puis llama.cpp reste coherente |
 | Environnement Windows | operationnel | aucun nouvel outil lourd n'est requis maintenant |
-| CLI locale | fonctionnelle | 16 commandes disponibles |
+| CLI locale | fonctionnelle | 18 commandes disponibles |
 | Specialisation Bukkit 1.8 | utile mais etroite | bonnes premieres regles, couverture encore faible |
 | RAG | prototype valide | utile sur les cas legacy, pas encore scalable |
-| Safe apply | avance mais incomplet | bon sur copies, pas encore recommande sur originaux |
+| Safe apply | transactionnel | rollback/recovery valides, originaux encore bloques par le patch textuel |
 | Agent iteratif | non commence | aucune boucle autonome de tools/build/correction |
 | Performance | mesuree | inference Qwen dominante, outils locaux rapides |
 | Qualite logicielle | bonne base | tests et lint verts, CI et couverture absentes |
 | Niveau produit | experimental | pas de release, configuration stable, TUI, daemon ou IDE |
 
-Position actuelle dans le plan : fin de Phase 5.1, avant l'autorisation pratique de travailler sur les projets personnels originaux. La prochaine cible doit rester le garde-fou d'etat Git autour des builds Maven.
+Position actuelle dans le plan : Phase 5.3 terminee pour l'apply transactionnel.
+Les projets personnels originaux restent hors tests ; la prochaine cible est un
+worktree jetable, puis Tree-sitter Java.
 
 ## 2. Portee et methode de l'audit
 
@@ -469,26 +481,34 @@ Acquis :
 - application sur copie ;
 - application locale avec `--yes` ;
 - application externe avec `--allow-external`, Git requis et propre ;
-- journal JSONL ;
-- sauvegarde du patch applique ;
-- undo par `run-id` ;
+- journal transactionnel prepare avant ecriture ;
+- manifeste, patch et backups bruts BLAKE3 ;
+- etats append-only jusqu'a commit ou rollback ;
+- rollback automatique et recovery explicite ;
+- undo par `run-id` avec verification before/after ;
 - validation du `run-id` ;
 - conservation LF/CRLF ;
+- support create/modify/delete dans le moteur ;
+- repo Git propre par defaut et `--allow-dirty` explicite ;
+- listing/inspection read-only des transactions ;
+- JSON versionne et codes de sortie distincts ;
 - refus d'une cible de copie existante ou situee sous la source.
 
 Risques restants :
 
 1. Le remplacement Java est un `String::replace` global. Il peut modifier un commentaire, une chaine ou un identifiant inattendu.
 2. Le generateur de diff maison suppose essentiellement des remplacements ligne a ligne. Il n'est pas pret pour des insertions, suppressions ou refactors generaux.
-3. Le journal est ecrit apres l'application. Une erreur de restauration des fins de ligne ou d'ecriture du journal peut laisser des fichiers modifies sans journal complet.
-4. L'application dans le workspace courant n'exige pas encore un etat Git propre, contrairement au mode externe.
+3. Le verrou OS serialise OpticCode, mais ne bloque pas les editeurs/processus externes.
+4. L'atomicite est par fichier ; un crash multi-fichiers exige la recovery journalisee.
 5. Le workspace autorise est base sur le repertoire courant du processus, pas sur une racine OpticCode configuree.
-6. L'undo verifie que le patch inverse est applicable, mais ne journalise pas lui-meme un evenement d'undo.
-7. La copie reproduit tout le projet, y compris `.git`, builds et gros dossiers, ce qui a deja provoque un probleme de chemins longs sur Kspawners.
-8. Aucun budget de nombre de fichiers ou d'octets modifies n'est impose.
-9. Aucun build automatique n'est lie transactionnellement a l'apply.
+6. La copie reproduit encore tout le projet, y compris `.git`, builds et gros dossiers.
+7. Aucun budget de nombre de fichiers ou d'octets modifies n'est impose.
+8. Aucun build automatique n'est inclus dans la transaction apply.
+9. Sous Windows, la metadata de remplacement ne peut pas etre synchronisee de facon absolument portable.
 
-Verdict : safe apply est suffisamment bon pour des copies Git controlees. Il n'est pas encore suffisamment transactionnel pour travailler par defaut sur les originaux.
+Verdict : safe apply est transactionnel et prouve sur fixtures Git. L'usage sur
+originaux reste volontairement differe tant que le patch Java est textuel et que
+la verification en worktree jetable n'existe pas.
 
 ## 8. Donnees externes deja etudiees
 
@@ -667,15 +687,20 @@ Priorite moyenne :
 
 #### P0.1 Effets de bord du build
 
+Statut : resolu par Build Git State Guard.
+
 Le build peut modifier des fichiers qui ne viennent pas d'OpticCode. Sans capture Git avant/apres, un agent ne peut pas attribuer correctement les changements.
 
 Action : ajouter un snapshot Git de build et classifier `opticcode`, `build-generated`, `pre-existing` et `unknown`.
 
 #### P0.2 Apply non totalement transactionnel
 
+Statut : resolu par APPLY-001.
+
 Le patch est applique avant que le journal soit garanti sur disque. Une erreur apres apply peut casser la promesse de rollback.
 
-Action : preparer et ecrire le patch/journal provisoire avant apply, appliquer, finaliser atomiquement, et tenter un rollback automatique si la finalisation echoue.
+Implementation : patch, backups, manifeste et `prepared` avant ecriture,
+finalisation append-only, rollback automatique et recovery explicite.
 
 #### P0.3 Transformations Java textuelles
 
@@ -685,9 +710,12 @@ Action : limiter la V1 aux tokens confirmes par Tree-sitter ou ajouter au minimu
 
 #### P0.4 Etat Git local incoherent
 
+Statut : resolu pour l'apply.
+
 Le mode externe exige Git propre, le mode workspace courant non.
 
-Action : definir une seule politique de preconditions, avec une option explicite pour accepter un repo sale sans jamais l'utiliser par defaut.
+Implementation : Git propre par defaut partout ; `--allow-dirty` explicite et
+snapshot preexistant preserve au rollback.
 
 ### P1 - A regler avant boucle agent
 
@@ -740,7 +768,9 @@ Action : ajouter `--json` aux outils utilises par l'agent. L'agent ne doit pas p
 | 3 - recherche depots | premiere passe terminee | actualiser au moment d'integrer chaque dependance |
 | 4 - MVP Rust | fonctionnel | sorties structurees et configuration stable |
 | 5 - tools Java | en cours | AST, builds configurables, tests plus larges |
-| 5.1 - safe apply | avancee | garde-fou build et transaction apply |
+| 5.1 - safe apply | terminee pour scope legacy | extension aux patches generaux apres AST |
+| 5.2 - process runner | terminee | etendre aux futurs tools longs |
+| 5.3 - apply transactionnel | terminee | worktree de verification et AST Java |
 | 5.5 - profils/memoire | prototype | ecriture controlee, provenance, deduplication |
 | 6 - RAG | prototype JSONL | Tantivy, incremental, symboles, evaluation large |
 | 7 - agent iteratif | non commence | depend des verrous P0/P1 |
@@ -752,14 +782,14 @@ Action : ajouter `--json` aux outils utilises par l'agent. L'agent ne doit pas p
 
 Objectif : rendre le workflow copie/apply/build/undo attribuable et recuperable.
 
-1. Ajouter `GitStateSnapshot` avant et apres build.
-2. Classifier les fichiers modifies par le build.
-3. Afficher un rapport clair dans `build`.
-4. Ajouter `--fail-on-worktree-change` pour les tests stricts.
-5. Tester sur une copie Kspawners.
-6. Rendre le journal apply transactionnel.
-7. Ajouter les tests integration apply externe sale/propre.
-8. Exclure proprement les builds et gros dossiers lors de `--copy-to`.
+1. Ajouter `GitStateSnapshot` avant et apres build. Fait.
+2. Classifier les fichiers modifies par le build. Fait.
+3. Afficher un rapport clair dans `build`. Fait.
+4. Ajouter `--fail-on-worktree-change` pour les tests stricts. Fait.
+5. Tester sur une copie Kspawners. Fait.
+6. Rendre le journal apply transactionnel. Fait.
+7. Ajouter les tests integration apply externe sale/propre. Fait.
+8. Exclure proprement les builds et gros dossiers lors de `--copy-to`. Reste a faire ou a remplacer par GIT-002.
 
 Critere de sortie : apply puis build puis undo laisse le repo dans un etat explique, et chaque fichier modifie a une origine connue.
 
@@ -867,6 +897,13 @@ Livrables :
 
 Choix de conception recommande : utiliser `git status --porcelain=v1 -z` ou un format porcelain stable, et parser les champs sans decouper naivement sur les espaces. Les chemins Windows, renommages et noms Unicode doivent etre testes.
 
+### Mise a jour des sprints de stabilisation
+
+- Build Git State Guard : termine (`6c4469a`).
+- Process runner borne : termine (`815994c`).
+- APPLY-001 : termine dans le worktree courant, en attente de commit explicite.
+- Prochain sprint : `GIT-002`, worktree jetable de verification.
+
 ## 17. Definition de fini pour une V1 utile
 
 OpticCode V1 pourra etre consideree utilisable sur projets personnels quand :
@@ -922,7 +959,9 @@ Le projet ne doit maintenant ni se disperser vers une interface ni chercher une 
 
 ```text
 garde-fou build
--> apply transactionnel
+-> process runner borne
+-> apply transactionnel et recovery
+-> worktree jetable
 -> modularisation/tools structures
 -> Tree-sitter + Tantivy
 -> premier agent iteratif sur copies

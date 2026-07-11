@@ -531,6 +531,7 @@ etre mesure sur PandaSpigot avant toute optimisation ou mise en cache.
 17. Preserver LF/CRLF dans les patchs. Fait.
 18. Isoler le bruit de build Maven. Fait via Build Git State Guard.
 19. Ajouter un process runner borne avec timeout/cancellation. Fait.
-20. Rendre le journal apply transactionnel. Prochaine cible.
+20. Rendre le journal apply transactionnel. Fait via APPLY-001.
+21. Verifier patch et build dans un worktree jetable. Prochaine cible GIT-002.
 
 Backlog consolide : `docs/optimization-backlog.md`.

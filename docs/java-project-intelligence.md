@@ -144,6 +144,6 @@ build apres patch : succes
 
 ## Prochaines etapes
 
-1. Ajouter une commande `safe apply` avec confirmation explicite.
+1. Etendre l'apply transactionnel actuel aux futurs patches AST avec confirmation explicite.
 2. Relier l'analyse Java au profil `minecraft-java-1.8`.
 3. Ajouter Tree-sitter Java plus tard pour une extraction plus robuste.

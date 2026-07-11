@@ -1,6 +1,6 @@
 # OpticCode - Roadmap Safe Apply
 
-Derniere mise a jour : 2026-07-07
+Derniere mise a jour : 2026-07-11
 
 ## Objectif
 
@@ -28,7 +28,8 @@ Toute application reelle doit respecter :
 - verification `git apply --check` avant application ;
 - confirmation utilisateur explicite ;
 - liste claire des fichiers touches ;
-- sauvegarde ou strategie de rollback ;
+- patch, manifeste et sauvegardes durables avant la premiere ecriture ;
+- rollback automatique et recovery explicite ;
 - verification apres application, idealement build Maven/Gradle ;
 - aucune modification de projets externes originaux pendant les tests.
 
@@ -42,7 +43,8 @@ La V1 ne fera pas encore :
 - resolution automatique de conflits ;
 - edition de projets externes sans copie ;
 - interface graphique ;
-- rollback complexe cross-files.
+- atomicite globale cross-files ;
+- resolution ou fusion automatique de conflits.
 
 ## Phase SA-0 - Etat actuel
 
@@ -226,65 +228,56 @@ Limite volontaire :
 
 ## Phase SA-4 - Rollback simple
 
-Statut : terminee pour journal, rollback manuel et `apply --undo`.
+Statut : terminee et remplacee par le moteur transactionnel APPLY-001.
 
 Objectif :
 
 - pouvoir annuler une application recente.
 
-Approche V1 :
+Approche actuelle :
 
-- sauvegarder le patch applique dans `.opticcode/runs/<run-id>/patch.diff` ;
-- ajouter une ligne JSONL dans `.opticcode/apply-log.jsonl` ;
-- afficher la commande Git manuelle de rollback dans la sortie `apply` ;
+- creer `.opticcode/runs/<run-id>/` exclusivement ;
+- sauvegarder `patch.diff`, `manifest.json`, les backups bruts et les evenements ;
+- publier `prepared` avant toute modification cible ;
+- enregistrer tailles, permissions et BLAKE3 avant/apres ;
+- appliquer chaque fichier par remplacement atomique sur le meme volume ;
+- rollbacker automatiquement toute erreur apres preparation ;
 - ajouter `apply --undo <run-id> --yes` ;
-- verifier l'annulation avec `git apply --check -R` avant `git apply -R` ;
-- si le projet est sous Git, recommander `git diff` puis revert manuel.
+- ajouter `transactions` pour liste, inspection et recovery ;
+- garder `.opticcode/apply-log.jsonl` comme index de compatibilite secondaire ;
+- utiliser le reverse patch uniquement pour les anciens runs sans manifeste.
 
-Commande de rollback affichee :
-
-```powershell
-git apply -R ".opticcode\runs\<run-id>\patch.diff"
-```
-
-Commande rollback OpticCode :
+Commande undo transactionnelle :
 
 ```powershell
-cargo run -q -- apply --path benchmarks/runs/apply-undo-20260707-014200/workspace --undo apply-1783381326069-21596 --yes
+cargo run -q -- apply --path <projet> --undo <run-id> --yes
 ```
 
-Resultat valide :
+Commande recovery apres rollback incomplet :
 
-```text
-Apply log:
-Run id: apply-...
-Patch: .opticcode\runs\apply-...\patch.diff
-Rollback: git apply -R ".opticcode\runs\apply-...\patch.diff"
+```powershell
+cargo run -q -- transactions --path <projet> --recover <run-id> --yes
 ```
 
-Resultat `apply --undo` valide :
+Etats valides :
 
 ```text
-Mode: apply undo
-Rollback check:
-Status: OK
-Rollback apply:
-Status: OK
-Undo applied.
+prepared -> applying -> applied -> finalizing -> committed
+rollback_started -> rolled_back | rollback_failed
 ```
 
 Validation effectuee :
 
-- application sur copie temporaire interne ;
-- creation de `.opticcode/apply-log.jsonl` ;
-- creation du `patch.diff` ;
-- rollback manuel avec `git apply -R` ;
-- rollback automatique avec `apply --undo <run-id> --yes` ;
-- verification que le fichier revient a l'etat avant patch.
+- create/modify/delete sur depots temporaires ;
+- application, inspect, list et undo via le binaire reel ;
+- repo propre, refus repo sale et `--allow-dirty` explicite ;
+- dix points de panne deterministes ;
+- rollback automatique, partiel et seconde recovery ;
+- corruption du journal/backup refusee ;
+- restauration octet exacte LF/CRLF et chemins Unicode ;
+- code `rollback_failed` distinct et recuperation apres resolution.
 
-Approche plus tard :
-
-- backups fichier par fichier pour projets non Git.
+Details : [`apply-transaction.md`](apply-transaction.md).
 
 ## Phase SA-4.5 - Apply externe explicite
 
@@ -309,9 +302,10 @@ Conditions :
 - `--yes` reste obligatoire ;
 - `--allow-external` est obligatoire hors workspace courant ;
 - la cible externe doit etre un worktree Git ;
-- avant apply, le `git status --porcelain` doit etre propre ;
+- avant apply, le Git State Guard doit etre propre par defaut ;
+- `--allow-dirty` est l'unique exception explicite ;
 - `.opticcode/` est tolere comme trace locale OpticCode ;
-- undo externe ne demande pas un Git propre, car il sert a annuler l'apply.
+- undo externe verifie les hashes before/after et refuse une derive inconnue.
 
 Validation effectuee :
 
@@ -321,6 +315,8 @@ Validation effectuee :
 - apply externe cree le log et le patch rollback ;
 - `apply --undo` externe restaure le fichier ;
 - repo Git externe sale refuse avant apply.
+- repo sale autorise preserve exactement le changement preexistant ;
+- rollback incomplet produit le code 3 puis peut etre repris explicitement.
 
 ## Phase SA-5 - Integration agent
 
@@ -373,10 +369,12 @@ Limite restante :
 - apres build Maven, `dependency-reduced-pom.xml` peut etre modifie ;
 - ce bruit doit etre distingue des changements OpticCode avant de toucher des originaux.
 
-Decision :
+Decision actuelle :
 
-- continuer uniquement sur copies tant que le bruit de build Maven n'est pas encadre ;
-- ne pas appliquer sur originaux avant un garde-fou d'etat Git apres build.
+- le bruit de build Maven est maintenant encadre par le Build Git State Guard ;
+- APPLY-001 encadre les ecritures et rollback ;
+- continuer sur copies/worktrees tant que les transformations Java restent
+  textuelles et que Tree-sitter n'est pas integre.
 
 ## Tests obligatoires
 
@@ -387,6 +385,14 @@ cargo test --workspace
 ```
 
 Doit rester OK.
+
+### Test transactionnel APPLY-001
+
+```powershell
+.\scripts\run-apply-transaction-quality.ps1
+```
+
+La variante `-Full` execute fmt, Clippy workspace, tests workspace et build release.
 
 ### Test patch/build
 
@@ -429,10 +435,12 @@ Ne doit pas montrer de modification dans `benchmarks/mini-bukkit-plugin`.
 5. Activer application reelle avec confirmation stricte dans le workspace courant. Fait.
 6. Ajouter rollback/log local avant d'autoriser les projets externes. Fait pour journal + rollback manuel.
 7. Ajouter `apply --undo <run-id>` avant d'elargir aux vrais projets externes. Fait.
-8. Decider les conditions d'elargissement aux projets externes. Fait via `--allow-external` + Git propre.
+8. Decider les conditions d'elargissement aux projets externes. Fait via `--allow-external`, Git propre par defaut et `--allow-dirty` explicite.
 9. Tester sur une copie locale de projet reel avant tout vrai dossier personnel. Fait avec Kspawners.
 10. Ajouter un garde-fou LF/CRLF avant projets originaux. Fait.
-11. Ajouter un garde-fou d'etat Git apres build.
+11. Ajouter un garde-fou d'etat Git apres build. Fait.
+12. Ajouter journal prepare, rollback automatique et recovery. Fait via APPLY-001.
+13. Verifier patch/build dans un worktree jetable. Prochaine cible GIT-002.
 
 ## Risques
 
@@ -440,6 +448,9 @@ Ne doit pas montrer de modification dans `benchmarks/mini-bukkit-plugin`.
 - differences LF/CRLF ;
 - workspace Git parent qui englobe une copie temporaire ;
 - patch applicable au check mais fragile apres extraction ;
+- absence d'atomicite globale multi-fichiers ;
+- handle Windows ou antivirus bloquant `ReplaceFileW` ;
+- transaction concurrente sans verrou global de workspace ;
 - build Maven lent ou dependant du cache local ;
 - modification accidentelle d'un projet externe.
 - repo externe deja sale avant patch.
@@ -452,5 +463,7 @@ Mitigation :
 - ne jamais suivre les symlinks comme cible d'application ;
 - utiliser `git apply --check` avant application ;
 - separer preview, dry-run et apply reel.
-- exiger `--allow-external` et Git propre pour les chemins externes.
+- exiger `--allow-external` et Git propre par defaut pour les chemins externes ; `--allow-dirty` reste explicite.
 - verifier l'etat Git apres build et separer les changements outil/build.
+- preparer backups et journal avant ecriture, puis refuser les derives par BLAKE3.
+- garder recovery destructive explicite avec `--yes`.

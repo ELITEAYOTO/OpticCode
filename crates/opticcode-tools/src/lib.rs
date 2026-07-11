@@ -1,15 +1,21 @@
+pub mod apply_transaction;
 pub mod git_state;
 pub mod process_runner;
 
 use std::collections::BTreeMap;
 use std::ffi::OsString;
-use std::fs::{self, File, OpenOptions};
+use std::fs::{self, File};
 use std::io::{BufRead, BufReader, BufWriter, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result};
+use apply_transaction::{
+    append_apply_log_index, execute_apply_transaction, rollback_apply_transaction,
+    validate_transaction_id, ApplyGitPolicy, ApplyTransactionRequest, ApplyTransactionResult,
+    ApplyTransactionState, FileMutation, APPLY_TRANSACTION_SCHEMA_VERSION,
+};
 use git_state::{capture_git_state, BuildGitReport};
 use process_runner::{
     run_process_with_cancellation, CancellationToken, ProcessLaunchMode, ProcessOutputStats,
@@ -165,9 +171,11 @@ pub struct PatchFileChange {
     pub path: PathBuf,
     pub reason: String,
     pub diff: String,
+    pub original_content: Vec<u8>,
+    pub proposed_content: Vec<u8>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct PatchCheckResult {
     pub command: String,
     pub success: bool,
@@ -184,10 +192,13 @@ pub struct ApplyPlan {
     pub copied_from: Option<PathBuf>,
     pub dry_run: bool,
     pub log: Option<ApplyLogEntry>,
+    pub transaction: Option<ApplyTransactionResult>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ApplyLogEntry {
+    #[serde(default = "apply_log_schema_version")]
+    pub schema_version: u32,
     pub run_id: String,
     pub applied_at_unix_ms: u128,
     pub project_root: String,
@@ -196,6 +207,8 @@ pub struct ApplyLogEntry {
     pub files: Vec<String>,
     pub patch_path: String,
     pub rollback_command: String,
+    #[serde(default)]
+    pub transaction_state: Option<ApplyTransactionState>,
 }
 
 #[derive(Debug, Clone)]
@@ -205,6 +218,7 @@ pub struct ApplyUndoResult {
     pub patch_path: PathBuf,
     pub check: PatchCheckResult,
     pub undo: Option<PatchCheckResult>,
+    pub transaction: Option<ApplyTransactionResult>,
 }
 
 #[derive(Debug, Clone)]
@@ -909,6 +923,8 @@ pub fn propose_java_legacy_patch(root: &Path) -> Result<PatchProposal> {
             path: file.path.clone(),
             reason: format!("Replace modern symbols with Bukkit 1.8.8 legacy names: {reason}."),
             diff,
+            original_content: content.into_bytes(),
+            proposed_content: proposed.into_bytes(),
         });
     }
 
@@ -940,6 +956,8 @@ pub fn propose_java_legacy_patch(root: &Path) -> Result<PatchProposal> {
             path: plugin_path,
             reason: "Disable plugin.yml api-version with a YAML comment; Bukkit 1.8.8 does not expect it.".to_string(),
             diff,
+            original_content: content.into_bytes(),
+            proposed_content: proposed.into_bytes(),
         });
     }
 
@@ -1113,6 +1131,7 @@ pub fn prepare_java_legacy_apply_plan(root: &Path, dry_run: bool) -> Result<Appl
         copied_from: None,
         dry_run,
         log: None,
+        transaction: None,
     })
 }
 
@@ -1136,14 +1155,18 @@ pub fn apply_java_legacy_patch_to_copy(source: &Path, copy_to: &Path) -> Result<
         }
     }
 
-    plan.apply = apply_patch_with_git(&plan.proposal)?;
-    if plan.apply.as_ref().is_some_and(|apply| apply.success) {
-        plan.log = Some(write_apply_log(&plan)?);
-    }
+    execute_transactional_apply(&mut plan, ApplyGitPolicy::Optional)?;
     Ok(plan)
 }
 
 pub fn apply_java_legacy_patch_in_place(root: &Path) -> Result<ApplyPlan> {
+    apply_java_legacy_patch_in_place_with_options(root, false)
+}
+
+pub fn apply_java_legacy_patch_in_place_with_options(
+    root: &Path,
+    allow_dirty: bool,
+) -> Result<ApplyPlan> {
     let mut plan = prepare_java_legacy_apply_plan(root, false)?;
 
     if plan.proposal.changes.is_empty() {
@@ -1156,15 +1179,66 @@ pub fn apply_java_legacy_patch_in_place(root: &Path) -> Result<ApplyPlan> {
         }
     }
 
-    plan.apply = apply_patch_with_git(&plan.proposal)?;
-    if plan.apply.as_ref().is_some_and(|apply| apply.success) {
-        plan.log = Some(write_apply_log(&plan)?);
-    }
+    execute_transactional_apply(
+        &mut plan,
+        if allow_dirty {
+            ApplyGitPolicy::AllowDirty
+        } else {
+            ApplyGitPolicy::RequireClean
+        },
+    )?;
     Ok(plan)
 }
 
+fn execute_transactional_apply(plan: &mut ApplyPlan, git_policy: ApplyGitPolicy) -> Result<()> {
+    let patch = plan.proposal.combined_diff();
+    let mutations = plan
+        .proposal
+        .changes
+        .iter()
+        .map(|change| {
+            FileMutation::replace(
+                change.path.clone(),
+                change.original_content.clone(),
+                change.proposed_content.clone(),
+            )
+        })
+        .collect::<Vec<_>>();
+    let mut request = ApplyTransactionRequest::new(&plan.proposal.root, patch, mutations)
+        .with_git_policy(git_policy);
+    if let Some(copied_from) = &plan.copied_from {
+        request = request.with_copied_from(copied_from);
+    }
+
+    let mut transaction = execute_apply_transaction(request)?;
+    plan.apply = Some(PatchCheckResult {
+        command: "opticcode transactional file apply".to_string(),
+        success: transaction.committed(),
+        exit_code: Some(if transaction.committed() {
+            0
+        } else if transaction.rollback_failed() {
+            3
+        } else {
+            2
+        }),
+        stdout: String::new(),
+        stderr: transaction.errors.join("\n"),
+    });
+
+    if transaction.committed() {
+        match write_apply_log(plan, &transaction) {
+            Ok(log) => plan.log = Some(log),
+            Err(error) => transaction.warnings.push(format!(
+                "authoritative transaction committed, but compatibility apply-log index failed: {error:#}"
+            )),
+        }
+    }
+    plan.transaction = Some(transaction);
+    Ok(())
+}
+
 pub fn undo_apply_run(root: &Path, run_id: &str) -> Result<ApplyUndoResult> {
-    validate_apply_run_id(run_id)?;
+    validate_transaction_id(run_id)?;
 
     let root = fs::canonicalize(root)
         .with_context(|| format!("failed to resolve project path: {}", root.display()))?;
@@ -1180,6 +1254,35 @@ pub fn undo_apply_run(root: &Path, run_id: &str) -> Result<ApplyUndoResult> {
         );
     }
 
+    let manifest_path = patch_path
+        .parent()
+        .expect("transaction patch should have a parent")
+        .join("manifest.json");
+    if manifest_path.is_file() {
+        let transaction = rollback_apply_transaction(&root, run_id)?;
+        let success = transaction.rolled_back();
+        return Ok(ApplyUndoResult {
+            root,
+            run_id: run_id.to_string(),
+            patch_path,
+            check: PatchCheckResult {
+                command: "opticcode transaction backup verification".to_string(),
+                success,
+                exit_code: Some(if success { 0 } else { 1 }),
+                stdout: String::new(),
+                stderr: transaction.errors.join("\n"),
+            },
+            undo: Some(PatchCheckResult {
+                command: "opticcode transactional rollback".to_string(),
+                success,
+                exit_code: Some(if success { 0 } else { 3 }),
+                stdout: String::new(),
+                stderr: transaction.errors.join("\n"),
+            }),
+            transaction: Some(transaction),
+        });
+    }
+
     let check = check_reverse_patch_file_with_git(&root, &patch_path)?;
     if !check.success {
         return Ok(ApplyUndoResult {
@@ -1188,6 +1291,7 @@ pub fn undo_apply_run(root: &Path, run_id: &str) -> Result<ApplyUndoResult> {
             patch_path,
             check,
             undo: None,
+            transaction: None,
         });
     }
 
@@ -1198,32 +1302,34 @@ pub fn undo_apply_run(root: &Path, run_id: &str) -> Result<ApplyUndoResult> {
         patch_path,
         check,
         undo: Some(undo),
+        transaction: None,
     })
 }
 
-fn write_apply_log(plan: &ApplyPlan) -> Result<ApplyLogEntry> {
+fn write_apply_log(
+    plan: &ApplyPlan,
+    transaction: &ApplyTransactionResult,
+) -> Result<ApplyLogEntry> {
     let applied_at_unix_ms = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .context("system time should be after unix epoch")?
         .as_millis();
-    let run_id = format!("apply-{}-{}", applied_at_unix_ms, std::process::id());
+    let run_id = transaction.transaction_id.clone();
     let opticcode_dir = plan.proposal.root.join(".opticcode");
     let run_dir = opticcode_dir.join("runs").join(&run_id);
-    fs::create_dir_all(&run_dir).with_context(|| {
-        format!(
-            "failed to create apply run directory: {}",
-            run_dir.display()
-        )
-    })?;
-
     let patch_path = run_dir.join("patch.diff");
-    fs::write(&patch_path, plan.proposal.combined_diff())
-        .with_context(|| format!("failed to write apply patch log: {}", patch_path.display()))?;
+    if !patch_path.is_file() {
+        anyhow::bail!(
+            "authoritative transaction patch is missing: {}",
+            patch_path.display()
+        );
+    }
 
     let patch_relative = to_relative(&plan.proposal.root, &patch_path);
     let patch_relative_display = patch_relative.display().to_string();
     let rollback_command = format!("git apply -R \"{}\"", patch_relative_display);
     let entry = ApplyLogEntry {
+        schema_version: APPLY_TRANSACTION_SCHEMA_VERSION,
         run_id,
         applied_at_unix_ms,
         project_root: plan.proposal.root.display().to_string(),
@@ -1240,35 +1346,17 @@ fn write_apply_log(plan: &ApplyPlan) -> Result<ApplyLogEntry> {
             .collect(),
         patch_path: patch_relative_display,
         rollback_command,
+        transaction_state: Some(transaction.final_state),
     };
 
-    let log_path = opticcode_dir.join("apply-log.jsonl");
-    let mut log = OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(&log_path)
-        .with_context(|| format!("failed to open apply log: {}", log_path.display()))?;
-    serde_json::to_writer(&mut log, &entry)?;
-    log.write_all(b"\n")?;
+    let serialized = serde_json::to_vec(&entry)?;
+    append_apply_log_index(&plan.proposal.root, &serialized)?;
 
     Ok(entry)
 }
 
-fn validate_apply_run_id(run_id: &str) -> Result<()> {
-    if run_id.is_empty() {
-        anyhow::bail!("apply run id is empty");
-    }
-    if run_id.len() > 120 {
-        anyhow::bail!("apply run id is too long");
-    }
-    if !run_id
-        .chars()
-        .all(|value| value.is_ascii_alphanumeric() || value == '-' || value == '_')
-    {
-        anyhow::bail!("apply run id contains invalid characters: {run_id}");
-    }
-
-    Ok(())
+fn apply_log_schema_version() -> u32 {
+    APPLY_TRANSACTION_SCHEMA_VERSION
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1650,7 +1738,11 @@ impl ApplyPlan {
                 || self.check.as_ref().is_some_and(|check| check.success);
         }
 
-        self.proposal.changes.is_empty() || self.apply.as_ref().is_some_and(|apply| apply.success)
+        self.proposal.changes.is_empty()
+            || self
+                .transaction
+                .as_ref()
+                .is_some_and(ApplyTransactionResult::committed)
     }
 
     pub fn to_display_string(&self) -> String {
@@ -1731,10 +1823,39 @@ impl ApplyPlan {
 
         if self.dry_run {
             out.push_str("\nDry run: no file was modified.\n");
-        } else if self.copied_from.is_some() {
+        } else if self.copied_from.is_some() && self.success() {
             out.push_str("\nApplied in copy only; source project was not modified.\n");
-        } else if self.apply.as_ref().is_some_and(|apply| apply.success) {
+        } else if self.success() {
             out.push_str("\nApplied in source project.\n");
+        }
+
+        if let Some(transaction) = &self.transaction {
+            out.push_str("\nTransaction:\n");
+            out.push_str(&format!("Schema: {}\n", transaction.schema_version));
+            out.push_str(&format!("Id: {}\n", transaction.transaction_id));
+            out.push_str(&format!(
+                "Final state: {}\n",
+                transaction.final_state.as_str()
+            ));
+            out.push_str(&format!(
+                "Rollback: attempted={}, success={}\n",
+                transaction.rollback_attempted,
+                transaction
+                    .rollback_success
+                    .map_or_else(|| "not_needed".to_string(), |success| success.to_string())
+            ));
+            if !transaction.errors.is_empty() {
+                out.push_str("Errors:\n");
+                for error in &transaction.errors {
+                    out.push_str(&format!("- {error}\n"));
+                }
+            }
+            if !transaction.warnings.is_empty() {
+                out.push_str("Warnings:\n");
+                for warning in &transaction.warnings {
+                    out.push_str(&format!("- {warning}\n"));
+                }
+            }
         }
 
         if let Some(log) = &self.log {
@@ -1750,7 +1871,10 @@ impl ApplyPlan {
 
 impl ApplyUndoResult {
     pub fn success(&self) -> bool {
-        self.undo.as_ref().is_some_and(|undo| undo.success)
+        self.transaction
+            .as_ref()
+            .is_some_and(ApplyTransactionResult::rolled_back)
+            || self.undo.as_ref().is_some_and(|undo| undo.success)
     }
 
     pub fn to_display_string(&self) -> String {
@@ -1802,6 +1926,24 @@ impl ApplyUndoResult {
                     out.push('\n');
                 }
             }
+        }
+
+        if let Some(transaction) = &self.transaction {
+            out.push_str("\nTransaction rollback:\n");
+            out.push_str(&format!(
+                "Final state: {}\n",
+                transaction.final_state.as_str()
+            ));
+            out.push_str(&format!(
+                "Restored files: {}\n",
+                transaction.restored_files.len()
+            ));
+            out.push_str(&format!(
+                "Git restored: {}\n",
+                transaction
+                    .git_restored
+                    .map_or_else(|| "not_available".to_string(), |value| value.to_string())
+            ));
         }
 
         if self.success() {
@@ -2899,15 +3041,16 @@ fn top_named_counts(values: &BTreeMap<String, usize>, limit: usize) -> Vec<(&str
 mod tests {
     use super::{
         apply_java_legacy_patch_in_place, apply_java_legacy_patch_to_copy,
-        apply_legacy_replacements, build_unified_diff, chunk_text, collect_project_risks,
-        context_priority, is_important_rag_file, is_legacy_resource_match, is_probably_text,
-        is_rag_indexable_text, parse_java_file, parse_plugin_yml, parse_pom,
+        apply_legacy_replacements, build_unified_diff, check_patch_with_git, chunk_text,
+        collect_project_risks, context_priority, is_important_rag_file, is_legacy_resource_match,
+        is_probably_text, is_rag_indexable_text, parse_java_file, parse_plugin_yml, parse_pom,
         propose_java_legacy_patch, resource_pack_category, summarize_build_output, tail_lines,
         truncate_chars, undo_apply_run, ApplyLogEntry, ApplyPlan, BuildTool, LineEndingStyle,
         PatchCheckResult, PatchFileChange, PatchProposal,
     };
     use std::fs;
     use std::path::{Path, PathBuf};
+    use std::process::Command;
     use std::time::{SystemTime, UNIX_EPOCH};
 
     fn unique_temp_dir(prefix: &str) -> PathBuf {
@@ -2924,6 +3067,35 @@ mod tests {
             .enumerate()
             .filter(|(_, byte)| **byte == b'\n')
             .all(|(index, _)| index > 0 && bytes[index - 1] == b'\r')
+    }
+
+    fn initialize_git_fixture(root: &Path) {
+        let run = |args: &[&str]| {
+            let output = Command::new("git")
+                .args(["-c", "core.autocrlf=false", "-c", "commit.gpgsign=false"])
+                .args(args)
+                .current_dir(root)
+                .output()
+                .expect("Git fixture command should start");
+            assert!(
+                output.status.success(),
+                "Git fixture command failed: {}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+        };
+        run(&["init", "--quiet"]);
+        run(&["add", "--all"]);
+        run(&[
+            "-c",
+            "user.name=OpticCode Test",
+            "-c",
+            "user.email=opticcode-test@example.invalid",
+            "commit",
+            "--quiet",
+            "--no-verify",
+            "-m",
+            "fixture",
+        ]);
     }
 
     #[test]
@@ -3183,6 +3355,7 @@ commands:
             b"name: Demo\r\nversion: 1.0\r\nmain: dev.test.DemoPlugin\r\napi-version: 1.13\r\ncommands:\r\n  demo:\r\n    description: Demo\r\n",
         )
         .expect("plugin.yml");
+        initialize_git_fixture(&root);
 
         let plan = apply_java_legacy_patch_in_place(&root).expect("apply plugin.yml patch");
         let applied = fs::read(&plugin_path).expect("patched plugin.yml");
@@ -3261,6 +3434,8 @@ commands:
                 path: Path::new("src/Test.java").to_path_buf(),
                 reason: "test".to_string(),
                 diff: "--- a/src/Test.java\n+++ b/src/Test.java\n".to_string(),
+                original_content: Vec::new(),
+                proposed_content: Vec::new(),
             }],
             notes: Vec::new(),
         };
@@ -3284,6 +3459,7 @@ commands:
             copied_from: None,
             dry_run: true,
             log: None,
+            transaction: None,
         };
         let display = plan.to_display_string();
 
@@ -3302,6 +3478,8 @@ commands:
                     path: Path::new("src/Test.java").to_path_buf(),
                     reason: "test reason".to_string(),
                     diff: String::new(),
+                    original_content: Vec::new(),
+                    proposed_content: Vec::new(),
                 }],
                 notes: Vec::new(),
             },
@@ -3316,6 +3494,7 @@ commands:
             copied_from: None,
             dry_run: true,
             log: None,
+            transaction: None,
         };
         let display = plan.to_display_string();
 
@@ -3323,6 +3502,39 @@ commands:
         assert!(display.contains("Status: FAILED"));
         assert!(display.contains("patch failed"));
         assert!(display.contains("Dry run: no file was modified"));
+    }
+
+    #[test]
+    fn rejects_invalid_patch_without_modifying_the_target() {
+        let root = unique_temp_dir("opticcode-invalid-patch");
+        fs::create_dir_all(root.join("src")).expect("source directory should be created");
+        let target = root.join("src/Test.java");
+        let original = b"class Test {}\n";
+        fs::write(&target, original).expect("target should be written");
+        initialize_git_fixture(&root);
+        let proposal = PatchProposal {
+            root: root.clone(),
+            changes: vec![PatchFileChange {
+                path: PathBuf::from("src/Test.java"),
+                reason: "invalid patch fixture".to_string(),
+                diff: "this is not a unified patch\n".to_string(),
+                original_content: original.to_vec(),
+                proposed_content: b"class Test { int changed; }\n".to_vec(),
+            }],
+            notes: Vec::new(),
+        };
+
+        let check = check_patch_with_git(&proposal)
+            .expect("patch check should run")
+            .expect("proposal should produce a check");
+
+        assert!(!check.success);
+        assert_ne!(check.exit_code, Some(0));
+        assert_eq!(
+            fs::read(&target).expect("target should remain readable"),
+            original
+        );
+        fs::remove_dir_all(root).expect("fixture should be removed");
     }
 
     #[test]
@@ -3365,6 +3577,7 @@ commands:
             "package dev.test;\nclass Test { Object item = Material.GUNPOWDER; }\n",
         )
         .expect("write source java");
+        initialize_git_fixture(&root);
 
         let plan = apply_java_legacy_patch_in_place(&root).expect("apply in place");
         let content = fs::read_to_string(&java_path).expect("patched java");
@@ -3408,6 +3621,7 @@ commands:
             "package dev.test;\nclass Test { Object item = Material.GUNPOWDER; }\n",
         )
         .expect("write source java");
+        initialize_git_fixture(&root);
 
         let plan = apply_java_legacy_patch_in_place(&root).expect("apply in place");
         let run_id = plan.log.as_ref().expect("apply log").run_id.clone();

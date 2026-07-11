@@ -144,7 +144,8 @@ Action OpticCode :
 - patch texte non applique : fait pour le scope legacy ;
 - `git apply --check` : fait ;
 - safe apply avec confirmation, journal et undo : fait ;
-- prochaine etape : journal transactionnel et rollback automatique sur panne.
+- journal transactionnel et rollback automatique : fait via APPLY-001 ;
+- prochaine etape : verification dans un worktree jetable, puis Tree-sitter Java.
 
 ### 5. Streaming
 

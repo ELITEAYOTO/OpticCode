@@ -245,7 +245,7 @@ Etat actuel :
 - `apply --path <dossier> --yes` ajoute pour appliquer reellement dans le workspace courant uniquement ;
 - journal `.opticcode/apply-log.jsonl` et patch rollback `.opticcode/runs/<run-id>/patch.diff` ajoutes apres apply reussi ;
 - `apply --undo <run-id> --yes` ajoute pour annuler un apply depuis le patch sauvegarde ;
-- `--allow-external` ajoute pour autoriser explicitement un apply hors workspace courant sur repo Git propre ;
+- `--allow-external` ajoute pour autoriser explicitement un apply hors workspace courant ; Git propre reste le defaut et `--allow-dirty` l'exception ;
 - test sur copie reelle `Kspawners` effectue : analyse OK, build OK, patch `plugin.yml` OK, apply/undo OK ;
 - preservation LF/CRLF ajoutee apres apply et undo ;
 - Build Git State Guard ajoute : snapshots Git avant/apres, JSON et mode strict ;
@@ -259,12 +259,17 @@ Etat actuel :
 - `run-mini-benchmark.ps1` append des runs JSONL comparables ;
 - process runner borne ajoute : timeout, cancellation, capture limitee et Job Object Windows ;
 - test CLI d'un faux Maven bloque et test du PID descendant Windows valides ;
-- 63 tests workspace reussis et build borne Kspawners copie reussi en 3,06 s ;
-- prochaine cible : apply transactionnel avec injection de pannes et rollback automatique.
+- apply transactionnel ajoute : journal prepare, backups BLAKE3, etats append-only,
+  rollback automatique et recovery explicite ;
+- concurrence optimiste ajoutee : verification before/after et refus de derive externe ;
+- verrou OS workspace et refus des symlinks/jonctions sur cibles et journaux ;
+- tests CLI reels valident apply, inspect, list, undo, repo sale, rollback_failed et recovery ;
+- validation complete : 96 tests workspace, Clippy strict et build release OK ;
+- prochaine cible : verification patch/build dans un worktree jetable `GIT-002`.
 
 ## Phase 5.1 - Safe Apply
 
-Statut : demarree, application reelle limitee par defaut au workspace courant, externe possible avec verrou explicite.
+Statut : terminee pour le scope legacy deterministe ; extension agent generale non commencee.
 
 Objectif :
 
@@ -274,7 +279,7 @@ Objectif :
 - autoriser une premiere application reelle uniquement dans le workspace courant ;
 - journaliser chaque application reussie ;
 - annuler une application avec `apply --undo <run-id> --yes` ;
-- autoriser un projet externe seulement avec `--allow-external` et Git propre ;
+- autoriser un projet externe seulement avec `--allow-external`, Git propre par defaut et `--allow-dirty` explicite ;
 - refuser toute modification silencieuse ;
 - preparer rollback simple.
 
@@ -291,7 +296,7 @@ Ordre :
 9. Preservation LF/CRLF avant originaux. Fait.
 10. Isolation du bruit de build Maven. Fait.
 11. Process runner borne avec timeout/cancellation. Fait.
-12. Journal apply transactionnel et rollback automatique sur erreur de finalisation.
+12. Journal apply transactionnel et rollback automatique sur erreur de finalisation. Fait.
 
 Livrable :
 
@@ -299,6 +304,7 @@ Livrable :
 - `docs/real-plugin-kspawners-test.md`
 - `docs/build-git-state-guard.md`
 - `docs/process-runner.md`
+- `docs/apply-transaction.md`
 - `docs/optimization-backlog.md`
 
 ## Phase 5.2 - Process runner borne
@@ -321,6 +327,32 @@ Limites conservees :
 - le fallback non-Windows ne gere que le processus racine ;
 - les commandes Git historiques restent hors runner ;
 - aucun shell arbitraire n'est expose.
+
+## Phase 5.3 - Apply transactionnel
+
+Statut : termine et valide sur depots temporaires Windows.
+
+Acquis :
+
+- patch, backups, manifeste et `prepared` durables avant toute mutation ;
+- create/modify/delete avec sauvegardes brutes et BLAKE3 ;
+- remplacements atomiques par fichier et verification apres ecriture ;
+- huit etats explicites et transitions impossibles refusees ;
+- rollback automatique, rollback partiel explicite et recovery idempotente ;
+- repo Git propre obligatoire par defaut, `--allow-dirty` explicite ;
+- protection des changements preexistants et des derives posterieures ;
+- listing/inspection read-only des transactions incompletes ;
+- JSON stable et codes de sortie transactionnels ;
+- injections de panne deterministes et tests CLI du binaire reel.
+
+Limites :
+
+- pas d'atomicite globale multi-fichiers ;
+- le verrou ne peut pas empecher un editeur externe de modifier un fichier ;
+- pas de build inclus dans la transaction ;
+- pas de recovery destructive automatique.
+
+Reference : [`apply-transaction.md`](apply-transaction.md).
 
 ## Phase 5.5 - Profils, memoire et optimisation controlee
 
@@ -355,7 +387,7 @@ Livrable :
 
 ## Phase 6 - RAG local et donnees metier
 
-Statut : prochaine grande etape.
+Statut : prototype JSONL deja fonctionnel ; migration scalable apres les verrous tools/code.
 
 Objectif :
 

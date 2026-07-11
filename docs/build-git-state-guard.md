@@ -472,11 +472,9 @@ grand worktree, pas BLAKE3.
 ## Prochaine etape
 
 Le verrou principal sur le bruit Maven et le process runner borne sont traites.
-La prochaine brique est l'apply transactionnel :
+APPLY-001 est maintenant termine : journal prepare, backups BLAKE3, rollback et
+recovery. Voir [`apply-transaction.md`](apply-transaction.md).
 
-1. ecrire le patch et un journal provisoire avant modification ;
-2. appliquer ;
-3. finaliser le journal atomiquement ;
-4. tenter un rollback automatique si la finalisation echoue ;
-5. journaliser aussi les undo ;
-6. garder tous les tests sur copies jusqu'a validation complete.
+La prochaine brique est `GIT-002` : reutiliser ce guard dans un worktree jetable
+pour attribuer les effets d'un patch puis d'un build avant toute proposition
+d'application sur le worktree utilisateur.

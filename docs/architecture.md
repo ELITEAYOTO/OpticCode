@@ -32,7 +32,8 @@ optic-core
   |
   +-- optic-tools
   |     +-- read/list/search files
-  |     +-- edit/apply patch
+  |     +-- preview/check patch
+  |     +-- apply transactionnel + rollback/recovery
   |     +-- git diff/status
   |     +-- bounded process runner
   |     +-- maven/gradle build
@@ -85,6 +86,8 @@ Les crates actuelles gardent le prefixe `opticcode-*`. Le decoupage ci-dessus re
 - Le core Rust encadre les actions.
 - Les tools ont des schemas clairs.
 - Les editions passent par patches.
+- Toute ecriture prepare patch, manifeste et backups avant la premiere mutation.
+- Les transactions ont des etats versionnes, un rollback BLAKE3 et une recovery explicite.
 - Les commandes shell doivent etre limitees et explicites.
 - Tout nouvel outil externe potentiellement long passe par le process runner.
 - Timeout, annulation, capture bornee et cause d'arret restent des donnees structurees.
@@ -106,6 +109,27 @@ Etat implemente :
 
 Le CLI expose le timeout et la limite de sortie. Le timeout reste compris entre
 une seconde et une heure pour eviter une attente pratiquement non bornee.
+
+## Apply transactionnel
+
+Etat implemente :
+
+- manifeste et journal append-only sous `.opticcode/runs/<transaction-id>` ;
+- etats `prepared`, `applying`, `applied`, `finalizing`, `committed`,
+  `rollback_started`, `rolled_back` et `rollback_failed` ;
+- backups bruts avec BLAKE3, taille et permissions ;
+- verification optimistic concurrency avant chaque ecriture et chaque undo ;
+- remplacement atomique par fichier, avec `ReplaceFileW`/`MoveFileExW` sous Windows ;
+- rollback automatique sur erreur apres preparation ;
+- listing, inspection et recovery explicite ;
+- politique Git propre par defaut, repo sale seulement via `--allow-dirty` ;
+- verrou de fichier OS par workspace pour serialiser apply, undo et recovery ;
+- refus des symlinks, jonctions et reparse points dans les chemins cibles/journaux ;
+- sorties Serde/JSON et codes de sortie distincts.
+
+La transaction n'est pas globalement atomique sur plusieurs fichiers. Elle
+garantit qu'un etat partiel est journalise et recuperable sans ecraser une derive
+externe inconnue. Voir [`apply-transaction.md`](apply-transaction.md).
 
 ## Runtime LLM
 

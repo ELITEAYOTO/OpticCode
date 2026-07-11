@@ -9,17 +9,23 @@ use opticcode_core::{
     load_memory_for_workspace, load_profile_for_workspace, load_rag_context, parse_keep_alive,
     AskOptions, GenerateMetrics, OpticCode, PlanOptions, DEFAULT_PROFILE,
 };
+use opticcode_tools::apply_transaction::{
+    apply_transaction_error_kind, inspect_apply_transaction, list_apply_transactions,
+    recover_apply_transaction, ApplyTransactionErrorKind, ApplyTransactionInspection,
+    ApplyTransactionResult,
+};
 use opticcode_tools::git_state::capture_git_state;
 use opticcode_tools::process_runner::{
     CancellationToken, ProcessOutputStats, ProcessStatus, ProcessTermination,
     DEFAULT_PROCESS_OUTPUT_LIMIT_BYTES, DEFAULT_PROCESS_TIMEOUT_SECONDS,
 };
 use opticcode_tools::{
-    analyze_java_project, apply_java_legacy_patch_in_place, apply_java_legacy_patch_to_copy,
-    build_java_project_with_cancellation, build_project_context, build_rag_index,
-    check_patch_with_git, inspect_rag_source, inspect_resource_pack, inspect_workspace,
-    prepare_java_legacy_apply_plan, propose_java_legacy_patch, search_rag_index, search_workspace,
-    undo_apply_run, BuildOptions, BuildResult,
+    analyze_java_project, apply_java_legacy_patch_in_place_with_options,
+    apply_java_legacy_patch_to_copy, build_java_project_with_cancellation, build_project_context,
+    build_rag_index, check_patch_with_git, inspect_rag_source, inspect_resource_pack,
+    inspect_workspace, prepare_java_legacy_apply_plan, propose_java_legacy_patch, search_rag_index,
+    search_workspace, undo_apply_run, ApplyLogEntry, ApplyPlan, ApplyUndoResult, BuildOptions,
+    BuildResult, PatchCheckResult,
 };
 use serde::Serialize;
 use std::io::{self, Write};
@@ -135,7 +141,25 @@ enum Command {
         #[arg(long)]
         allow_external: bool,
         #[arg(long)]
+        allow_dirty: bool,
+        #[arg(long)]
         yes: bool,
+        #[arg(long)]
+        json: bool,
+    },
+    Transactions {
+        #[arg(long, default_value = ".")]
+        path: PathBuf,
+        #[arg(long)]
+        inspect: Option<String>,
+        #[arg(long)]
+        recover: Option<String>,
+        #[arg(long)]
+        allow_external: bool,
+        #[arg(long)]
+        yes: bool,
+        #[arg(long)]
+        json: bool,
     },
     Ask {
         prompt: String,
@@ -357,42 +381,52 @@ async fn main() -> Result<()> {
             copy_to,
             undo,
             allow_external,
+            allow_dirty,
             yes,
+            json,
         } => {
-            if let Some(run_id) = undo {
-                if dry_run || copy_to.is_some() {
-                    bail!("apply --undo cannot be combined with --dry-run or --copy-to");
+            match execute_apply_command(
+                path,
+                dry_run,
+                copy_to,
+                undo,
+                allow_external,
+                allow_dirty,
+                yes,
+            ) {
+                Ok(output) => {
+                    print_apply_command_output(&output, json)?;
+                    let exit_code = output.exit_code();
+                    if exit_code != 0 {
+                        std::process::exit(exit_code);
+                    }
                 }
-                if !yes {
-                    bail!("apply --undo requires --yes");
+                Err(error) => {
+                    print_apply_error("apply", &error, json)?;
+                    std::process::exit(apply_error_exit_code(&error));
                 }
-                ensure_apply_path_allowed(&path, allow_external, ExternalApplyMode::Undo)?;
-                let result = undo_apply_run(&path, &run_id)?;
-                println!("{}", result.to_display_string());
-                if !result.success() {
-                    std::process::exit(1);
-                }
-                return Ok(());
-            }
-
-            let plan = if dry_run {
-                prepare_java_legacy_apply_plan(&path, true)?
-            } else if let Some(copy_to) = copy_to {
-                if !yes {
-                    bail!("apply with --copy-to requires --yes");
-                }
-                apply_java_legacy_patch_to_copy(&path, &copy_to)?
-            } else if yes {
-                ensure_apply_path_allowed(&path, allow_external, ExternalApplyMode::Apply)?;
-                apply_java_legacy_patch_in_place(&path)?
-            } else {
-                bail!("real apply requires --yes; use --dry-run or --copy-to <path> --yes");
-            };
-            println!("{}", plan.to_display_string());
-            if !plan.success() {
-                std::process::exit(1);
             }
         }
+        Command::Transactions {
+            path,
+            inspect,
+            recover,
+            allow_external,
+            yes,
+            json,
+        } => match execute_transactions_command(path, inspect, recover, allow_external, yes) {
+            Ok(output) => {
+                print_transactions_command_output(&output, json)?;
+                let exit_code = output.exit_code();
+                if exit_code != 0 {
+                    std::process::exit(exit_code);
+                }
+            }
+            Err(error) => {
+                print_apply_error("transactions", &error, json)?;
+                std::process::exit(apply_error_exit_code(&error));
+            }
+        },
         Command::Ask {
             prompt,
             path,
@@ -486,17 +520,255 @@ async fn main() -> Result<()> {
     Ok(())
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum ExternalApplyMode {
-    Apply,
-    Undo,
+const APPLY_EXIT_ROLLED_BACK: i32 = 2;
+const APPLY_EXIT_ROLLBACK_FAILED: i32 = 3;
+const APPLY_EXIT_PRECONDITION: i32 = 4;
+const APPLY_EXIT_INVALID_TRANSACTION: i32 = 5;
+
+enum ApplyCommandOutput {
+    Plan(Box<ApplyPlan>),
+    Undo(Box<ApplyUndoResult>),
 }
 
-fn ensure_apply_path_allowed(
-    path: &Path,
+impl ApplyCommandOutput {
+    fn exit_code(&self) -> i32 {
+        match self {
+            Self::Plan(plan) if plan.success() => 0,
+            Self::Plan(plan) => apply_failure_exit_code(plan.transaction.as_ref()),
+            Self::Undo(result) if result.success() => 0,
+            Self::Undo(result)
+                if result
+                    .transaction
+                    .as_ref()
+                    .is_some_and(ApplyTransactionResult::rollback_failed) =>
+            {
+                APPLY_EXIT_ROLLBACK_FAILED
+            }
+            Self::Undo(_) => APPLY_EXIT_ROLLED_BACK,
+        }
+    }
+}
+
+fn apply_failure_exit_code(transaction: Option<&ApplyTransactionResult>) -> i32 {
+    match transaction {
+        Some(result) if result.rollback_failed() => APPLY_EXIT_ROLLBACK_FAILED,
+        Some(result) if result.rolled_back() => APPLY_EXIT_ROLLED_BACK,
+        _ => APPLY_EXIT_PRECONDITION,
+    }
+}
+
+enum TransactionsCommandOutput {
+    List(Vec<ApplyTransactionInspection>),
+    Inspect(ApplyTransactionInspection),
+    Recover(ApplyTransactionResult),
+}
+
+impl TransactionsCommandOutput {
+    fn exit_code(&self) -> i32 {
+        match self {
+            Self::List(_) => 0,
+            Self::Inspect(inspection) if inspection.valid => 0,
+            Self::Inspect(_) => APPLY_EXIT_INVALID_TRANSACTION,
+            Self::Recover(result) if result.rolled_back() => 0,
+            Self::Recover(result) if result.rollback_failed() => APPLY_EXIT_ROLLBACK_FAILED,
+            Self::Recover(_) => APPLY_EXIT_ROLLED_BACK,
+        }
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn execute_apply_command(
+    path: PathBuf,
+    dry_run: bool,
+    copy_to: Option<PathBuf>,
+    undo: Option<String>,
     allow_external: bool,
-    mode: ExternalApplyMode,
-) -> Result<()> {
+    allow_dirty: bool,
+    yes: bool,
+) -> Result<ApplyCommandOutput> {
+    if let Some(run_id) = undo {
+        if dry_run || copy_to.is_some() || allow_dirty {
+            bail!("apply --undo cannot be combined with --dry-run, --copy-to, or --allow-dirty");
+        }
+        if !yes {
+            bail!("apply --undo requires --yes");
+        }
+        ensure_apply_path_allowed(&path, allow_external)?;
+        return undo_apply_run(&path, &run_id)
+            .map(Box::new)
+            .map(ApplyCommandOutput::Undo);
+    }
+
+    if dry_run && copy_to.is_some() {
+        bail!("apply --dry-run cannot be combined with --copy-to");
+    }
+    if dry_run {
+        if allow_dirty {
+            bail!("apply --allow-dirty is only valid for a real in-place apply");
+        }
+        return prepare_java_legacy_apply_plan(&path, true)
+            .map(Box::new)
+            .map(ApplyCommandOutput::Plan);
+    }
+    if let Some(copy_to) = copy_to {
+        if allow_dirty {
+            bail!("apply --allow-dirty is not needed with --copy-to");
+        }
+        if !yes {
+            bail!("apply with --copy-to requires --yes");
+        }
+        return apply_java_legacy_patch_to_copy(&path, &copy_to)
+            .map(Box::new)
+            .map(ApplyCommandOutput::Plan);
+    }
+    if !yes {
+        bail!("real apply requires --yes; use --dry-run or --copy-to <path> --yes");
+    }
+
+    ensure_apply_path_allowed(&path, allow_external)?;
+    apply_java_legacy_patch_in_place_with_options(&path, allow_dirty)
+        .map(Box::new)
+        .map(ApplyCommandOutput::Plan)
+}
+
+fn execute_transactions_command(
+    path: PathBuf,
+    inspect: Option<String>,
+    recover: Option<String>,
+    allow_external: bool,
+    yes: bool,
+) -> Result<TransactionsCommandOutput> {
+    if inspect.is_some() && recover.is_some() {
+        bail!("transactions --inspect cannot be combined with --recover");
+    }
+    if let Some(transaction_id) = recover {
+        if !yes {
+            bail!("transactions --recover requires --yes");
+        }
+        ensure_apply_path_allowed(&path, allow_external)?;
+        return recover_apply_transaction(&path, &transaction_id)
+            .map(TransactionsCommandOutput::Recover);
+    }
+    if let Some(transaction_id) = inspect {
+        return inspect_apply_transaction(&path, &transaction_id)
+            .map(TransactionsCommandOutput::Inspect);
+    }
+    list_apply_transactions(&path).map(TransactionsCommandOutput::List)
+}
+
+fn print_apply_command_output(output: &ApplyCommandOutput, json: bool) -> Result<()> {
+    match output {
+        ApplyCommandOutput::Plan(plan) if json => {
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&ApplyPlanJson::from(plan.as_ref()))?
+            );
+        }
+        ApplyCommandOutput::Plan(plan) => println!("{}", plan.to_display_string()),
+        ApplyCommandOutput::Undo(result) if json => {
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&ApplyUndoJson::from(result.as_ref()))?
+            );
+        }
+        ApplyCommandOutput::Undo(result) => println!("{}", result.to_display_string()),
+    }
+    Ok(())
+}
+
+fn print_transactions_command_output(output: &TransactionsCommandOutput, json: bool) -> Result<()> {
+    if json {
+        match output {
+            TransactionsCommandOutput::List(transactions) => println!(
+                "{}",
+                serde_json::to_string_pretty(&TransactionListJson {
+                    schema_version: 1,
+                    transactions,
+                })?
+            ),
+            TransactionsCommandOutput::Inspect(inspection) => {
+                println!("{}", serde_json::to_string_pretty(inspection)?)
+            }
+            TransactionsCommandOutput::Recover(result) => {
+                println!("{}", serde_json::to_string_pretty(result)?)
+            }
+        }
+        return Ok(());
+    }
+
+    match output {
+        TransactionsCommandOutput::List(transactions) => {
+            println!("Transactions: {}", transactions.len());
+            for transaction in transactions {
+                println!(
+                    "- {} state={} valid={} recoverable={}{}",
+                    transaction.transaction_id,
+                    transaction
+                        .final_state
+                        .map_or("unknown", |state| state.as_str()),
+                    transaction.valid,
+                    transaction.recoverable,
+                    if transaction.legacy { " legacy" } else { "" }
+                );
+            }
+        }
+        TransactionsCommandOutput::Inspect(inspection) => {
+            println!("Transaction: {}", inspection.transaction_id);
+            println!("Valid: {}", inspection.valid);
+            println!("Legacy: {}", inspection.legacy);
+            println!(
+                "Final state: {}",
+                inspection
+                    .final_state
+                    .map_or("unknown", |state| state.as_str())
+            );
+            println!("Recoverable: {}", inspection.recoverable);
+            for error in &inspection.errors {
+                println!("Error: {error}");
+            }
+        }
+        TransactionsCommandOutput::Recover(result) => {
+            println!("Transaction: {}", result.transaction_id);
+            println!("Final state: {}", result.final_state.as_str());
+            println!("Rollback success: {:?}", result.rollback_success);
+            println!("Restored files: {}", result.restored_files.len());
+        }
+    }
+    Ok(())
+}
+
+fn print_apply_error(operation: &str, error: &anyhow::Error, json: bool) -> Result<()> {
+    let kind =
+        apply_transaction_error_kind(error).unwrap_or(ApplyTransactionErrorKind::Precondition);
+    if json {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&ApplyErrorJson {
+                schema_version: 1,
+                operation,
+                operation_success: false,
+                error_kind: kind,
+                error: format!("{error:#}"),
+            })?
+        );
+    } else {
+        eprintln!("Error: {error:#}");
+    }
+    Ok(())
+}
+
+fn apply_error_exit_code(error: &anyhow::Error) -> i32 {
+    match apply_transaction_error_kind(error) {
+        Some(ApplyTransactionErrorKind::Precondition) | None => APPLY_EXIT_PRECONDITION,
+        Some(
+            ApplyTransactionErrorKind::Collision
+            | ApplyTransactionErrorKind::InvalidTransaction
+            | ApplyTransactionErrorKind::Io,
+        ) => APPLY_EXIT_INVALID_TRANSACTION,
+    }
+}
+
+fn ensure_apply_path_allowed(path: &Path, allow_external: bool) -> Result<()> {
     let workspace = fs::canonicalize(std::env::current_dir()?)?;
     let target = fs::canonicalize(path)?;
 
@@ -513,9 +785,6 @@ fn ensure_apply_path_allowed(
     }
 
     ensure_external_git_project(&target)?;
-    if mode == ExternalApplyMode::Apply {
-        ensure_external_tracked_files_clean(&target)?;
-    }
 
     Ok(())
 }
@@ -537,38 +806,98 @@ fn ensure_external_git_project(target: &Path) -> Result<()> {
     Ok(())
 }
 
-fn ensure_external_tracked_files_clean(target: &Path) -> Result<()> {
-    let output = ProcessCommand::new("git")
-        .args(["status", "--porcelain"])
-        .current_dir(target)
-        .output()
-        .with_context(|| {
-            format!(
-                "failed to check external Git working tree: {}",
-                target.display()
-            )
-        })?;
+#[derive(Serialize)]
+struct ApplyPlanJson<'a> {
+    schema_version: u32,
+    operation: &'static str,
+    operation_success: bool,
+    mode: &'static str,
+    project: &'a Path,
+    copied_from: Option<&'a Path>,
+    dry_run: bool,
+    change_count: usize,
+    files: Vec<String>,
+    check: Option<&'a PatchCheckResult>,
+    apply: Option<&'a PatchCheckResult>,
+    transaction: Option<&'a ApplyTransactionResult>,
+    log: Option<&'a ApplyLogEntry>,
+}
 
-    if !output.status.success() {
-        bail!(
-            "failed to check external Git working tree: {}",
-            String::from_utf8_lossy(&output.stderr).trim()
-        );
+impl<'a> From<&'a ApplyPlan> for ApplyPlanJson<'a> {
+    fn from(plan: &'a ApplyPlan) -> Self {
+        let mode = if plan.dry_run {
+            "dry_run"
+        } else if plan.copied_from.is_some() {
+            "copy"
+        } else {
+            "in_place"
+        };
+
+        Self {
+            schema_version: 1,
+            operation: "apply",
+            operation_success: plan.success(),
+            mode,
+            project: &plan.proposal.root,
+            copied_from: plan.copied_from.as_deref(),
+            dry_run: plan.dry_run,
+            change_count: plan.proposal.changes.len(),
+            files: plan
+                .proposal
+                .changes
+                .iter()
+                .map(|change| change.path.to_string_lossy().replace('\\', "/"))
+                .collect(),
+            check: plan.check.as_ref(),
+            apply: plan.apply.as_ref(),
+            transaction: plan.transaction.as_ref(),
+            log: plan.log.as_ref(),
+        }
     }
+}
 
-    let status = String::from_utf8_lossy(&output.stdout);
-    let blocking_status = status
-        .lines()
-        .filter(|line| !line.starts_with("?? .opticcode/"))
-        .collect::<Vec<_>>();
-    if !blocking_status.is_empty() {
-        bail!(
-            "external apply requires a clean Git working tree before apply; commit, stash, or remove current changes first:\n{}",
-            blocking_status.join("\n")
-        );
+#[derive(Serialize)]
+struct ApplyUndoJson<'a> {
+    schema_version: u32,
+    operation: &'static str,
+    operation_success: bool,
+    project: &'a Path,
+    transaction_id: &'a str,
+    patch: &'a Path,
+    check: &'a PatchCheckResult,
+    undo: Option<&'a PatchCheckResult>,
+    transaction: Option<&'a ApplyTransactionResult>,
+}
+
+impl<'a> From<&'a ApplyUndoResult> for ApplyUndoJson<'a> {
+    fn from(result: &'a ApplyUndoResult) -> Self {
+        Self {
+            schema_version: 1,
+            operation: "undo",
+            operation_success: result.success(),
+            project: &result.root,
+            transaction_id: &result.run_id,
+            patch: &result.patch_path,
+            check: &result.check,
+            undo: result.undo.as_ref(),
+            transaction: result.transaction.as_ref(),
+        }
     }
+}
 
-    Ok(())
+#[derive(Serialize)]
+struct TransactionListJson<'a> {
+    schema_version: u32,
+    transactions: &'a [ApplyTransactionInspection],
+}
+
+#[derive(Serialize)]
+struct ApplyErrorJson<'a> {
+    schema_version: u32,
+    operation: &'a str,
+    operation_success: bool,
+    error_kind: ApplyTransactionErrorKind,
+    error: String,
 }
 
 #[derive(Serialize)]
@@ -718,6 +1047,55 @@ fn print_metrics(metrics: &GenerateMetrics) {
                     count as f64 / duration.as_secs_f64()
                 );
             }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        apply_failure_exit_code, APPLY_EXIT_PRECONDITION, APPLY_EXIT_ROLLBACK_FAILED,
+        APPLY_EXIT_ROLLED_BACK,
+    };
+    use opticcode_tools::apply_transaction::{ApplyTransactionResult, ApplyTransactionState};
+
+    #[test]
+    fn apply_failure_exit_codes_distinguish_rollback_outcomes() {
+        let mut result = transaction_result(ApplyTransactionState::RolledBack, Some(true));
+        assert_eq!(
+            apply_failure_exit_code(Some(&result)),
+            APPLY_EXIT_ROLLED_BACK
+        );
+
+        result.final_state = ApplyTransactionState::RollbackFailed;
+        result.rollback_success = Some(false);
+        assert_eq!(
+            apply_failure_exit_code(Some(&result)),
+            APPLY_EXIT_ROLLBACK_FAILED
+        );
+        assert_eq!(apply_failure_exit_code(None), APPLY_EXIT_PRECONDITION);
+    }
+
+    fn transaction_result(
+        final_state: ApplyTransactionState,
+        rollback_success: Option<bool>,
+    ) -> ApplyTransactionResult {
+        ApplyTransactionResult {
+            schema_version: 1,
+            transaction_id: "apply-test".to_string(),
+            workspace: "workspace".to_string(),
+            operation_success: false,
+            final_state,
+            rollback_attempted: true,
+            rollback_success,
+            planned_files: Vec::new(),
+            modified_files: Vec::new(),
+            restored_files: Vec::new(),
+            errors: Vec::new(),
+            warnings: Vec::new(),
+            duration_ms: 0,
+            git_restored: Some(true),
+            transaction_dir: ".opticcode/runs/apply-test".to_string(),
         }
     }
 }

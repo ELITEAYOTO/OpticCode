@@ -903,3 +903,37 @@ Raison :
 - timeout et annulation doivent rester distinguables par le futur agent ;
 - le test du PID descendant valide la garantie utile sur Windows 10 ;
 - les limites explicites rendent le cout previsible avant toute boucle agent.
+
+### D-055 - Journal append-only et backups pour APPLY-001
+
+Statut : valide.
+
+Decision :
+
+- faire de `.opticcode/runs/<transaction-id>/manifest.json` et des evenements
+  append-only la source de verite de l'apply ;
+- ecrire patch, backups, manifeste et evenement `prepared` avant toute cible ;
+- conserver les contenus avant/apres sous forme d'octets avec tailles et BLAKE3 ;
+- appliquer chaque fichier par remplacement temporaire sur le meme volume ;
+- exiger Git propre par defaut, y compris dans le workspace courant ;
+- autoriser un depot sale uniquement avec `--allow-dirty` explicite ;
+- rollbacker automatiquement toute erreur apres preparation ;
+- refuser de rollbacker sur un contenu externe qui ne correspond ni a l'etat
+  avant, ni a l'etat produit par la transaction ;
+- rendre recovery explicite via `transactions --recover <id> --yes` ;
+- serialiser apply, undo et recovery avec `.opticcode/apply.lock` et un verrou OS ;
+- conserver le fichier de verrou apres crash, l'OS liberant automatiquement le verrou ;
+- refuser symlinks, jonctions et reparse points dans les cibles et journaux ;
+- garder `apply-log.jsonl` comme index de compatibilite non autoritaire ;
+- ne jamais utiliser `git reset --hard` ou `git clean -fd`.
+
+Raison :
+
+- un patch inverse seul ne couvre pas une panne entre l'ecriture et le log ;
+- les backups permettent create/modify/delete et une restauration octet exacte ;
+- des evenements immuables evitent de remplacer continuellement un journal sous Windows ;
+- BLAKE3 detecte un backup tronque ou corrompu avant toute restauration ;
+- la verification des hashes avant rollback protege les changements utilisateur
+  effectues apres l'apply ;
+- `ReplaceFileW` et `MoveFileExW` offrent la meilleure atomicite pratique par
+  fichier, sans pretendre a une transaction globale du filesystem.

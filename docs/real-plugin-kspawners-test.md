@@ -170,5 +170,6 @@ Documentation detaillee :
 
 ## Prochaine action recommandee
 
-Rendre l'apply et son journal transactionnels avant d'elargir le workflow agent.
-Continuer les essais sur copies Git tant que cette garantie n'est pas terminee.
+APPLY-001 est maintenant transactionnel et valide sur fixtures temporaires, sans
+nouvelle ecriture sur Kspawners. Continuer les essais sur copies ou worktrees :
+la prochaine etape est `GIT-002`, puis Tree-sitter Java avant les originaux.

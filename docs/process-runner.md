@@ -238,7 +238,7 @@ n'a detecte aucun changement supplementaire pendant ce build. L'original
 
 ## Suite
 
-La prochaine priorite P0 est `APPLY-001` : journal transactionnel prepare avant
-ecriture, etats explicites, ecritures atomiques, injection de pannes et rollback
-automatique. Le runner pourra ensuite borner le build de verification lie a une
-transaction d'apply.
+`APPLY-001` est maintenant termine ; voir
+[`apply-transaction.md`](apply-transaction.md). La prochaine utilisation directe
+du runner sera `GIT-002` : borner le build de verification dans un worktree
+jetable lie a un patch candidat.

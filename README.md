@@ -18,9 +18,9 @@ Le projet ne vise pas a entrainer un modele IA depuis zero. Il construit une cou
 ## Etat actuel
 
 Le projet a maintenant un MVP Rust fonctionnel : inspection, analyse Java/Bukkit,
-Ollama/Qwen, RAG JSONL, patch legacy, safe apply journalise, undo et controle
-Git avant/apres build. Les builds passent aussi par un process runner borne
-avec timeout, sortie limitee et terminaison de l'arbre Windows.
+Ollama/Qwen, RAG JSONL, patch legacy, apply transactionnel, rollback/recovery et
+controle Git avant/apres build. Les builds passent aussi par un process runner
+borne avec timeout, sortie limitee et terminaison de l'arbre Windows.
 
 - Phase 0 : audit environnement Windows 10 termine.
 - Phase 1 : documentation de cadrage terminee.
@@ -28,7 +28,7 @@ avec timeout, sortie limitee et terminaison de l'arbre Windows.
 - Phase 2 : benchmark Ollama / Qwen2.5-Coder 14B termine.
 - Phase 3 : recherche depots externes et analyse Qwen Code terminees.
 - Phase 4 : MVP Rust fonctionnel.
-- Phase 5 : tools Java et safe apply en cours.
+- Phase 5 : tools Java en cours ; safe apply transactionnel termine pour le scope legacy deterministe.
 - Phase 6 : prototype RAG JSONL fonctionnel, index scalable a faire.
 - Phase 7 : agent iteratif non commence.
 
@@ -37,6 +37,7 @@ avec timeout, sortie limitee et terminaison de l'arbre Windows.
 - [Audit complet du projet au 2026-07-11](docs/project-audit-2026-07-11.md)
 - [Build Git State Guard](docs/build-git-state-guard.md)
 - [Process runner borne](docs/process-runner.md)
+- [Apply transactionnel et recovery](docs/apply-transaction.md)
 - [Backlog canonique d'optimisation](docs/optimization-backlog.md)
 - [Etat environnement](docs/environment-audit.md)
 - [Roadmap](docs/roadmap.md)
@@ -92,6 +93,12 @@ cargo run -q -- build --path benchmarks/mini-bukkit-plugin --json
 cargo run -q -- build --path benchmarks/mini-bukkit-plugin --timeout-seconds 600 --output-limit-bytes 1048576 --json
 cargo run -q -- patch --path benchmarks/mini-bukkit-plugin
 cargo run -q -- patch --path benchmarks/mini-bukkit-plugin --check
+cargo run -q -- apply --path benchmarks/mini-bukkit-plugin --dry-run --json
+cargo run -q -- apply --path C:\path\to\git-project --allow-external --yes --json
+cargo run -q -- apply --path C:\path\to\git-project --undo <transaction-id> --allow-external --yes --json
+cargo run -q -- transactions --path C:\path\to\git-project --json
+cargo run -q -- transactions --path C:\path\to\git-project --inspect <transaction-id> --json
+cargo run -q -- transactions --path C:\path\to\git-project --recover <transaction-id> --allow-external --yes --json
 cargo run -q -- profile --path benchmarks/mini-bukkit-plugin --profile minecraft-java-1.8
 cargo run -q -- memory --path benchmarks/mini-bukkit-plugin --profile minecraft-java-1.8
 cargo run -q -- pack-scan --path "C:\Users\timot\Desktop\RAG-1.8-Minecraft\1.8-JavaDoc\resource-pack-1.8\LegacyPack" --limit 25
@@ -111,10 +118,11 @@ cargo run -q -- inspect --path benchmarks/mini-bukkit-plugin
 .\scripts\run-rag-comparison.ps1
 .\scripts\run-build-git-guard-quality.ps1
 .\scripts\run-git-snapshot-benchmark.ps1 -Iterations 5
+.\scripts\run-apply-transaction-quality.ps1
 ```
 
 ## Prochaine etape
 
-Rendre l'apply transactionnel : journal `prepared` avant ecriture, transitions
-d'etat, ecritures atomiques, injection de pannes et rollback automatique. Les
-validations restent limitees aux fixtures temporaires et copies Git.
+Ajouter `GIT-002` : verifier patch et build dans un worktree jetable avant toute
+proposition d'application sur le worktree utilisateur. L'etape suivante sera
+Tree-sitter Java pour remplacer les transformations textuelles globales.

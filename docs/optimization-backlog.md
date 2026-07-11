@@ -75,6 +75,8 @@ empreintes.
 | DONE-009 | Build Git State Guard | termine |
 | DONE-010 | BLAKE3, metriques snapshot et test CLI Rust | termine |
 | DONE-011 | process runner borne, timeout/cancellation et Job Object Windows | termine |
+| DONE-012 | apply transactionnel, rollback et recovery explicite | termine |
+| DONE-013 | concurrence optimiste before/after et refus de derive | termine pour le refus |
 
 ## P0 - Securite avant agent
 
@@ -103,23 +105,34 @@ Voir [`process-runner.md`](process-runner.md).
 
 ### APPLY-001 - Apply transactionnel
 
-Probleme : le journal final est encore ecrit apres application.
+Statut : termine et valide le 2026-07-11.
 
-Livrable :
+Probleme resolu : le journal final etait auparavant ecrit apres application.
+
+Livrable realise :
 
 - patch et journal `prepared` ecrits avant modification ;
-- transition `prepared -> applied -> finalized` ;
+- transitions versionnees jusqu'a `committed` ou rollback ;
 - ecritures atomiques par fichier temporaire + rename ;
 - rollback automatique si la finalisation echoue ;
 - etat `rollback_failed` explicite ;
-- journal des undo ;
-- injection de pannes dans les tests ;
+- journal append-only des apply, undo et recovery ;
+- backups bruts, tailles, permissions et BLAKE3 ;
+- injection de dix points de panne dans les tests ;
+- commandes `transactions` de liste, inspection et recovery ;
+- verrou OS workspace sans verrou orphelin apres crash ;
+- refus des symlinks/jonctions et double revalidation TOCTOU ;
+- JSON versionne et codes de sortie 0/2/3/4/5 ;
 - aucune application originale pendant le developpement.
 
 Critere de sortie : chaque panne simulee laisse soit l'original intact, soit un
 etat journalise et recuperable sans ambiguite.
 
+Critere atteint. Voir [`apply-transaction.md`](apply-transaction.md).
+
 ### APPLY-002 - Concurrence optimiste
+
+Statut : termine pour le refus de conflit ; 3-way merge volontairement differe.
 
 Probleme : un fichier peut changer entre preview et apply.
 
@@ -130,7 +143,8 @@ Livrable :
 - refus si le contenu a change ;
 - plus tard, rebase ou 3-way explicite, jamais silencieux.
 
-Declenchement : avec APPLY-001 ou juste apres.
+Implementation : les octets et BLAKE3 avant/apres sont enregistres, chaque cible
+est revalidee juste avant ecriture et le rollback refuse toute derive inconnue.
 
 ### GIT-002 - Worktree jetable
 
@@ -144,7 +158,7 @@ Livrable futur :
 - nettoyage uniquement du worktree cree et apres validation de chemin ;
 - aucun reset/clean du projet utilisateur.
 
-Declenchement : apres apply transactionnel et process runner.
+Declenchement : conditions atteintes ; prochain sprint actif.
 
 ## P1 - Intelligence code et contexte
 
@@ -386,9 +400,9 @@ Tree-sitter/Tantivy.
 
 1. Figer Build Git State Guard apres BLAKE3, test CLI et benchmark. Fait.
 2. Implementer PROC-001 timeout/cancellation. Fait.
-3. Implementer APPLY-001 apply transactionnel avec pannes simulees.
-4. Ajouter APPLY-002 concurrence optimiste.
-5. Ajouter GIT-002 worktree jetable.
+3. Implementer APPLY-001 apply transactionnel avec pannes simulees. Fait.
+4. Ajouter APPLY-002 concurrence optimiste. Fait pour le refus de conflit.
+5. Ajouter GIT-002 worktree jetable. Prochain sprint.
 6. Decouper les modules tools necessaires.
 7. Integrer CODE-001 Tree-sitter Java.
 8. Construire CONTEXT-001 selection par tache.
@@ -399,19 +413,19 @@ Tree-sitter/Tantivy.
 
 ## Prochain sprint propose
 
-`APPLY-001 - Apply transactionnel`.
+`GIT-002 - Worktree jetable de verification`.
 
-Le process runner etant borne, le risque P0 suivant est la fenetre entre
-l'application d'un patch et l'ecriture de son journal final. Le prochain sprint
-doit garantir qu'une panne simulee laisse soit les fichiers intacts, soit un
-etat explicite et recuperable.
+Le process runner, le Git State Guard et l'apply transactionnel sont maintenant
+bornes et testes. Le prochain risque est de compiler un patch directement dans
+le worktree utilisateur avant d'avoir prouve son build. Un worktree temporaire
+doit isoler cette verification sans reset ni clean du projet original.
 
 Questions de conception a regler dans le code :
 
-- journal `prepared` ecrit avant toute modification ;
-- transitions `prepared -> applied -> finalized` ;
-- ecritures temporaires et renommages atomiques quand le filesystem le permet ;
-- rollback automatique sur erreur de finalisation ;
-- etat `rollback_failed` impossible a masquer ;
-- injection de pannes deterministe dans les tests ;
-- aucun essai sur un projet original non sauvegarde.
+- creation sous un chemin temporaire valide ;
+- rattachement au depot et commit exact a verifier ;
+- apply/build avec le process runner borne ;
+- rapport Git avant/apres dans le worktree ;
+- nettoyage exclusif du worktree cree par OpticCode ;
+- conservation des artefacts utiles en cas d'echec ;
+- aucun essai destructif sur un projet original.
