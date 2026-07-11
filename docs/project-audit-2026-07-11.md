@@ -6,6 +6,17 @@ Depot audite : `C:\Users\timot\Desktop\OpticCode`
 
 Base Git au debut de l'audit : `bf550ed626891c8202ccf6e30e70d1da8984035b`
 
+Mise a jour apres audit : le sprint `Build Git State Guard` recommande dans la
+section 16 a ete implemente le 2026-07-11. Voir
+[`build-git-state-guard.md`](build-git-state-guard.md). Les prochaines priorites
+P0 sont le process runner borne puis l'apply transactionnel.
+
+Durcissement supplementaire termine le meme jour : BLAKE3, metriques de
+snapshot, commande read-only `git-state`, test CLI Rust, test des fichiers
+ignores et benchmark PandaSpigot. Le backlog courant est consolide dans
+[`optimization-backlog.md`](optimization-backlog.md). Le process runner borne
+precede maintenant l'apply transactionnel dans l'ordre d'execution.
+
 ## 1. Resume executif
 
 OpticCode n'est plus une simple idee ni un assemblage de documentation. Le depot contient un MVP Rust fonctionnel capable de :
@@ -833,9 +844,11 @@ Apres le CLI agent fiable :
 - historique, feedback et memoire projet ;
 - distribution Windows reproductible.
 
-## 16. Prochain sprint recommande
+## 16. Sprint recommande lors de l'audit - maintenant termine
 
 Le prochain sprint doit rester petit et mesurable : `Build Git State Guard`.
+
+Statut au 2026-07-11 : termine et valide sur fixture Git et copie Kspawners.
 
 Livrables :
 

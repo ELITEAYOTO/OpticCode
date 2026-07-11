@@ -248,12 +248,16 @@ Etat actuel :
 - `--allow-external` ajoute pour autoriser explicitement un apply hors workspace courant sur repo Git propre ;
 - test sur copie reelle `Kspawners` effectue : analyse OK, build OK, patch `plugin.yml` OK, apply/undo OK ;
 - preservation LF/CRLF ajoutee apres apply et undo ;
+- Build Git State Guard ajoute : snapshots Git avant/apres, JSON et mode strict ;
+- validation du guard terminee sur fixture Git et copie Kspawners ;
+- BLAKE3, metriques snapshot, commande `git-state` et test CLI Rust ajoutes ;
+- benchmark read-only : petite fixture, Kspawners et PandaSpigot ;
 - `ask` et `plan` peuvent charger le profil `minecraft-java-1.8` ;
 - `analyze-java` compare les commandes declarees avec `getCommand(...)` ;
 - table legacy initiale ajoutee : gunpowder, nether wart, spawners, pelles/spades et quelques mobs ;
 - `ask` et `plan` chargent une memoire global/profil par defaut ;
 - `run-mini-benchmark.ps1` append des runs JSONL comparables ;
-- prochaine cible : isoler le bruit de build Maven avant tout dossier personnel original.
+- prochaine cible : process runner borne, puis apply transactionnel.
 
 ## Phase 5.1 - Safe Apply
 
@@ -279,15 +283,19 @@ Ordre :
 4. Journal + rollback manuel. Fait.
 5. Commande `apply --undo <run-id>`. Fait.
 6. Regles d'elargissement hors workspace courant. Fait via `--allow-external`.
-7. Verification build optionnelle.
+7. Verification build optionnelle. Fait via Build Git State Guard.
 8. Test sur copie locale d'un vrai plugin. Fait avec Kspawners.
 9. Preservation LF/CRLF avant originaux. Fait.
-10. Isolation du bruit de build Maven.
+10. Isolation du bruit de build Maven. Fait.
+11. Process runner borne avec timeout/cancellation.
+12. Journal apply transactionnel et rollback automatique sur erreur de finalisation.
 
 Livrable :
 
 - `docs/safe-apply-roadmap.md`
 - `docs/real-plugin-kspawners-test.md`
+- `docs/build-git-state-guard.md`
+- `docs/optimization-backlog.md`
 
 ## Phase 5.5 - Profils, memoire et optimisation controlee
 

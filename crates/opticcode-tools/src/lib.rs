@@ -1,3 +1,5 @@
+pub mod git_state;
+
 use std::collections::BTreeMap;
 use std::fs::{self, File, OpenOptions};
 use std::io::{BufRead, BufReader, BufWriter, Write};
@@ -6,6 +8,7 @@ use std::process::{Command, Stdio};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result};
+use git_state::{capture_git_state, BuildGitReport};
 use serde::{Deserialize, Serialize};
 use serde_yaml::Value;
 use walkdir::{DirEntry, WalkDir};
@@ -116,6 +119,12 @@ pub struct BuildResult {
     pub summary: Vec<String>,
     pub stdout_tail: String,
     pub stderr_tail: String,
+    pub git_report: BuildGitReport,
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+pub struct BuildOptions {
+    pub fail_on_worktree_change: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -669,6 +678,10 @@ pub fn build_project_context_with_limits(
 }
 
 pub fn build_java_project(root: &Path) -> Result<BuildResult> {
+    build_java_project_with_options(root, BuildOptions::default())
+}
+
+pub fn build_java_project_with_options(root: &Path, options: BuildOptions) -> Result<BuildResult> {
     let analysis = analyze_java_project(root)?;
     let (program, args, command_display) = match analysis.build_tool {
         BuildTool::Maven => (
@@ -680,6 +693,7 @@ pub fn build_java_project(root: &Path) -> Result<BuildResult> {
         BuildTool::Unknown => anyhow::bail!("No Maven or Gradle build file detected."),
     };
 
+    let before_git = capture_git_state(&analysis.root);
     let started_at = Instant::now();
     let mut command = build_process_command(program, &args);
     let output = command
@@ -692,6 +706,12 @@ pub fn build_java_project(root: &Path) -> Result<BuildResult> {
     let stderr = String::from_utf8_lossy(&output.stderr).to_string();
     let success = output.status.success();
     let summary = summarize_build_output(&stdout, &stderr, success);
+    let after_git = capture_git_state(&analysis.root);
+    let git_report = BuildGitReport::from_capture_results(
+        before_git,
+        after_git,
+        options.fail_on_worktree_change,
+    );
 
     Ok(BuildResult {
         root: analysis.root,
@@ -702,6 +722,7 @@ pub fn build_java_project(root: &Path) -> Result<BuildResult> {
         summary,
         stdout_tail: tail_lines(&stdout, 30),
         stderr_tail: tail_lines(&stderr, 30),
+        git_report,
     })
 }
 
@@ -1397,6 +1418,10 @@ fn build_process_command(program: &str, args: &[&str]) -> Command {
 }
 
 impl BuildResult {
+    pub fn command_succeeded(&self) -> bool {
+        self.success && !self.git_report.strict_violation()
+    }
+
     pub fn to_display_string(&self) -> String {
         let mut out = String::new();
         out.push_str(&format!("Project: {}\n", self.root.display()));
@@ -1411,6 +1436,14 @@ impl BuildResult {
                 .map_or_else(|| "unknown".to_string(), |code| code.to_string())
         ));
         out.push_str(&format!("Duration: {:.2}s\n", self.duration.as_secs_f64()));
+        out.push_str(&format!(
+            "Overall status: {}\n",
+            if self.command_succeeded() {
+                "OK"
+            } else {
+                "FAILED"
+            }
+        ));
 
         out.push_str("\nSummary:\n");
         if self.summary.is_empty() {
@@ -1436,6 +1469,9 @@ impl BuildResult {
                 out.push('\n');
             }
         }
+
+        out.push('\n');
+        out.push_str(&self.git_report.to_display_string());
 
         out
     }

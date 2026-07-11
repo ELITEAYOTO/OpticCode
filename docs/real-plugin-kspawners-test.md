@@ -1,6 +1,6 @@
 # OpticCode - Test copie reelle Kspawners
 
-Derniere mise a jour : 2026-07-07
+Derniere mise a jour : 2026-07-11
 
 ## Objectif
 
@@ -120,12 +120,41 @@ Conclusion :
 - la preservation LF/CRLF est traitee pour les fichiers touches par apply/undo ;
 - avant d'appliquer sur un original, il faut encore gerer le bruit de build Maven.
 
+## Validation Build Git State Guard
+
+Commande executee uniquement sur la copie :
+
+```powershell
+cargo run -q -- build `
+  --path benchmarks/runs/real-plugin-kspawners-20260707-015407/Kspawners-copy `
+  --fail-on-worktree-change `
+  --json
+```
+
+Resultat :
+
+- build Maven : succes en 4.362s ;
+- succes global OpticCode : oui ;
+- changements avant/apres : 61 / 61 ;
+- changements preexistants inchanges : 60 ;
+- un fichier non suivi regenere : `target/original-KSpawner-1.0.0.jar` ;
+- taille du JAR : 169342 -> 170340 octets ;
+- aucun fichier suivi propre modifie ;
+- mode strict : succes ;
+- original non modifie.
+
+`dependency-reduced-pom.xml` etait deja modifie avant ce build et son empreinte
+n'a pas evolue. Le guard l'a donc conserve en `pre_existing` au lieu de
+l'attribuer a tort au nouveau build.
+
+Un second run final a termine en 3.034s avec 61 changements preexistants
+inchanges, zero changement pendant le build et une politique stricte validee.
+
+Documentation detaillee :
+
+- [`build-git-state-guard.md`](build-git-state-guard.md)
+
 ## Prochaine action recommandee
 
-Ajouter un garde-fou de build avant projets originaux :
-
-- detecter les fichiers modifies par le build ;
-- separer clairement les modifications OpticCode des modifications Maven ;
-- idealement lancer le build avec une strategie qui evite de modifier `dependency-reduced-pom.xml`.
-
-Tant que ce point n'est pas traite, continuer les essais sur copies Git uniquement.
+Rendre l'apply et son journal transactionnels avant d'elargir le workflow agent.
+Continuer les essais sur copies Git tant que cette garantie n'est pas terminee.

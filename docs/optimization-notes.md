@@ -477,6 +477,39 @@ Point de vigilance :
 - le build Maven peut modifier `dependency-reduced-pom.xml` ;
 - la prochaine optimisation doit distinguer les changements OpticCode des changements de build.
 
+### 17. Build Git State Guard
+
+Statut : ajoute et valide.
+
+Gains :
+
+- aucun token LLM consomme ;
+- snapshots Git avant/apres chaque build ;
+- empreintes des fichiers sales ;
+- rapport humain borne et JSON complet ;
+- mode strict pour les fichiers suivis propres ;
+- distinction entre succes Maven et succes global OpticCode.
+
+Mesure sur copie Kspawners :
+
+- build Maven : 4.362s ;
+- 60 changements preexistants inchanges ;
+- un JAR `target/` regenere detecte par empreinte ;
+- zero candidat strict ;
+- aucun fichier original modifie.
+
+Durcissement apres revue :
+
+- FNV remplace par BLAKE3 en flux ;
+- `git-state` read-only ajoute ;
+- metriques duree/fichiers/octets ajoutees ;
+- vrai test CLI Rust ajoute ;
+- comportement des fichiers ignores teste explicitement ;
+- benchmark 5 runs : petite fixture 49.668ms, Kspawners 63.462ms, PandaSpigot 166.312ms en moyenne.
+
+Le cout du guard reste secondaire face au build. `--untracked-files=all` devra
+etre mesure sur PandaSpigot avant toute optimisation ou mise en cache.
+
 ## Plan optimisation court terme
 
 1. Ajouter metriques LLM dans la sortie de debug. Fait.
@@ -496,4 +529,8 @@ Point de vigilance :
 15. Definir les conditions d'elargissement hors workspace courant. Fait via `--allow-external`.
 16. Tester sur une copie locale d'un vrai plugin. Fait avec Kspawners.
 17. Preserver LF/CRLF dans les patchs. Fait.
-18. Isoler le bruit de build Maven. Prochaine cible.
+18. Isoler le bruit de build Maven. Fait via Build Git State Guard.
+19. Ajouter un process runner borne avec timeout/cancellation. Prochaine cible.
+20. Rendre le journal apply transactionnel.
+
+Backlog consolide : `docs/optimization-backlog.md`.

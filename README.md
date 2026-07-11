@@ -18,7 +18,8 @@ Le projet ne vise pas a entrainer un modele IA depuis zero. Il construit une cou
 ## Etat actuel
 
 Le projet a maintenant un MVP Rust fonctionnel : inspection, analyse Java/Bukkit,
-Ollama/Qwen, RAG JSONL, patch legacy, safe apply journalise et undo.
+Ollama/Qwen, RAG JSONL, patch legacy, safe apply journalise, undo et controle
+Git avant/apres build.
 
 - Phase 0 : audit environnement Windows 10 termine.
 - Phase 1 : documentation de cadrage terminee.
@@ -33,6 +34,8 @@ Ollama/Qwen, RAG JSONL, patch legacy, safe apply journalise et undo.
 ## Documentation
 
 - [Audit complet du projet au 2026-07-11](docs/project-audit-2026-07-11.md)
+- [Build Git State Guard](docs/build-git-state-guard.md)
+- [Backlog canonique d'optimisation](docs/optimization-backlog.md)
 - [Etat environnement](docs/environment-audit.md)
 - [Roadmap](docs/roadmap.md)
 - [Architecture cible](docs/architecture.md)
@@ -78,9 +81,12 @@ Il sert a tester OpticCode sur une structure proche d'un plugin legacy.
 
 ```powershell
 cargo run -q -- inspect --path .
+cargo run -q -- git-state --path . --json
 cargo run -q -- context --path benchmarks/mini-bukkit-plugin
 cargo run -q -- analyze-java --path benchmarks/mini-bukkit-plugin
 cargo run -q -- build --path benchmarks/mini-bukkit-plugin
+cargo run -q -- build --path benchmarks/mini-bukkit-plugin --fail-on-worktree-change
+cargo run -q -- build --path benchmarks/mini-bukkit-plugin --json
 cargo run -q -- patch --path benchmarks/mini-bukkit-plugin
 cargo run -q -- patch --path benchmarks/mini-bukkit-plugin --check
 cargo run -q -- profile --path benchmarks/mini-bukkit-plugin --profile minecraft-java-1.8
@@ -100,10 +106,12 @@ cargo run -q -- plan "Verifier ce plugin Bukkit 1.8.8 et proposer les risques av
 cargo run -q -- plan "Verifier ce plugin Bukkit 1.8.8 et proposer les risques avant compilation" --path benchmarks/mini-bukkit-plugin --brief --metrics-json
 cargo run -q -- inspect --path benchmarks/mini-bukkit-plugin
 .\scripts\run-rag-comparison.ps1
+.\scripts\run-build-git-guard-quality.ps1
+.\scripts\run-git-snapshot-benchmark.ps1 -Iterations 5
 ```
 
 ## Prochaine etape
 
-Ajouter un garde-fou d'etat Git autour des builds Maven afin de separer les
-modifications OpticCode des fichiers generes par le build, puis le valider sur
-une copie de Kspawners avant tout projet original.
+Ajouter un process runner borne avec timeout et terminaison fiable de l'arbre
+Maven/Gradle sous Windows, puis rendre l'apply transactionnel. Les validations
+restent limitees aux fixtures temporaires et copies Git.

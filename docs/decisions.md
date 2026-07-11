@@ -830,3 +830,49 @@ Raison :
 - le contenu metier etait restaure, mais Git gardait initialement un diff non utile ;
 - la normalisation LF/CRLF post-apply a supprime ce bruit ;
 - le build Maven peut encore modifier `dependency-reduced-pom.xml`, ce qui doit etre separe des changements OpticCode.
+
+### D-052 - Snapshot Git avant et apres chaque build
+
+Statut : valide.
+
+Decision :
+
+- capturer `git status --porcelain=v1 -z --untracked-files=all` avant et apres build ;
+- forcer les chemins relatifs a la racine Git et ne jamais parser sur les espaces ;
+- stocker une empreinte des fichiers sales pour detecter leur evolution ;
+- classifier `pre_existing`, `build_generated`, `tracked_changed`, `untracked_generated` et `unknown` ;
+- conserver separement `existed_before`, `changed_during_build` et `tracked_was_clean_before` ;
+- ajouter `build --json` avec un schema versionne ;
+- ajouter `build --fail-on-worktree-change` ;
+- faire echouer le mode strict si un fichier suivi propre devient sale ou si Git ne peut pas etre capture ;
+- ne jamais restaurer, nettoyer ou supprimer automatiquement les changements observes.
+
+Raison :
+
+- un build Maven reussi peut modifier `dependency-reduced-pom.xml` ou des artefacts ;
+- le futur agent doit attribuer les changements avant de proposer un rollback ;
+- le format NUL supporte espaces, Unicode, renommages et chemins Windows ;
+- une empreinte distingue un bruit preexistant inchange d'un fichier regenere ;
+- le test Kspawners a confirme la detection d'un JAR non suivi regenere sans faux echec strict.
+
+### D-053 - BLAKE3 et metriques pour les snapshots Git
+
+Statut : valide.
+
+Decision :
+
+- remplacer FNV par `blake3 1.8.5` ;
+- conserver une lecture en flux avec tampon fixe de 64 Kio ;
+- inclure la taille dans l'empreinte ;
+- mesurer duree, entrees Git, fichiers empreintes et octets lus ;
+- exposer une commande read-only `git-state` avec sortie humaine/JSON ;
+- ajouter un test CLI Rust au workspace ;
+- confirmer par test qu'un fichier ignore n'est ni liste ni empreinte ;
+- benchmarker petite fixture, Kspawners et PandaSpigot sans build externe.
+
+Raison :
+
+- BLAKE3 retire le risque theorique de collision accidentelle FNV ;
+- les metriques montrent si le hash ou `git status` devient un goulot ;
+- PandaSpigot prend environ 166 ms en moyenne sur cinq captures, avec seulement 186 384 octets lus ;
+- le cout actuel est acceptable et ne justifie ni cache ni scan custom.

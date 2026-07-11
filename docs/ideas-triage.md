@@ -1,6 +1,11 @@
 # OpticCode - Tri des idees de recherche
 
-Derniere mise a jour : 2026-07-06
+Derniere mise a jour : 2026-07-11
+
+Le classement operationnel actuel est maintenant centralise dans
+[`optimization-backlog.md`](optimization-backlog.md). Ce document conserve le
+raisonnement historique et les premieres analyses ; sa roadmap finale ne doit
+plus etre lue comme l'etat courant du projet.
 
 ## Objectif
 

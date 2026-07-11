@@ -8,11 +8,13 @@ use opticcode_core::{
     load_memory_for_workspace, load_profile_for_workspace, load_rag_context, parse_keep_alive,
     AskOptions, GenerateMetrics, OpticCode, PlanOptions, DEFAULT_PROFILE,
 };
+use opticcode_tools::git_state::capture_git_state;
 use opticcode_tools::{
     analyze_java_project, apply_java_legacy_patch_in_place, apply_java_legacy_patch_to_copy,
-    build_java_project, build_project_context, build_rag_index, check_patch_with_git,
+    build_java_project_with_options, build_project_context, build_rag_index, check_patch_with_git,
     inspect_rag_source, inspect_resource_pack, inspect_workspace, prepare_java_legacy_apply_plan,
-    propose_java_legacy_patch, search_rag_index, search_workspace, undo_apply_run,
+    propose_java_legacy_patch, search_rag_index, search_workspace, undo_apply_run, BuildOptions,
+    BuildResult,
 };
 use serde::Serialize;
 use std::io::{self, Write};
@@ -30,6 +32,12 @@ enum Command {
     Inspect {
         #[arg(long, default_value = ".")]
         path: PathBuf,
+    },
+    GitState {
+        #[arg(long, default_value = ".")]
+        path: PathBuf,
+        #[arg(long)]
+        json: bool,
     },
     Search {
         pattern: String,
@@ -49,6 +57,10 @@ enum Command {
     Build {
         #[arg(long, default_value = ".")]
         path: PathBuf,
+        #[arg(long)]
+        fail_on_worktree_change: bool,
+        #[arg(long)]
+        json: bool,
     },
     Profile {
         #[arg(long, default_value = ".")]
@@ -189,6 +201,14 @@ async fn main() -> Result<()> {
             let report = inspect_workspace(&path)?;
             println!("{}", report.to_display_string());
         }
+        Command::GitState { path, json } => {
+            let snapshot = capture_git_state(&path)?;
+            if json {
+                println!("{}", serde_json::to_string_pretty(&snapshot)?);
+            } else {
+                println!("{}", snapshot.to_display_string());
+            }
+        }
         Command::Search {
             pattern,
             path,
@@ -216,10 +236,26 @@ async fn main() -> Result<()> {
             let analysis = analyze_java_project(&path)?;
             println!("{}", analysis.to_display_string());
         }
-        Command::Build { path } => {
-            let result = build_java_project(&path)?;
-            println!("{}", result.to_display_string());
-            if !result.success {
+        Command::Build {
+            path,
+            fail_on_worktree_change,
+            json,
+        } => {
+            let result = build_java_project_with_options(
+                &path,
+                BuildOptions {
+                    fail_on_worktree_change,
+                },
+            )?;
+            if json {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&BuildJson::from(&result))?
+                );
+            } else {
+                println!("{}", result.to_display_string());
+            }
+            if !result.command_succeeded() {
                 std::process::exit(1);
             }
         }
@@ -509,6 +545,39 @@ fn ensure_external_tracked_files_clean(target: &Path) -> Result<()> {
     }
 
     Ok(())
+}
+
+#[derive(Serialize)]
+struct BuildJson<'a> {
+    schema_version: u32,
+    project: &'a Path,
+    command: &'a str,
+    build_success: bool,
+    overall_success: bool,
+    exit_code: Option<i32>,
+    duration_ms: u64,
+    summary: &'a [String],
+    stdout_tail: &'a str,
+    stderr_tail: &'a str,
+    git_guard: &'a opticcode_tools::git_state::BuildGitReport,
+}
+
+impl<'a> From<&'a BuildResult> for BuildJson<'a> {
+    fn from(result: &'a BuildResult) -> Self {
+        Self {
+            schema_version: 1,
+            project: &result.root,
+            command: &result.command,
+            build_success: result.success,
+            overall_success: result.command_succeeded(),
+            exit_code: result.exit_code,
+            duration_ms: result.duration.as_millis().min(u128::from(u64::MAX)) as u64,
+            summary: &result.summary,
+            stdout_tail: &result.stdout_tail,
+            stderr_tail: &result.stderr_tail,
+            git_guard: &result.git_report,
+        }
+    }
 }
 
 #[derive(Serialize)]
