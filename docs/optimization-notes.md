@@ -530,7 +530,7 @@ etre mesure sur PandaSpigot avant toute optimisation ou mise en cache.
 16. Tester sur une copie locale d'un vrai plugin. Fait avec Kspawners.
 17. Preserver LF/CRLF dans les patchs. Fait.
 18. Isoler le bruit de build Maven. Fait via Build Git State Guard.
-19. Ajouter un process runner borne avec timeout/cancellation. Prochaine cible.
-20. Rendre le journal apply transactionnel.
+19. Ajouter un process runner borne avec timeout/cancellation. Fait.
+20. Rendre le journal apply transactionnel. Prochaine cible.
 
 Backlog consolide : `docs/optimization-backlog.md`.

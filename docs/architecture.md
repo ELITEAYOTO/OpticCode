@@ -1,6 +1,6 @@
 # OpticCode - Architecture cible
 
-Derniere mise a jour : 2026-07-06
+Derniere mise a jour : 2026-07-11
 
 ## Principe
 
@@ -34,6 +34,7 @@ optic-core
   |     +-- read/list/search files
   |     +-- edit/apply patch
   |     +-- git diff/status
+  |     +-- bounded process runner
   |     +-- maven/gradle build
   |
   +-- optic-rag
@@ -85,9 +86,26 @@ Les crates actuelles gardent le prefixe `opticcode-*`. Le decoupage ci-dessus re
 - Les tools ont des schemas clairs.
 - Les editions passent par patches.
 - Les commandes shell doivent etre limitees et explicites.
+- Tout nouvel outil externe potentiellement long passe par le process runner.
+- Timeout, annulation, capture bornee et cause d'arret restent des donnees structurees.
 - La compilation doit etre lancee quand c'est raisonnable.
 - Les erreurs de build deviennent des donnees reutilisables.
 - Les contraintes Java 8 / Bukkit 1.8.8 doivent etre injectees dans le contexte.
+
+## Processus externes
+
+Etat implemente :
+
+- `ProcessRequest` et `ProcessResult` communs dans `opticcode-tools` ;
+- timeout de build a 600 secondes par defaut ;
+- `stdout` et `stderr` draines en parallele avec tails bornes ;
+- `CancellationToken` distinct du timeout et relie a `Ctrl+C` pour `build` ;
+- Job Object Win32 pour terminer `cmd.exe`, Maven/Gradle et leurs descendants ;
+- sortie JSON stable pour `success`, `failed`, `timed_out` et `cancelled` ;
+- aucun endpoint de commande shell arbitraire.
+
+Le CLI expose le timeout et la limite de sortie. Le timeout reste compris entre
+une seconde et une heure pour eviter une attente pratiquement non bornee.
 
 ## Runtime LLM
 

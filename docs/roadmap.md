@@ -257,7 +257,10 @@ Etat actuel :
 - table legacy initiale ajoutee : gunpowder, nether wart, spawners, pelles/spades et quelques mobs ;
 - `ask` et `plan` chargent une memoire global/profil par defaut ;
 - `run-mini-benchmark.ps1` append des runs JSONL comparables ;
-- prochaine cible : process runner borne, puis apply transactionnel.
+- process runner borne ajoute : timeout, cancellation, capture limitee et Job Object Windows ;
+- test CLI d'un faux Maven bloque et test du PID descendant Windows valides ;
+- 63 tests workspace reussis et build borne Kspawners copie reussi en 3,06 s ;
+- prochaine cible : apply transactionnel avec injection de pannes et rollback automatique.
 
 ## Phase 5.1 - Safe Apply
 
@@ -287,7 +290,7 @@ Ordre :
 8. Test sur copie locale d'un vrai plugin. Fait avec Kspawners.
 9. Preservation LF/CRLF avant originaux. Fait.
 10. Isolation du bruit de build Maven. Fait.
-11. Process runner borne avec timeout/cancellation.
+11. Process runner borne avec timeout/cancellation. Fait.
 12. Journal apply transactionnel et rollback automatique sur erreur de finalisation.
 
 Livrable :
@@ -295,7 +298,29 @@ Livrable :
 - `docs/safe-apply-roadmap.md`
 - `docs/real-plugin-kspawners-test.md`
 - `docs/build-git-state-guard.md`
+- `docs/process-runner.md`
 - `docs/optimization-backlog.md`
+
+## Phase 5.2 - Process runner borne
+
+Statut : termine et valide sur Windows 10.
+
+Acquis :
+
+- timeout de build configurable, 600 secondes par defaut ;
+- limite de sortie configurable, 1 Mio par flux par defaut et 16 Mio maximum ;
+- drainage concurrent de `stdout` et `stderr` ;
+- statuts structures `success`, `failed`, `timed_out`, `cancelled` ;
+- token d'annulation utilisable par le futur core agent ;
+- Job Object Windows et terminaison des descendants ;
+- JSON CLI enrichi sans suppression des champs existants ;
+- tests processus court, erreur, sortie massive, blocage, cancellation et arbre enfant.
+
+Limites conservees :
+
+- le fallback non-Windows ne gere que le processus racine ;
+- les commandes Git historiques restent hors runner ;
+- aucun shell arbitraire n'est expose.
 
 ## Phase 5.5 - Profils, memoire et optimisation controlee
 

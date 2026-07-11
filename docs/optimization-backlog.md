@@ -74,10 +74,13 @@ empreintes.
 | DONE-008 | patch/check/apply/undo sur copies | termine pour scope legacy |
 | DONE-009 | Build Git State Guard | termine |
 | DONE-010 | BLAKE3, metriques snapshot et test CLI Rust | termine |
+| DONE-011 | process runner borne, timeout/cancellation et Job Object Windows | termine |
 
 ## P0 - Securite avant agent
 
 ### PROC-001 - Process runner borne
+
+Statut : termine et valide le 2026-07-11.
 
 Probleme : Maven/Gradle et les futurs tools peuvent rester bloques.
 
@@ -94,7 +97,9 @@ Livrable :
 Critere de sortie : un build simule bloque est termine avec un rapport JSON et
 aucun processus enfant restant.
 
-Priorite : prochaine brique courte, avant la boucle agent.
+Validation : test Rust du PID descendant Windows, test CLI avec faux Maven
+bloque, capture bornee, cancellation distincte et non-regression du guard Git.
+Voir [`process-runner.md`](process-runner.md).
 
 ### APPLY-001 - Apply transactionnel
 
@@ -380,7 +385,7 @@ Tree-sitter/Tantivy.
 ## Ordre recommande
 
 1. Figer Build Git State Guard apres BLAKE3, test CLI et benchmark. Fait.
-2. Implementer PROC-001 timeout/cancellation.
+2. Implementer PROC-001 timeout/cancellation. Fait.
 3. Implementer APPLY-001 apply transactionnel avec pannes simulees.
 4. Ajouter APPLY-002 concurrence optimiste.
 5. Ajouter GIT-002 worktree jetable.
@@ -394,17 +399,19 @@ Tree-sitter/Tantivy.
 
 ## Prochain sprint propose
 
-`PROC-001 - Process Runner Borne`.
+`APPLY-001 - Apply transactionnel`.
 
-Ce sprint est plus petit que l'apply transactionnel et retire un risque global
-pour tous les futurs tools. Il doit etre termine avant qu'une boucle agent ne
-puisse lancer Maven, Gradle ou un verifier.
+Le process runner etant borne, le risque P0 suivant est la fenetre entre
+l'application d'un patch et l'ecriture de son journal final. Le prochain sprint
+doit garantir qu'une panne simulee laisse soit les fichiers intacts, soit un
+etat explicite et recuperable.
 
 Questions de conception a regler dans le code :
 
-- terminaison fiable de l'arbre `cmd.exe -> mvn.cmd -> java.exe` sous Windows ;
-- lecture concurrente stdout/stderr sans deadlock ;
-- timeout par defaut et override projet ;
-- cancellation utilisateur distincte du timeout ;
-- rapport JSON stable ;
-- tests sans laisser de processus enfant.
+- journal `prepared` ecrit avant toute modification ;
+- transitions `prepared -> applied -> finalized` ;
+- ecritures temporaires et renommages atomiques quand le filesystem le permet ;
+- rollback automatique sur erreur de finalisation ;
+- etat `rollback_failed` impossible a masquer ;
+- injection de pannes deterministe dans les tests ;
+- aucun essai sur un projet original non sauvegarde.

@@ -8,14 +8,15 @@ Base Git au debut de l'audit : `bf550ed626891c8202ccf6e30e70d1da8984035b`
 
 Mise a jour apres audit : le sprint `Build Git State Guard` recommande dans la
 section 16 a ete implemente le 2026-07-11. Voir
-[`build-git-state-guard.md`](build-git-state-guard.md). Les prochaines priorites
-P0 sont le process runner borne puis l'apply transactionnel.
+[`build-git-state-guard.md`](build-git-state-guard.md). Le process runner borne
+a ensuite ete implemente ; la prochaine priorite P0 est l'apply transactionnel.
 
 Durcissement supplementaire termine le meme jour : BLAKE3, metriques de
 snapshot, commande read-only `git-state`, test CLI Rust, test des fichiers
 ignores et benchmark PandaSpigot. Le backlog courant est consolide dans
-[`optimization-backlog.md`](optimization-backlog.md). Le process runner borne
-precede maintenant l'apply transactionnel dans l'ordre d'execution.
+[`optimization-backlog.md`](optimization-backlog.md). Voir aussi
+[`process-runner.md`](process-runner.md) pour le timeout, la capture bornee et le
+Job Object Windows valides avant l'apply transactionnel.
 
 ## 1. Resume executif
 
@@ -327,17 +328,20 @@ Acquis :
 - duree et code de sortie ;
 - fin de stdout/stderr ;
 - resume de motifs Maven connus ;
-- suggestion legacy pour certaines erreurs de symboles.
+- suggestion legacy pour certaines erreurs de symboles ;
+- snapshot Git avant/apres et politique stricte ;
+- timeout configurable, 600 secondes par defaut ;
+- capture concurrente bornee a 1 Mio par flux par defaut ;
+- statuts structures et rapport JSON ;
+- cancellation programmatique distincte ;
+- terminaison de l'arbre `cmd.exe -> mvn.cmd -> java.exe` par Job Object.
 
 Limites critiques :
 
-- l'etat Git avant et apres build n'est pas capture ;
 - Maven peut modifier `dependency-reduced-pom.xml` ;
 - `-DskipTests` compile potentiellement les tests mais ne les execute pas ;
 - aucune commande de test separee ;
-- aucune limite de temps ;
-- aucune annulation ;
-- aucune limite de sortie du processus avant sa collecte complete ;
+- le fallback non-Windows ne termine pas encore un process group complet ;
 - le build Gradle utilise `gradle` global au lieu de `gradlew` quand disponible ;
 - aucune politique par projet pour les commandes autorisees.
 
@@ -641,8 +645,6 @@ Priorite haute :
 - apply concurrent et collision de run-id ;
 - undo apres modification manuelle du fichier ;
 - copie avec symlinks, chemins longs et dossiers exclus ;
-- build qui modifie des fichiers suivis ;
-- timeout de build ;
 - Maven multi-module ;
 - Gradle Wrapper ;
 - faux positifs de remplacement dans commentaires et chaines.
@@ -707,7 +709,7 @@ Action : convertir la demande en intentions/symboles, puis selectionner les fich
 
 #### P1.5 Commandes de build figees
 
-Action : config projet declarative, wrappers Maven/Gradle, timeout et commandes de test separees.
+Action : config projet declarative, wrappers Maven/Gradle et commandes de test separees.
 
 #### P1.6 Sorties non structurees
 

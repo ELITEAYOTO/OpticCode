@@ -466,13 +466,13 @@ grand worktree, pas BLAKE3.
 - Le mode strict actuel vise exactement les fichiers suivis propres avant le
   build. Une politique future pourra aussi interdire les sorties non suivies.
 - Le guard observe et explique ; il ne restaure ni ne supprime aucun fichier.
-- Les builds n'ont toujours ni timeout ni cancellation.
+- Le process runner borne traite maintenant timeout/cancellation ; voir
+  [`process-runner.md`](process-runner.md).
 
 ## Prochaine etape
 
-Le verrou principal sur le bruit Maven est maintenant traite. La prochaine
-brique courte est un process runner borne avec timeout/cancellation. Elle sera
-suivie par l'apply transactionnel :
+Le verrou principal sur le bruit Maven et le process runner borne sont traites.
+La prochaine brique est l'apply transactionnel :
 
 1. ecrire le patch et un journal provisoire avant modification ;
 2. appliquer ;

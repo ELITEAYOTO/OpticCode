@@ -70,6 +70,20 @@ Duration: 9.70s
 
 Le plugin compile sur la copie avec Maven.
 
+Validation supplementaire apres integration de `PROC-001` :
+
+```text
+Status: success
+Duration: 3.06s
+Timeout: 120.00s
+Output truncated: false
+Tree strategy: windows_job_object
+```
+
+Le build borne a conserve le code de sortie 0. Le guard Git a observe 61
+entrees deja presentes dans cette ancienne copie et zero changement
+supplementaire pendant le run. Aucun test n'a ete lance sur l'original.
+
 ## Patch plugin.yml
 
 OpticCode a ete etendu pour proposer une correction deterministe :

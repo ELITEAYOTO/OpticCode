@@ -141,9 +141,10 @@ plan
 
 Action OpticCode :
 
-- prochaine etape directe : produire un patch texte non applique ;
-- ensuite : `git apply --check` ;
-- ensuite : safe apply avec backup ou Git.
+- patch texte non applique : fait pour le scope legacy ;
+- `git apply --check` : fait ;
+- safe apply avec confirmation, journal et undo : fait ;
+- prochaine etape : journal transactionnel et rollback automatique sur panne.
 
 ### 5. Streaming
 

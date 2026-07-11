@@ -109,6 +109,14 @@ fn strict_build_cli_returns_json_and_nonzero_exit() {
     assert_eq!(report["build_success"], true);
     assert_eq!(report["overall_success"], false);
     assert_eq!(report["exit_code"], 0);
+    assert_eq!(report["process"]["status"], "success");
+    assert_eq!(report["process"]["timed_out"], false);
+    assert_eq!(report["process"]["cancelled"], false);
+    assert_eq!(report["process"]["timeout_ms"], 600_000);
+    assert_eq!(
+        report["process"]["output"]["limit_bytes_per_stream"],
+        1_048_576
+    );
     assert_eq!(report["git_guard"]["status"], "captured");
     assert_eq!(report["git_guard"]["strict_policy"]["enabled"], true);
     assert_eq!(report["git_guard"]["strict_policy"]["passed"], false);

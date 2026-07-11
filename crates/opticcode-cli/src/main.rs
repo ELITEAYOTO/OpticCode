@@ -1,6 +1,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command as ProcessCommand;
+use std::time::Duration;
 
 use anyhow::{bail, Context, Result};
 use clap::{Parser, Subcommand};
@@ -9,12 +10,16 @@ use opticcode_core::{
     AskOptions, GenerateMetrics, OpticCode, PlanOptions, DEFAULT_PROFILE,
 };
 use opticcode_tools::git_state::capture_git_state;
+use opticcode_tools::process_runner::{
+    CancellationToken, ProcessOutputStats, ProcessStatus, ProcessTermination,
+    DEFAULT_PROCESS_OUTPUT_LIMIT_BYTES, DEFAULT_PROCESS_TIMEOUT_SECONDS,
+};
 use opticcode_tools::{
     analyze_java_project, apply_java_legacy_patch_in_place, apply_java_legacy_patch_to_copy,
-    build_java_project_with_options, build_project_context, build_rag_index, check_patch_with_git,
-    inspect_rag_source, inspect_resource_pack, inspect_workspace, prepare_java_legacy_apply_plan,
-    propose_java_legacy_patch, search_rag_index, search_workspace, undo_apply_run, BuildOptions,
-    BuildResult,
+    build_java_project_with_cancellation, build_project_context, build_rag_index,
+    check_patch_with_git, inspect_rag_source, inspect_resource_pack, inspect_workspace,
+    prepare_java_legacy_apply_plan, propose_java_legacy_patch, search_rag_index, search_workspace,
+    undo_apply_run, BuildOptions, BuildResult,
 };
 use serde::Serialize;
 use std::io::{self, Write};
@@ -59,6 +64,10 @@ enum Command {
         path: PathBuf,
         #[arg(long)]
         fail_on_worktree_change: bool,
+        #[arg(long, default_value_t = DEFAULT_PROCESS_TIMEOUT_SECONDS)]
+        timeout_seconds: u64,
+        #[arg(long, default_value_t = DEFAULT_PROCESS_OUTPUT_LIMIT_BYTES)]
+        output_limit_bytes: usize,
         #[arg(long)]
         json: bool,
     },
@@ -239,14 +248,29 @@ async fn main() -> Result<()> {
         Command::Build {
             path,
             fail_on_worktree_change,
+            timeout_seconds,
+            output_limit_bytes,
             json,
         } => {
-            let result = build_java_project_with_options(
+            let cancellation = CancellationToken::new();
+            let signal_cancellation = cancellation.clone();
+            let signal_task = tokio::spawn(async move {
+                if tokio::signal::ctrl_c().await.is_ok() {
+                    signal_cancellation.cancel();
+                }
+            });
+            tokio::task::yield_now().await;
+            let result = build_java_project_with_cancellation(
                 &path,
                 BuildOptions {
                     fail_on_worktree_change,
+                    timeout: Duration::from_secs(timeout_seconds),
+                    output_limit_bytes,
                 },
-            )?;
+                &cancellation,
+            );
+            signal_task.abort();
+            let result = result?;
             if json {
                 println!(
                     "{}",
@@ -559,7 +583,19 @@ struct BuildJson<'a> {
     summary: &'a [String],
     stdout_tail: &'a str,
     stderr_tail: &'a str,
+    process: BuildProcessJson<'a>,
     git_guard: &'a opticcode_tools::git_state::BuildGitReport,
+}
+
+#[derive(Serialize)]
+struct BuildProcessJson<'a> {
+    process_id: Option<u32>,
+    status: ProcessStatus,
+    timed_out: bool,
+    cancelled: bool,
+    timeout_ms: u64,
+    output: &'a ProcessOutputStats,
+    termination: &'a ProcessTermination,
 }
 
 impl<'a> From<&'a BuildResult> for BuildJson<'a> {
@@ -575,6 +611,15 @@ impl<'a> From<&'a BuildResult> for BuildJson<'a> {
             summary: &result.summary,
             stdout_tail: &result.stdout_tail,
             stderr_tail: &result.stderr_tail,
+            process: BuildProcessJson {
+                process_id: result.process_id,
+                status: result.process_status,
+                timed_out: result.timed_out,
+                cancelled: result.cancelled,
+                timeout_ms: result.timeout.as_millis().min(u128::from(u64::MAX)) as u64,
+                output: &result.output,
+                termination: &result.termination,
+            },
             git_guard: &result.git_report,
         }
     }

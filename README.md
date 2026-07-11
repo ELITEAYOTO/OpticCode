@@ -19,7 +19,8 @@ Le projet ne vise pas a entrainer un modele IA depuis zero. Il construit une cou
 
 Le projet a maintenant un MVP Rust fonctionnel : inspection, analyse Java/Bukkit,
 Ollama/Qwen, RAG JSONL, patch legacy, safe apply journalise, undo et controle
-Git avant/apres build.
+Git avant/apres build. Les builds passent aussi par un process runner borne
+avec timeout, sortie limitee et terminaison de l'arbre Windows.
 
 - Phase 0 : audit environnement Windows 10 termine.
 - Phase 1 : documentation de cadrage terminee.
@@ -35,6 +36,7 @@ Git avant/apres build.
 
 - [Audit complet du projet au 2026-07-11](docs/project-audit-2026-07-11.md)
 - [Build Git State Guard](docs/build-git-state-guard.md)
+- [Process runner borne](docs/process-runner.md)
 - [Backlog canonique d'optimisation](docs/optimization-backlog.md)
 - [Etat environnement](docs/environment-audit.md)
 - [Roadmap](docs/roadmap.md)
@@ -87,6 +89,7 @@ cargo run -q -- analyze-java --path benchmarks/mini-bukkit-plugin
 cargo run -q -- build --path benchmarks/mini-bukkit-plugin
 cargo run -q -- build --path benchmarks/mini-bukkit-plugin --fail-on-worktree-change
 cargo run -q -- build --path benchmarks/mini-bukkit-plugin --json
+cargo run -q -- build --path benchmarks/mini-bukkit-plugin --timeout-seconds 600 --output-limit-bytes 1048576 --json
 cargo run -q -- patch --path benchmarks/mini-bukkit-plugin
 cargo run -q -- patch --path benchmarks/mini-bukkit-plugin --check
 cargo run -q -- profile --path benchmarks/mini-bukkit-plugin --profile minecraft-java-1.8
@@ -112,6 +115,6 @@ cargo run -q -- inspect --path benchmarks/mini-bukkit-plugin
 
 ## Prochaine etape
 
-Ajouter un process runner borne avec timeout et terminaison fiable de l'arbre
-Maven/Gradle sous Windows, puis rendre l'apply transactionnel. Les validations
-restent limitees aux fixtures temporaires et copies Git.
+Rendre l'apply transactionnel : journal `prepared` avant ecriture, transitions
+d'etat, ecritures atomiques, injection de pannes et rollback automatique. Les
+validations restent limitees aux fixtures temporaires et copies Git.

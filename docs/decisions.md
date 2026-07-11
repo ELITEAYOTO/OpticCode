@@ -876,3 +876,30 @@ Raison :
 - les metriques montrent si le hash ou `git status` devient un goulot ;
 - PandaSpigot prend environ 166 ms en moyenne sur cinq captures, avec seulement 186 384 octets lus ;
 - le cout actuel est acceptable et ne justifie ni cache ni scan custom.
+
+### D-054 - Process runner borne et Job Object Windows
+
+Statut : valide.
+
+Decision :
+
+- centraliser les futurs processus longs dans `process_runner.rs` ;
+- fixer le timeout de build par defaut a 600 secondes ;
+- plafonner tout timeout a 3 600 secondes ;
+- retenir au plus 1 Mio par flux par defaut et imposer un plafond de 16 Mio ;
+- drainer `stdout` et `stderr` sur deux threads meme apres troncature ;
+- distinguer `success`, `failed`, `timed_out` et `cancelled` ;
+- exposer un `CancellationToken` au futur orchestrateur ;
+- relier `Ctrl+C` de la commande `build` a ce token ;
+- utiliser un Job Object avec `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE` sous Windows ;
+- terminer le job complet sur timeout/annulation ;
+- conserver `cmd.exe /D /C` uniquement pour les scripts Maven/Gradle internes ;
+- ne pas exposer de commande shell arbitraire dans le CLI.
+
+Raison :
+
+- tuer seulement `mvn.cmd` peut laisser `java.exe` actif ;
+- une collecte complete avec `Command::output` n'impose ni temps ni memoire ;
+- timeout et annulation doivent rester distinguables par le futur agent ;
+- le test du PID descendant valide la garantie utile sur Windows 10 ;
+- les limites explicites rendent le cout previsible avant toute boucle agent.

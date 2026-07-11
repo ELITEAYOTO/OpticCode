@@ -1,14 +1,21 @@
 pub mod git_state;
+pub mod process_runner;
 
 use std::collections::BTreeMap;
+use std::ffi::OsString;
 use std::fs::{self, File, OpenOptions};
 use std::io::{BufRead, BufReader, BufWriter, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result};
 use git_state::{capture_git_state, BuildGitReport};
+use process_runner::{
+    run_process_with_cancellation, CancellationToken, ProcessLaunchMode, ProcessOutputStats,
+    ProcessRequest, ProcessStatus, ProcessTermination, DEFAULT_PROCESS_OUTPUT_LIMIT_BYTES,
+    DEFAULT_PROCESS_TIMEOUT,
+};
 use serde::{Deserialize, Serialize};
 use serde_yaml::Value;
 use walkdir::{DirEntry, WalkDir};
@@ -119,12 +126,31 @@ pub struct BuildResult {
     pub summary: Vec<String>,
     pub stdout_tail: String,
     pub stderr_tail: String,
+    pub process_id: Option<u32>,
+    pub process_status: ProcessStatus,
+    pub timed_out: bool,
+    pub cancelled: bool,
+    pub timeout: Duration,
+    pub output: ProcessOutputStats,
+    pub termination: ProcessTermination,
     pub git_report: BuildGitReport,
 }
 
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Debug, Clone, Copy)]
 pub struct BuildOptions {
     pub fail_on_worktree_change: bool,
+    pub timeout: Duration,
+    pub output_limit_bytes: usize,
+}
+
+impl Default for BuildOptions {
+    fn default() -> Self {
+        Self {
+            fail_on_worktree_change: false,
+            timeout: DEFAULT_PROCESS_TIMEOUT,
+            output_limit_bytes: DEFAULT_PROCESS_OUTPUT_LIMIT_BYTES,
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -682,6 +708,22 @@ pub fn build_java_project(root: &Path) -> Result<BuildResult> {
 }
 
 pub fn build_java_project_with_options(root: &Path, options: BuildOptions) -> Result<BuildResult> {
+    build_java_project_internal(root, options, None)
+}
+
+pub fn build_java_project_with_cancellation(
+    root: &Path,
+    options: BuildOptions,
+    cancellation: &CancellationToken,
+) -> Result<BuildResult> {
+    build_java_project_internal(root, options, Some(cancellation))
+}
+
+fn build_java_project_internal(
+    root: &Path,
+    options: BuildOptions,
+    cancellation: Option<&CancellationToken>,
+) -> Result<BuildResult> {
     let analysis = analyze_java_project(root)?;
     let (program, args, command_display) = match analysis.build_tool {
         BuildTool::Maven => (
@@ -694,18 +736,44 @@ pub fn build_java_project_with_options(root: &Path, options: BuildOptions) -> Re
     };
 
     let before_git = capture_git_state(&analysis.root);
-    let started_at = Instant::now();
-    let mut command = build_process_command(program, &args);
-    let output = command
-        .current_dir(&analysis.root)
-        .output()
+    let mut request = ProcessRequest::new(program, &analysis.root);
+    request.args = args.iter().map(OsString::from).collect();
+    request.timeout = options.timeout;
+    request.output_limit_bytes = options.output_limit_bytes;
+    request.launch_mode = ProcessLaunchMode::WindowsCommandScript;
+    let process = run_process_with_cancellation(&request, cancellation)
         .with_context(|| format!("failed to run build command: {command_display}"))?;
-    let duration = started_at.elapsed();
 
-    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
-    let stderr = String::from_utf8_lossy(&output.stderr).to_string();
-    let success = output.status.success();
-    let summary = summarize_build_output(&stdout, &stderr, success);
+    let mut summary = match process.status {
+        ProcessStatus::Success => summarize_build_output(&process.stdout, &process.stderr, true),
+        ProcessStatus::Failed => summarize_build_output(&process.stdout, &process.stderr, false),
+        ProcessStatus::TimedOut => vec![format!(
+            "Build timed out after {:.2}s.",
+            process.duration.as_secs_f64()
+        )],
+        ProcessStatus::Cancelled if process.process_id.is_none() => {
+            vec!["Build was cancelled before its process started.".to_string()]
+        }
+        ProcessStatus::Cancelled => vec!["Build was cancelled.".to_string()],
+    };
+    if process.output.output_truncated {
+        summary.push(format!(
+            "Process output exceeded {} bytes per stream; only bounded tails were retained.",
+            process.output.limit_bytes_per_stream
+        ));
+    }
+    summary.extend(process.output.capture_errors.iter().cloned());
+    if process.termination.attempted {
+        if process.termination.succeeded {
+            summary.push(format!(
+                "Process termination completed with strategy `{}`.",
+                process.termination.strategy.as_str()
+            ));
+        } else {
+            summary.push("Process termination did not complete cleanly.".to_string());
+        }
+    }
+
     let after_git = capture_git_state(&analysis.root);
     let git_report = BuildGitReport::from_capture_results(
         before_git,
@@ -716,12 +784,19 @@ pub fn build_java_project_with_options(root: &Path, options: BuildOptions) -> Re
     Ok(BuildResult {
         root: analysis.root,
         command: command_display,
-        success,
-        exit_code: output.status.code(),
-        duration,
+        success: process.success(),
+        exit_code: process.exit_code,
+        duration: process.duration,
         summary,
-        stdout_tail: tail_lines(&stdout, 30),
-        stderr_tail: tail_lines(&stderr, 30),
+        stdout_tail: tail_lines(&process.stdout, 30),
+        stderr_tail: tail_lines(&process.stderr, 30),
+        process_id: process.process_id,
+        process_status: process.status,
+        timed_out: process.timed_out(),
+        cancelled: process.cancelled(),
+        timeout: options.timeout,
+        output: process.output,
+        termination: process.termination,
         git_report,
     })
 }
@@ -1426,9 +1501,11 @@ impl BuildResult {
         let mut out = String::new();
         out.push_str(&format!("Project: {}\n", self.root.display()));
         out.push_str(&format!("Command: {}\n", self.command));
+        out.push_str(&format!("Status: {}\n", self.process_status.as_str()));
         out.push_str(&format!(
-            "Status: {}\n",
-            if self.success { "OK" } else { "FAILED" }
+            "Process ID: {}\n",
+            self.process_id
+                .map_or_else(|| "not started".to_string(), |id| id.to_string())
         ));
         out.push_str(&format!(
             "Exit code: {}\n",
@@ -1436,6 +1513,24 @@ impl BuildResult {
                 .map_or_else(|| "unknown".to_string(), |code| code.to_string())
         ));
         out.push_str(&format!("Duration: {:.2}s\n", self.duration.as_secs_f64()));
+        out.push_str(&format!("Timeout: {:.2}s\n", self.timeout.as_secs_f64()));
+        out.push_str(&format!(
+            "Output: stdout={} B, stderr={} B, limit={} B/stream, truncated={}\n",
+            self.output.stdout_bytes,
+            self.output.stderr_bytes,
+            self.output.limit_bytes_per_stream,
+            self.output.output_truncated
+        ));
+        if self.termination.attempted {
+            out.push_str(&format!(
+                "Termination: strategy={}, succeeded={}\n",
+                self.termination.strategy.as_str(),
+                self.termination.succeeded
+            ));
+            if let Some(error) = &self.termination.error {
+                out.push_str(&format!("Termination error: {error}\n"));
+            }
+        }
         out.push_str(&format!(
             "Overall status: {}\n",
             if self.command_succeeded() {
