@@ -19,9 +19,9 @@ Le projet ne vise pas a entrainer un modele IA depuis zero. Il construit une cou
 
 Le projet a maintenant un MVP Rust fonctionnel : inspection, analyse Java/Bukkit,
 Ollama/Qwen, RAG JSONL, patch legacy, apply transactionnel, rollback/recovery,
-controle Git avant/apres build et verification dans un worktree jetable. Les
-builds passent aussi par un process runner borne avec timeout, sortie limitee et
-terminaison de l'arbre Windows.
+controle Git avant/apres build, verification dans un worktree jetable et analyse
+syntaxique Java read-only avec Tree-sitter. Les builds passent aussi par un
+process runner borne avec timeout, sortie limitee et terminaison de l'arbre Windows.
 
 - Phase 0 : audit environnement Windows 10 termine.
 - Phase 1 : documentation de cadrage terminee.
@@ -29,7 +29,7 @@ terminaison de l'arbre Windows.
 - Phase 2 : benchmark Ollama / Qwen2.5-Coder 14B termine.
 - Phase 3 : recherche depots externes et analyse Qwen Code terminees.
 - Phase 4 : MVP Rust fonctionnel.
-- Phase 5 : tools Java en cours ; apply transactionnel et worktree de verification termines pour le scope legacy deterministe.
+- Phase 5 : tools Java en cours ; apply/worktree termines et baseline Tree-sitter Java read-only fonctionnelle.
 - Phase 6 : prototype RAG JSONL fonctionnel, index scalable a faire.
 - Phase 7 : agent iteratif non commence.
 
@@ -40,6 +40,7 @@ terminaison de l'arbre Windows.
 - [Process runner borne](docs/process-runner.md)
 - [Apply transactionnel et recovery](docs/apply-transaction.md)
 - [Verification dans un worktree jetable](docs/worktree-verification.md)
+- [Analyse Java Tree-sitter](docs/java-syntax.md)
 - [Backlog canonique d'optimisation](docs/optimization-backlog.md)
 - [Etat environnement](docs/environment-audit.md)
 - [Roadmap](docs/roadmap.md)
@@ -89,6 +90,7 @@ cargo run -q -- inspect --path .
 cargo run -q -- git-state --path . --json
 cargo run -q -- context --path benchmarks/mini-bukkit-plugin
 cargo run -q -- analyze-java --path benchmarks/mini-bukkit-plugin
+cargo run -q -- java-syntax --path benchmarks/mini-bukkit-plugin --json
 cargo run -q -- build --path benchmarks/mini-bukkit-plugin
 cargo run -q -- build --path benchmarks/mini-bukkit-plugin --fail-on-worktree-change
 cargo run -q -- build --path benchmarks/mini-bukkit-plugin --json
@@ -126,11 +128,13 @@ cargo run -q -- inspect --path benchmarks/mini-bukkit-plugin
 .\scripts\run-apply-transaction-quality.ps1
 .\scripts\run-worktree-quality.ps1
 .\scripts\run-worktree-quality.ps1 -Full
+.\scripts\run-java-syntax-quality.ps1
+.\scripts\run-java-syntax-quality.ps1 -Full
 ```
 
 ## Prochaine etape
 
-Ajouter `CODE-001` : integrer Tree-sitter Java pour remplacer les
-transformations textuelles globales par des edits fondes sur des positions
-syntaxiques. GIT-002 est termine ; aucune promotion automatique vers le projet
-source n'est encore autorisee.
+Continuer avec `CODE-001B1` : construire l'index de symboles/positions
+inter-fichiers strictement read-only. `CODE-001B2` ajoutera ensuite les premieres
+propositions d'edits legacy syntaxiquement ciblees. Aucune promotion automatique
+vers le projet source n'est autorisee.

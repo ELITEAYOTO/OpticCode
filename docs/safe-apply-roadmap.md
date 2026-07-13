@@ -374,7 +374,7 @@ Decision actuelle :
 - le bruit de build Maven est maintenant encadre par le Build Git State Guard ;
 - APPLY-001 encadre les ecritures et rollback ;
 - continuer sur copies/worktrees tant que les transformations Java restent
-  textuelles et que Tree-sitter n'est pas integre.
+  textuelles ; Tree-sitter est integre en lecture seule mais pas encore aux edits.
 
 ## Tests obligatoires
 
@@ -441,7 +441,9 @@ Ne doit pas montrer de modification dans `benchmarks/mini-bukkit-plugin`.
 11. Ajouter un garde-fou d'etat Git apres build. Fait.
 12. Ajouter journal prepare, rollback automatique et recovery. Fait via APPLY-001.
 13. Verifier patch/build dans un worktree jetable. Fait via GIT-002.
-14. Remplacer les transformations Java textuelles par Tree-sitter. Prochaine cible CODE-001.
+14. Ajouter Tree-sitter Java read-only. Fait via CODE-001.
+15. Construire l'index read-only CODE-001B1, puis remplacer les transformations
+    textuelles par des ranges AST verifies dans CODE-001B2.
 
 ## Risques
 

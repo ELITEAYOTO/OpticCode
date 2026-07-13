@@ -1,5 +1,6 @@
 pub mod apply_transaction;
 pub mod git_state;
+pub mod java_syntax;
 pub mod process_runner;
 pub mod worktree;
 

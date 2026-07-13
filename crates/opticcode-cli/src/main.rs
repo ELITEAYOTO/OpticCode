@@ -15,6 +15,10 @@ use opticcode_tools::apply_transaction::{
     ApplyTransactionResult,
 };
 use opticcode_tools::git_state::capture_git_state;
+use opticcode_tools::java_syntax::{
+    analyze_java_syntax, JavaSyntaxOptions, DEFAULT_JAVA_SYNTAX_FILE_BYTES,
+    DEFAULT_JAVA_SYNTAX_FILE_LIMIT, DEFAULT_JAVA_SYNTAX_ITEM_LIMIT,
+};
 use opticcode_tools::process_runner::{
     CancellationToken, ProcessOutputStats, ProcessStatus, ProcessTermination,
     DEFAULT_PROCESS_OUTPUT_LIMIT_BYTES, DEFAULT_PROCESS_TIMEOUT_SECONDS,
@@ -70,6 +74,18 @@ enum Command {
     AnalyzeJava {
         #[arg(long, default_value = ".")]
         path: PathBuf,
+    },
+    JavaSyntax {
+        #[arg(long, default_value = ".")]
+        path: PathBuf,
+        #[arg(long, default_value_t = DEFAULT_JAVA_SYNTAX_FILE_LIMIT)]
+        limit: usize,
+        #[arg(long, default_value_t = DEFAULT_JAVA_SYNTAX_FILE_BYTES)]
+        max_file_bytes: u64,
+        #[arg(long, default_value_t = DEFAULT_JAVA_SYNTAX_ITEM_LIMIT)]
+        item_limit: usize,
+        #[arg(long)]
+        json: bool,
     },
     Build {
         #[arg(long, default_value = ".")]
@@ -294,6 +310,27 @@ async fn main() -> Result<()> {
         Command::AnalyzeJava { path } => {
             let analysis = analyze_java_project(&path)?;
             println!("{}", analysis.to_display_string());
+        }
+        Command::JavaSyntax {
+            path,
+            limit,
+            max_file_bytes,
+            item_limit,
+            json,
+        } => {
+            let report = analyze_java_syntax(
+                &path,
+                JavaSyntaxOptions {
+                    max_files: limit,
+                    max_file_bytes,
+                    max_items_per_kind: item_limit,
+                },
+            )?;
+            if json {
+                println!("{}", serde_json::to_string_pretty(&report)?);
+            } else {
+                println!("{}", report.to_display_string());
+            }
         }
         Command::Build {
             path,

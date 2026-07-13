@@ -38,6 +38,7 @@ optic-core
   |     +-- git diff/status
   |     +-- bounded process runner
   |     +-- maven/gradle build
+  |     +-- Java Tree-sitter read-only syntax analysis
   |
   +-- optic-rag
   |     +-- sqlite metadata
@@ -148,6 +149,22 @@ Etat implemente :
 Le cycle de vie est isole dans `opticcode-tools/src/worktree.rs`. Il ne doit pas
 etre reintegre dans `apply_transaction.rs`. Voir
 [`worktree-verification.md`](worktree-verification.md).
+
+## Analyse syntaxique Java
+
+Etat read-only implemente :
+
+- `tree-sitter 0.26.11` et `tree-sitter-java 0.23.5` ;
+- module independant `opticcode-tools/src/java_syntax/` ;
+- scan borne et deterministe d'un fichier ou projet ;
+- symboles, references, annotations et ranges byte/ligne/colonne ;
+- commentaires et chaines identifies comme zones non-code ;
+- Java partiellement invalide conserve avec diagnostics `ERROR`/`MISSING` ;
+- sortie JSON versionnee et commande `java-syntax` ;
+- aucune edition ni resolution semantique.
+
+La prochaine etape est un index inter-fichiers par hash puis des edits legacy
+cibles sur ranges AST. Voir [`java-syntax.md`](java-syntax.md).
 
 ## Runtime LLM
 

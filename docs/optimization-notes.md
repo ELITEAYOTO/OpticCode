@@ -533,6 +533,8 @@ etre mesure sur PandaSpigot avant toute optimisation ou mise en cache.
 19. Ajouter un process runner borne avec timeout/cancellation. Fait.
 20. Rendre le journal apply transactionnel. Fait via APPLY-001.
 21. Verifier patch et build dans un worktree jetable. Fait via GIT-002.
-22. Remplacer les edits Java textuels par Tree-sitter. Prochaine cible CODE-001.
+22. Ajouter Tree-sitter Java read-only. Fait pour la baseline CODE-001.
+23. Construire d'abord l'index read-only CODE-001B1, puis remplacer les edits
+    Java textuels par des ranges AST dans CODE-001B2.
 
 Backlog consolide : `docs/optimization-backlog.md`.

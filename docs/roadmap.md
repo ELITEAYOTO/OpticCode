@@ -266,8 +266,10 @@ Etat actuel :
 - tests CLI reels valident apply, inspect, list, undo, repo sale, rollback_failed et recovery ;
 - verification GIT-002 ajoutee : worktree detache, apply, build strict, diff et cleanup ;
 - registre de leases et cleanup manuel fail-closed ajoutes pour les interruptions ;
-- validation complete : 105 tests workspace et Clippy strict OK ;
-- prochaine cible : parsing Java structure avec Tree-sitter `CODE-001`.
+- validation GIT-002 : 105 tests workspace et Clippy strict OK ;
+- baseline Tree-sitter Java read-only ajoutee avec tests anti-faux-positifs ;
+- validation complete : 114 tests workspace, Clippy strict et build release OK ;
+- prochaine cible : index symbolique read-only `CODE-001B1`, puis edits `CODE-001B2`.
 
 ## Phase 5.1 - Safe Apply
 
@@ -383,7 +385,38 @@ Limites :
 
 Reference : [`worktree-verification.md`](worktree-verification.md).
 
-## Phase 5.5 - Profils, memoire et optimisation controlee
+## Phase 5.5 - Tree-sitter Java
+
+Statut : baseline read-only terminee ; index et edits cibles a faire.
+
+Acquis :
+
+- module `java_syntax` separe de worktree/apply ;
+- Tree-sitter Java initialise et reutilise entre fichiers ;
+- scan projet borne, deterministe et sans suivi de symlink ;
+- package, imports, classes, interfaces, enums et annotations-types ;
+- methodes, constructeurs, champs, constantes et parametres ;
+- appels, acces de champs/enums, constructions, method references et annotations ;
+- positions exactes et diagnostics de Java partiellement invalide ;
+- commentaires, chaines et caracteres exclus des references code ;
+- ranges UTF-8/CRLF testes comme offsets d'octets ;
+- limites et troncatures explicites dans le schema JSON ;
+- symlinks, jonctions et reparse points ignores ou refuses selon leur position ;
+- commande `java-syntax` humaine/JSON ;
+- tests read-only sur mini Bukkit, Kspawners et PandaSpigot borne.
+
+Limites :
+
+- pas de resolution semantique ni index inter-fichiers ;
+- pas de cache incremental ;
+- pas encore d'edit ou de patch base sur les ranges AST ;
+- `analyze-java` conserve temporairement son parseur textuel historique.
+
+Suite : `CODE-001B1` index read-only, `CODE-001B2` edits cibles, puis `CONTEXT-001`.
+
+Reference : [`java-syntax.md`](java-syntax.md).
+
+## Phase 5.6 - Profils, memoire et optimisation controlee
 
 Statut : cadree.
 

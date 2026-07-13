@@ -169,7 +169,7 @@ source inchangee testes sur de vrais depots temporaires. Voir
 
 ### CODE-001 - Tree-sitter Java
 
-Retenu : oui, priorite haute apres les verrous P0.
+Statut : baseline read-only terminee le 2026-07-13 ; index/edits en cours de cadrage.
 
 Premier scope :
 
@@ -179,6 +179,31 @@ Premier scope :
 - positions exactes ;
 - exclusion commentaires/chaines pour les remplacements legacy ;
 - Java incomplet ou partiellement invalide.
+
+Realise :
+
+- dependances `tree-sitter` et `tree-sitter-java` figees ;
+- module `java_syntax` separe ;
+- symboles, references, zones non-code, diagnostics et positions JSON ;
+- limites fichiers/taille/items/avertissements et troncatures JSON explicites ;
+- ranges octets verifies avec UTF-8 et CRLF ;
+- symlinks, jonctions et reparse points refuses ou ignores sans parcours ;
+- tests anti-faux-positifs commentaires/chaines/text blocks ;
+- mesures read-only mini Bukkit, Kspawners et PandaSpigot borne.
+
+Reste pour `CODE-001B1` read-only :
+
+- index symbolique inter-fichiers par hash ;
+- requetes de symboles utiles au contexte ;
+- identites stables pour classes imbriquees, overloads et membres ;
+- resolution bornee des imports explicites, wildcard et statiques.
+
+Reste pour `CODE-001B2` :
+
+- edits legacy sur ranges AST avec hash et octets attendus ;
+- refus des ranges invalides ou chevauchantes et reparse du resultat ;
+- application uniquement via APPLY-001 dans GIT-002 avec build borne ;
+- integration progressive dans `analyze-java` et le generateur de patch.
 
 Ne pas commencer par Rust/C++/JavaScript. Java couvre le besoin produit direct.
 
@@ -409,7 +434,7 @@ Tree-sitter/Tantivy.
 4. Ajouter APPLY-002 concurrence optimiste. Fait pour le refus de conflit.
 5. Ajouter GIT-002 worktree jetable. Fait.
 6. Decouper les modules tools necessaires. Fait pour worktree ; poursuivre selon besoin.
-7. Integrer CODE-001 Tree-sitter Java. Prochain sprint.
+7. Integrer CODE-001 Tree-sitter Java. Baseline read-only faite ; CODE-001B1 suivant.
 8. Construire CONTEXT-001 selection par tache.
 9. Migrer vers INDEX-001/002 SQLite + Tantivy.
 10. Construire AGENT-001/002.
@@ -418,19 +443,19 @@ Tree-sitter/Tantivy.
 
 ## Prochain sprint propose
 
-`CODE-001 - Tree-sitter Java`.
+`CODE-001B1 - Index symbolique Java read-only`.
 
-Le process runner, le Git State Guard, l'apply transactionnel et le worktree
-jetable sont maintenant bornes et testes. Le prochain risque est le patch Java
-textuel global, qui peut toucher commentaires, chaines ou identifiants voisins.
-Tree-sitter doit fournir des positions syntaxiques fiables avant les patchs
-generaux de l'agent.
+Le parseur Tree-sitter read-only fournit maintenant des positions fiables et
+separe code, commentaires et chaines. Le prochain risque est d'etablir des
+identites et liens inter-fichiers fiables. Aucun edit n'est ajoute dans B1.
 
 Questions de conception a regler dans le code :
 
-- choix des crates `tree-sitter` et `tree-sitter-java` compatibles avec la MSRV ;
-- extraction classes, methodes, imports, champs et positions byte ;
-- distinction code/commentaires/chaines pour les regles legacy ;
-- cache parse par fichier et invalidation par hash ;
-- rapport symbolique serialisable reutilisable par le contexte et l'agent ;
-- benchmarks sur mini plugin, Kspawners et un sous-ensemble PandaSpigot.
+- schema d'identite stable pour symboles et overloads ;
+- index en memoire puis persistant par hash ;
+- requetes exactes nom/type/methode et liens import -> declaration ;
+- format incremental en memoire par hash, preparant SQLite sans l'imposer ;
+- traitement explicite des fichiers partiellement invalides.
+
+`CODE-001B2` prendra ensuite en charge range + contenu attendu, adaptation des
+regles legacy, reparse et test patch/build dans GIT-002.

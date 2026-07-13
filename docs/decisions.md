@@ -966,3 +966,34 @@ Raison :
 - un worktree detache isole le commit teste sans dupliquer le depot `.git` ;
 - la lease permet de retrouver un worktree abandonne apres un crash ;
 - separer verification et promotion garde l'approbation utilisateur explicite.
+
+### D-057 - Tree-sitter Java read-only avant les edits AST
+
+Statut : valide.
+
+Decision :
+
+- utiliser `tree-sitter 0.26.11` et `tree-sitter-java 0.23.5` ;
+- garder les dependances dans `opticcode-tools` pour la baseline ;
+- isoler le code sous `java_syntax/`, sans ajout dans `worktree.rs` ;
+- commencer par une commande read-only distincte de `analyze-java` ;
+- exposer package, imports, symboles, references, diagnostics et ranges ;
+- identifier commentaires et chaines comme zones non-code ;
+- borner fichiers, taille, items et avertissements, avec troncatures explicites ;
+- trier les chemins et conserver hashes/metriques pour le futur cache ;
+- conserver les positions comme offsets d'octets Tree-sitter, testes en UTF-8/CRLF ;
+- refuser la racine et ignorer les entrees symlink, jonction ou reparse point ;
+- accepter un arbre partiel avec diagnostics au lieu d'abandonner tout le fichier ;
+- ne pas emettre de declarations/references depuis un sous-arbre `ERROR` ;
+- ne produire aucun edit avant les tests anti-faux-positifs.
+
+Raison :
+
+- les remplacements textuels globaux peuvent toucher commentaires et chaines ;
+- Tree-sitter donne des ranges fiables avec un cout local faible ;
+- une phase read-only permet de mesurer Kspawners/PandaSpigot sans risque ;
+- la resolution semantique et l'index inter-fichiers peuvent etre ajoutes apres
+  stabilisation du schema, sans coupler le parser au workflow Git.
+
+Suite retenue : `CODE-001B1` construit uniquement l'index read-only ;
+`CODE-001B2` introduira ensuite les propositions d'edits verifiees.

@@ -12,6 +12,8 @@ roxmltree.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 serde_yaml.workspace = true
+tree-sitter.workspace = true
+tree-sitter-java.workspace = true
 walkdir.workspace = true
 
 [target.'cfg(windows)'.dependencies]

@@ -35,6 +35,14 @@ atteint 105 tests workspace et Clippy strict sans avertissement. Voir
 [`worktree-verification.md`](worktree-verification.md). La prochaine cible est
 `CODE-001`, Tree-sitter Java.
 
+Mise a jour CODE-001 du 2026-07-13 : une baseline Tree-sitter Java read-only est
+disponible dans un module separe avec symboles, references, positions, zones
+non-code et diagnostics structures. Les essais read-only couvrent mini Bukkit,
+Kspawners et 500 fichiers selectionnes parmi 8 933 dans PandaSpigot. La
+prochaine cible est `CODE-001B1`, index symbolique read-only, puis
+`CODE-001B2` pour les edits AST cibles. La validation atteint 114 tests workspace,
+Clippy strict et build release OK. Voir [`java-syntax.md`](java-syntax.md).
+
 ## 1. Resume executif
 
 OpticCode n'est plus une simple idee ni un assemblage de documentation. Le depot contient un MVP Rust fonctionnel capable de :
@@ -59,7 +67,7 @@ Verdict global :
 | --- | --- | --- |
 | Cadrage et architecture | solide | la direction Rust + Ollama puis llama.cpp reste coherente |
 | Environnement Windows | operationnel | aucun nouvel outil lourd n'est requis maintenant |
-| CLI locale | fonctionnelle | 20 commandes disponibles |
+| CLI locale | fonctionnelle | 21 commandes disponibles |
 | Specialisation Bukkit 1.8 | utile mais etroite | bonnes premieres regles, couverture encore faible |
 | RAG | prototype valide | utile sur les cas legacy, pas encore scalable |
 | Safe apply | transactionnel | rollback/recovery valides, originaux encore bloques par le patch textuel |
@@ -69,8 +77,8 @@ Verdict global :
 | Niveau produit | experimental | pas de release, configuration stable, TUI, daemon ou IDE |
 
 Position actuelle dans le plan : Phase 5.4 terminee pour le worktree jetable.
-Les projets personnels originaux restent hors tests. Le worktree jetable est
-maintenant valide sur fixtures ; la prochaine cible est Tree-sitter Java.
+Les projets personnels originaux restent hors tests. Le worktree jetable et la
+   baseline Tree-sitter read-only sont valides ; la prochaine cible est CODE-001B1.
 
 ## 2. Portee et methode de l'audit
 
@@ -269,12 +277,12 @@ Ce decoupage n'exige pas de multiplier immediatement les crates. Il doit d'abord
 
 ## 7. Fonctionnalites disponibles
 
-La CLI expose maintenant 20 commandes :
+La CLI expose maintenant 21 commandes :
 
 | Domaine | Commandes | Etat |
 | --- | --- | --- |
 | Workspace | `inspect`, `git-state`, `search`, `context` | fonctionnel |
-| Java | `analyze-java`, `build` | fonctionnel, couverture limitee |
+| Java | `analyze-java`, `java-syntax`, `build` | Tree-sitter read-only ajoute |
 | Connaissances | `profile`, `memory` | lecture seule fonctionnelle |
 | Sources | `pack-scan`, `rag-scan` | lecture seule fonctionnelle |
 | RAG | `rag-index`, `rag-search`, `rag-debug` | prototype fonctionnel |
@@ -781,7 +789,8 @@ Action : ajouter `--json` aux outils utilises par l'agent. L'agent ne doit pas p
 | 5.2 - process runner | terminee | etendre aux futurs tools longs |
 | 5.3 - apply transactionnel | terminee | extension aux patchs generaux apres AST Java |
 | 5.4 - worktree jetable | terminee | promotion controlee apres AST et approbation |
-| 5.5 - profils/memoire | prototype | ecriture controlee, provenance, deduplication |
+| 5.5 - Tree-sitter Java | baseline read-only | B1 index inter-fichiers, puis B2 edits AST |
+| 5.6 - profils/memoire | prototype | ecriture controlee, provenance, deduplication |
 | 6 - RAG | prototype JSONL | Tantivy, incremental, symboles, evaluation large |
 | 7 - agent iteratif | non commence | depend des verrous P0/P1 |
 | 8 - UX/IDE | hors scope actuel | apres agent CLI fiable |
@@ -811,7 +820,7 @@ Objectif : preparer l'agent sans encore lui donner une autonomie dangereuse.
 2. Ajouter des resultats serialisables et `--json`.
 3. Introduire un `Tool`/`ToolRegistry` minimal.
 4. Ajouter une politique d'autorisation : read, write, build, shell.
-5. Integrer Tree-sitter Java pour classes, methodes, imports et positions.
+5. Integrer Tree-sitter Java pour classes, methodes, imports et positions. Baseline faite.
 6. Selectionner le contexte selon la demande et les symboles.
 7. Ajouter une configuration `.opticcode/config.toml` versionnee facultative.
 
@@ -825,7 +834,7 @@ Objectif : indexer PandaSpigot, plugins, docs et packs sans scan lineaire par re
 2. Stocker metadata et etat des sources dans SQLite.
 3. Ajouter Tantivy pour BM25/full-text.
 4. Conserver la recherche exacte des identifiants legacy.
-5. Ajouter Tree-sitter pour l'index de symboles Java.
+5. Ajouter Tree-sitter pour l'index de symboles Java. Extraction faite, index a faire.
 6. Faire une indexation incrementale par hash/mtime.
 7. Evaluer 20 a 50 requetes legacy versionnees.
 8. N'ajouter des embeddings qu'apres mesure des echecs lexicaux.
@@ -912,8 +921,9 @@ Choix de conception recommande : utiliser `git status --porcelain=v1 -z` ou un f
 - Build Git State Guard : termine (`6c4469a`).
 - Process runner borne : termine (`815994c`).
 - APPLY-001 : termine et commite (`f5bb7b0`).
-- GIT-002 : implemente et valide localement, en attente de commit explicite.
-- Prochain sprint : `CODE-001`, Tree-sitter Java.
+- GIT-002 : termine et commite (`ae6d056`).
+- CODE-001 read-only : implemente localement, en attente de validation finale.
+- Prochain sprint : `CODE-001B1`, index symbolique Java read-only.
 
 ## 17. Definition de fini pour une V1 utile
 
