@@ -53,8 +53,8 @@ references entre fichiers, proposer certains patches legacy, appliquer une
 transaction recuperable, compiler et verifier un patch dans un worktree
 temporaire.
 
-La production read-only d'edits Java cibles est disponible pour 14 regles
-Bukkit 1.8. L'index refuse de choisir arbitrairement entre deux classes ou
+La production read-only d'edits Java cibles est disponible pour 26 regles
+Bukkit 1.8 avec sources epinglees et compilation legacy. L'index refuse de choisir arbitrairement entre deux classes ou
 methodes, puis le moteur verifie hash, qualificateur, octets et syntaxe. Le
 pipeline B3 recalcule ensuite ces preuves dans un worktree au `HEAD` exact,
 applique transactionnellement, reparse, compile et controle le diff final sans
@@ -63,7 +63,7 @@ toucher la source.
 ## Ce qui reste avant une V1 autonome
 
 - index symbolique incremental et persistant pour les tres grands depots ;
-- extension prudente des regles legacy et suite d'evaluation chiffree ;
+- extension des domaines legacy au-dela des enums deja prouves ;
 - RAG scalable avec provenance ;
 - boucle agent bornee plan -> tools -> build -> correction ;
 - approbation finale et promotion controlee ;
@@ -71,5 +71,6 @@ toucher la source.
 
 Pour les details techniques, voir la [roadmap](roadmap.md),
 l'[architecture](architecture.md), la
+[preuve des regles legacy](java-legacy-rules.md), la
 [verification B3](java-edit-worktree.md) et
 l'[audit complet](project-audit-2026-07-11.md).

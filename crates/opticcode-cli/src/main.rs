@@ -20,7 +20,7 @@ use opticcode_tools::java_edit_worktree::{
     JavaEditWorktreeOptions, JavaEditWorktreeReport,
 };
 use opticcode_tools::java_edits::{
-    propose_java_edits, JavaEditOptions, DEFAULT_JAVA_EDIT_PROPOSAL_LIMIT,
+    legacy_rule_catalog, propose_java_edits, JavaEditOptions, DEFAULT_JAVA_EDIT_PROPOSAL_LIMIT,
 };
 use opticcode_tools::java_index::{
     analyze_java_index, JavaIndexOptions, DEFAULT_JAVA_INDEX_CANDIDATE_LIMIT,
@@ -133,6 +133,10 @@ enum Command {
         candidate_limit: usize,
         #[arg(long, default_value_t = DEFAULT_JAVA_EDIT_PROPOSAL_LIMIT)]
         proposal_limit: usize,
+        #[arg(long)]
+        json: bool,
+    },
+    JavaLegacyRules {
         #[arg(long)]
         json: bool,
     },
@@ -483,6 +487,14 @@ async fn main() -> Result<()> {
                 println!("{}", serde_json::to_string_pretty(&report)?);
             } else {
                 println!("{}", report.to_display_string());
+            }
+        }
+        Command::JavaLegacyRules { json } => {
+            let catalog = legacy_rule_catalog();
+            if json {
+                println!("{}", serde_json::to_string_pretty(&catalog)?);
+            } else {
+                println!("{}", catalog.to_display_string());
             }
         }
         Command::JavaEditsVerify {

@@ -6,12 +6,12 @@ types, ambiguous imports, static imports and lexically shadowed qualifiers.
 
 Expected baseline:
 
-- 16 validated proposals across three files;
-- all 14 versioned legacy rules represented at least once;
+- 28 validated proposals across three files;
+- all 26 versioned legacy rules represented at least once;
 - zero proposal in `negative/`;
 - source files byte-identical before and after analysis.
 
-The corpus contains more than 50 positive or negative symbol occurrences. A
+The corpus contains more than 70 positive or negative symbol occurrences. A
 notable regression is `CreatureSpawnEvent.SpawnReason.SPAWNER`, observed in the
 real Kspawners project: it must never be rewritten as `Material.MOB_SPAWNER`.
 

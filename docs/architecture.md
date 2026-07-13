@@ -178,7 +178,8 @@ Etat index read-only implemente :
 Etat edits read-only implemente :
 
 - module independant `opticcode-tools/src/java_edits/` ;
-- 14 regles Bukkit 1.8 partagees avec le workflow legacy historique ;
+- 26 regles Bukkit 1.8 partagees avec le workflow legacy historique ;
+- catalogue V2 avec versions, niveau de preuve et sources Spigot SHA-256 ;
 - cible exacte, qualificateur/import prouve et shadows connus refuses ;
 - hash BLAKE3, noeud/octet attendu, ranges non chevauchants et IDs stables ;
 - simulation de fin vers debut et reparse en memoire ;
@@ -200,8 +201,8 @@ Le cycle GIT-002 accepte maintenant une etape apply injectee, mais conserve une
 seule implementation du worktree, du build, du diff et du cleanup. Les futures
 regles Java ne doivent pas ajouter leur logique dans `worktree.rs`.
 
-La prochaine etape est l'extension mesuree des regles legacy puis
-`CONTEXT-001`. Un index incremental/persistant attendra des mesures qui le
+LEGACY-002 est termine. La prochaine etape est `CONTEXT-001`. Un index
+incremental/persistant attendra des mesures qui le
 justifient. Voir [`java-syntax.md`](java-syntax.md),
 [`java-index.md`](java-index.md), [`java-edits.md`](java-edits.md) et
 [`java-edit-worktree.md`](java-edit-worktree.md).

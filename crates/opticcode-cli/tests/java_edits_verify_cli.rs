@@ -40,14 +40,23 @@ impl TemporaryFixture {
         )
         .expect("pom should be written");
         let modern_or_legacy = if eligible {
-            "Object powder = Material.GUNPOWDER; Object tool = Material.WOODEN_SHOVEL;"
+            concat!(
+                "Object powder = Material.GUNPOWDER; Object tool = Material.WOODEN_SHOVEL; ",
+                "Object rocketItem = Material.FIREWORK_ROCKET; ",
+                "Object rocketEntity = EntityType.FIREWORK_ROCKET;"
+            )
         } else {
-            "Object powder = Material.SULPHUR; Object tool = Material.WOOD_SPADE;"
+            concat!(
+                "Object powder = Material.SULPHUR; Object tool = Material.WOOD_SPADE; ",
+                "Object rocketItem = Material.FIREWORK; ",
+                "Object rocketEntity = EntityType.FIREWORK;"
+            )
         };
         let original_java = format!(
             concat!(
                 "package dev.test;\n",
                 "import org.bukkit.Material;\n",
+                "import org.bukkit.entity.EntityType;\n",
                 "import org.bukkit.event.entity.CreatureSpawnEvent;\n",
                 "class LegacyTest {{ {} ",
                 "Object reason = CreatureSpawnEvent.SpawnReason.SPAWNER; }}\n",
@@ -140,20 +149,20 @@ fn verifies_exact_java_edits_end_to_end_without_mutating_source() {
     assert_eq!(report["verification_success"], true);
     assert_eq!(report["cleanup_success"], true);
     assert_eq!(report["status"], "passed");
-    assert_eq!(report["source_analysis"]["proposals"], 2);
+    assert_eq!(report["source_analysis"]["proposals"], 4);
     assert_eq!(report["source_analysis"]["files_with_proposals"], 1);
     assert_eq!(report["source_analysis"]["truncated"], false);
     assert_eq!(report["revalidation"]["attempted"], true);
     assert_eq!(report["revalidation"]["success"], true);
-    assert_eq!(report["revalidation"]["received"], 2);
-    assert_eq!(report["revalidation"]["valid"], 2);
+    assert_eq!(report["revalidation"]["received"], 4);
+    assert_eq!(report["revalidation"]["valid"], 4);
     assert_eq!(report["revalidation"]["refused"], 0);
     assert_eq!(
         report["revalidation"]["source_contract_fingerprint"],
         report["revalidation"]["worktree_contract_fingerprint"]
     );
     assert_eq!(report["materialization"]["success"], true);
-    assert_eq!(report["materialization"]["valid"], 2);
+    assert_eq!(report["materialization"]["valid"], 4);
     assert_eq!(
         report["materialization"]["files"].as_array().map(Vec::len),
         Some(1)
@@ -197,6 +206,8 @@ fn verifies_exact_java_edits_end_to_end_without_mutating_source() {
         .expect("final Git diff should be present");
     assert!(diff.contains("Material.SULPHUR"));
     assert!(diff.contains("Material.WOOD_SPADE"));
+    assert!(diff.contains("Material.FIREWORK"));
+    assert!(diff.contains("EntityType.FIREWORK"));
     assert!(diff.contains("CreatureSpawnEvent.SpawnReason.SPAWNER"));
 
     assert_source_unchanged(&project);

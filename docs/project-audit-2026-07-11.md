@@ -51,8 +51,8 @@ courante atteint 120 tests workspace. Voir [`java-index.md`](java-index.md).
 
 Mise a jour CODE-001B2 du 2026-07-13 : le moteur `java_edits/` produit des
 propositions read-only avec cible exacte, hash BLAKE3, noeud et octets attendus,
-garde anti-shadow, ranges non chevauchants et reparse en memoire. Le corpus de
-plus de 50 cas couvre 14/14 regles avec 16 edits attendus et zero faux positif.
+garde anti-shadow, ranges non chevauchants et reparse en memoire. LEGACY-002
+porte le corpus a plus de 70 cas, 26/26 regles, 28 edits attendus et zero faux positif.
 Sur Kspawners, `CreatureSpawnEvent.SpawnReason.SPAWNER` est correctement refuse
 comme mauvaise cible. Voir [`java-edits.md`](java-edits.md). Cette etape seule
 portait la validation workspace a 132 tests, Clippy strict sans avertissement et
@@ -64,7 +64,7 @@ APPLY-001, reparse les octets ecrits, lance le build borne puis controle les
 hashes du snapshot Git final. Le rapport distingue revalidation, apply, build,
 cleanup et source ; aucune promotion n'existe. Voir
 [`java-edit-worktree.md`](java-edit-worktree.md). La validation courante atteint
-145 tests workspace, Clippy strict sans avertissement et build release reussi.
+147 tests workspace, Clippy strict sans avertissement et build release reussi.
 
 ## 1. Resume executif
 

@@ -25,7 +25,7 @@ anciens noms de `EntityType`.
 ```text
 java_edits/
   mod.rs         orchestration et politique fail-closed
-  legacy.rs      14 regles versionnees et identites Bukkit canoniques
+  legacy.rs      26 regles versionnees, preuves et identites Bukkit canoniques
   schema.rs      contrat JSON, compteurs, rejets et validations
   validation.rs  relecture sure, garde anti-shadow, ranges et reparse
 ```
@@ -78,7 +78,7 @@ Cette politique a deja evite une vraie erreur sur Kspawners :
 
 ## Contrat d'une proposition
 
-Le schema `java_edit_proposals` est en version 1. Une proposition contient :
+Le schema `java_edit_proposals` est en version 2. Une proposition contient :
 
 - un identifiant stable derive de la regle, du chemin, du hash et du range ;
 - `rule_id`, fichier relatif, hash source et reference B1 ;
@@ -137,25 +137,25 @@ Corpus versionne `benchmarks/java-edits-legacy` :
 | Mesure | Resultat |
 | --- | ---: |
 | fichiers Java | 13 |
-| references examinees | 85 |
-| noms ressemblant aux regles | 26 |
-| cibles Bukkit exactes | 18 |
-| propositions valides | 16 dans 3 fichiers |
-| rejets attendus | 10 |
+| references examinees | 113 |
+| noms ressemblant aux regles | 39 |
+| cibles Bukkit exactes | 30 |
+| propositions valides | 28 dans 3 fichiers |
+| rejets attendus | 11 |
 | faux positifs | 0 |
-| regles couvertes | 14/14 |
+| regles couvertes | 26/26 |
 
-Le corpus contient plus de 50 occurrences positives ou negatives : imports
+Le corpus contient plus de 70 occurrences positives ou negatives : imports
 explicites, noms pleinement qualifies, types custom, imports ambigus, shadows,
 commentaires, chaines, symboles deja legacy, imports statiques et proprietaires
-homonymes. Dans ce corpus controle, precision et rappel des 16 edits attendus
+homonymes. Dans ce corpus controle, precision et rappel des 28 edits attendus
 sont de 100 %. Ce chiffre ne vaut pas encore evaluation generale de Java.
 
 Mesures release locales, Ryzen 7 3700X, Windows 10 :
 
 | Source | References | Candidats | Propositions | Resultat | Temps |
 | --- | ---: | ---: | ---: | --- | ---: |
-| corpus B2 | 85 | 26 | 16 | complet, safe | 7,8 ms chaud |
+| corpus LEGACY-002 | 113 | 39 | 28 | complet, safe | 8,7 a 9,6 ms chaud |
 | Kspawners | 6 374 | 1 | 0 | cible `SpawnReason`, correctement refusee | 199 ms chaud |
 | PandaSpigot borne | 16 261 | 0 | 0 | 500/8 933, fail-closed | 1,02 s |
 
@@ -174,7 +174,7 @@ Le script dedie execute formatage, Clippy strict et tests cibles :
 
 La couverture inclut :
 
-- 14 regles et IDs uniques ;
+- 26 regles et IDs uniques, avec sources et niveaux de preuve ;
 - exact, ambigu, mauvaise cible et shadow lexical ;
 - commentaires/chaines sans faux positif ;
 - hash, contenu attendu, UTF-8 et ranges imbriques ;
@@ -192,7 +192,7 @@ La couverture inclut :
   prouve sans analyse semantique ;
 - les imports wildcard et constantes statiques non qualifiees ne sont pas
   edites dans cette version ;
-- seules les 14 regles deterministes Bukkit 1.8 sont supportees ;
+- seules les 26 regles deterministes Bukkit 1.8 sont supportees ;
 - metadata/data values/NBT des blocs et spawn eggs restent hors scope ;
 - `patch`, `apply` et `worktree-verify` conservent leur adaptateur legacy
   historique pour compatibilite ; `java-edits-verify` utilise le contrat AST ;

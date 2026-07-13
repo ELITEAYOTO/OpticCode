@@ -169,7 +169,7 @@ source inchangee testes sur de vrais depots temporaires. Voir
 
 ### CODE-001 - Tree-sitter Java
 
-Statut : baseline read-only et index B1 termines le 2026-07-13 ; edits B2 a faire.
+Statut : pipeline read-only B1/B2, verification B3 et LEGACY-002 termines le 2026-07-13.
 
 Premier scope :
 
@@ -239,6 +239,17 @@ demande
 
 Metriques : tokens/characters, fichiers candidats, fichiers injectes, temps de
 selection, qualite du plan et du patch.
+
+### LEGACY-002 - Extension mesuree des regles
+
+Statut : termine le 2026-07-13.
+
+- 26 regles Bukkit 1.8 dans un catalogue JSON V2 ;
+- 23 paires moderne/legacy confirmees dans deux JAR sources Spigot epingles ;
+- trois alias historiques conserves au niveau de preuve inferieur explicite ;
+- 28 propositions attendues, 26/26 regles et zero faux positif sur corpus ;
+- compilation Java 8 reelle des 24 cibles distinctes contre Spigot 1.8.8 ;
+- resolution des membres homonymes par proprietaire symbolique complet.
 
 ### INDEX-001 - Metadata incrementales SQLite
 
@@ -460,17 +471,12 @@ Tree-sitter/Tantivy.
 
 ## Prochain sprint propose
 
-`LEGACY-002 - Extension mesuree des regles`, puis `CONTEXT-001`.
+`CONTEXT-001 - Selection symbolique selon la tache`.
 
-Le parseur, l'index, B2 et B3 fournissent maintenant un pipeline complet jusqu'au
-build et au diff sans exposer le projet source. La prochaine valeur produit est
-d'elargir prudemment les incompatibilites 1.8 couvertes, puis de reduire le
-contexte envoye au modele avec l'index symbolique.
+Le parseur, l'index, B2, B3 et LEGACY-002 fournissent maintenant un pipeline
+complet jusqu'au build et au diff sans exposer le projet source. La prochaine
+valeur produit est de reduire le contexte envoye au modele avec l'index
+symbolique.
 
-Contraintes du prochain sprint :
-
-- une source authoritative par nouvelle regle legacy ;
-- cas positif, mauvaises cibles, commentaires, chaines et shadows ;
-- zero faux positif sur le corpus avant activation B3 ;
-- benchmark avant/apres sur plugins reels read-only ;
-- aucune promotion dans le projet utilisateur.
+Contraintes du prochain sprint : contexte explique, extraits AST bornes,
+budget explicite, comparaison avec le selecteur historique et aucune ecriture.

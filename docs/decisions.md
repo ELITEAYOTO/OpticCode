@@ -1115,3 +1115,31 @@ Raison :
 - garder la promotion separee preserve l'approbation utilisateur.
 
 Reference : [`java-edit-worktree.md`](java-edit-worktree.md).
+
+### D-061 - Prouver les regles legacy avec des API epinglees
+
+Statut : valide.
+
+Decision :
+
+- versionner le catalogue sous `minecraft_java_1_8_v2` ;
+- exposer chaque regle avec proprietaire complet, versions cibles, niveau de
+  preuve et IDs de sources ;
+- epingler les JAR sources officiels Spigot 1.8.8 et 1.21.4 par SHA-256 ;
+- distinguer `verified_api_pair` de `verified_legacy_target` au lieu de donner
+  la meme confiance a un alias historique incompletement source ;
+- verifier les constantes directement dans les archives via la CLI JSON ;
+- compiler toutes les cibles distinctes contre Spigot API 1.8.8 en Java 8 ;
+- resoudre les noms partages, notamment `FIREWORK_ROCKET`, par identite
+  symbolique complete et non par membre seul ;
+- repousser les transformations qui perdent metadata, data value ou variante.
+
+Raison :
+
+- un plugin ancien est un corpus utile, mais pas une specification d'API ;
+- la presence d'un nom moderne et de sa cible legacy doit etre reproductible ;
+- les proprietaires homonymes peuvent autrement choisir un remplacement faux ;
+- les transformations de flattening ne sont pas toutes des substitutions enum
+  sans perte et demandent un contrat plus riche.
+
+Reference : [`java-legacy-rules.md`](java-legacy-rules.md).

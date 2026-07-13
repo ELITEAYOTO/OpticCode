@@ -271,11 +271,12 @@ Etat actuel :
 - index symbolique inter-fichiers B1 ajoute avec resolution conservatrice ;
 - propositions d'edits Java B2 ajoutees avec hash, ranges, octets attendus,
   anti-shadow, simulation et reparse ;
-- corpus B2 de plus de 50 cas : 16/16 edits attendus et zero faux positif ;
+- corpus LEGACY-002 de plus de 70 cas : 28/28 edits attendus et zero faux positif ;
 - validation complete : 132 tests workspace, Clippy strict et build release OK ;
 - pipeline B3 ajoute : double contrat, apply transactionnel, reparse, build,
   hashes Git finaux, cleanup et source inchangee ;
-- prochaine cible : extension des regles legacy puis `CONTEXT-001`.
+- LEGACY-002 : 26 regles, provenance SHA-256 et compilation Spigot 1.8.8 ;
+- prochaine cible : `CONTEXT-001`.
 
 ## Phase 5.1 - Safe Apply
 
@@ -419,7 +420,7 @@ Acquis :
 - propositions avec cible exacte, hash, noeud/octet attendu et ranges AST ;
 - refus des shadows connus, mauvaises cibles, overlaps et derives source ;
 - application simulee de fin vers debut et reparse en memoire ;
-- corpus legacy de plus de 50 cas avec 14/14 regles et zero faux positif ;
+- corpus legacy de plus de 70 cas avec 26/26 regles et zero faux positif ;
 - regression reelle Kspawners `SpawnReason.SPAWNER` correctement refusee ;
 - tests read-only sur mini Bukkit, Kspawners et PandaSpigot borne ;
 - commande `java-edits-verify` humaine/JSON et schema versionne ;
@@ -437,11 +438,12 @@ Limites :
 - pas de cache incremental ou persistant ;
 - `analyze-java` conserve temporairement son parseur textuel historique.
 
-Suite : extension mesuree des regles legacy, puis `CONTEXT-001`.
+Suite : `CONTEXT-001`, selection de contexte Java selon la tache.
 
 References : [`java-syntax.md`](java-syntax.md), [`java-index.md`](java-index.md),
 [`java-edits.md`](java-edits.md) et
-[`java-edit-worktree.md`](java-edit-worktree.md).
+[`java-edit-worktree.md`](java-edit-worktree.md), ainsi que
+[`java-legacy-rules.md`](java-legacy-rules.md).
 
 ## Phase 5.6 - Profils, memoire et optimisation controlee
 

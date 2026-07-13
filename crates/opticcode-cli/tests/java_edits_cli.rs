@@ -7,15 +7,51 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use serde_json::Value;
 
 #[test]
+fn java_legacy_rules_cli_exposes_pinned_evidence_and_duplicate_owners() {
+    let output = Command::new(env!("CARGO_BIN_EXE_opticcode"))
+        .args(["java-legacy-rules", "--json"])
+        .output()
+        .expect("OpticCode CLI should start");
+    let catalog = parse_json(&output);
+
+    assert_eq!(catalog["schema_version"], 2);
+    assert_eq!(catalog["rule_set"], "minecraft_java_1_8_v2");
+    assert_eq!(catalog["target_versions"][0], "1.8.8");
+    assert_eq!(catalog["sources"].as_array().map(Vec::len), Some(2));
+    assert_eq!(catalog["rules"].as_array().map(Vec::len), Some(26));
+    assert!(catalog["sources"].as_array().is_some_and(|sources| {
+        sources.iter().all(|source| {
+            source["sha256"]
+                .as_str()
+                .is_some_and(|hash| hash.len() == 64)
+        })
+    }));
+    let firework_owners = catalog["rules"]
+        .as_array()
+        .expect("rules array")
+        .iter()
+        .filter(|rule| {
+            rule["modern"] == "Material.FIREWORK_ROCKET"
+                || rule["modern"] == "EntityType.FIREWORK_ROCKET"
+        })
+        .map(|rule| rule["owner"].as_str().expect("rule owner"))
+        .collect::<Vec<_>>();
+    assert_eq!(
+        firework_owners,
+        ["org.bukkit.Material", "org.bukkit.entity.EntityType"]
+    );
+}
+
+#[test]
 fn java_edits_cli_is_read_only_deterministic_explainable_and_bounded() {
     let corpus = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../benchmarks/java-edits-legacy");
     let before = snapshot_tree(&corpus);
     let first = parse_json(&run_java_edits(&corpus, 10_000, true));
     let second = parse_json(&run_java_edits(&corpus, 10_000, true));
 
-    assert_eq!(first["schema_version"], 1);
+    assert_eq!(first["schema_version"], 2);
     assert_eq!(first["operation"], "java_edit_proposals");
-    assert_eq!(first["rule_set"], "minecraft_java_1_8_v1");
+    assert_eq!(first["rule_set"], "minecraft_java_1_8_v2");
     assert_eq!(first["index_schema_version"], 1);
     assert_eq!(first["index_source"]["discovered_files"], 13);
     assert_eq!(first["index_source"]["parsed_files"], 13);
@@ -23,15 +59,15 @@ fn java_edits_cli_is_read_only_deterministic_explainable_and_bounded() {
     assert_eq!(first["analysis_complete"], true);
     assert_eq!(first["safe_to_apply"], true);
     assert_eq!(first["truncated"], false);
-    assert_eq!(first["counts"]["references_examined"], 85);
-    assert_eq!(first["counts"]["legacy_candidates"], 26);
-    assert_eq!(first["counts"]["exact_target_matches"], 18);
-    assert_eq!(first["counts"]["proposals"], 16);
+    assert_eq!(first["counts"]["references_examined"], 113);
+    assert_eq!(first["counts"]["legacy_candidates"], 39);
+    assert_eq!(first["counts"]["exact_target_matches"], 30);
+    assert_eq!(first["counts"]["proposals"], 28);
     assert_eq!(first["counts"]["files_with_proposals"], 3);
-    assert_eq!(first["counts"]["rejections"], 10);
-    assert_eq!(first["proposals"].as_array().map(Vec::len), Some(16));
+    assert_eq!(first["counts"]["rejections"], 11);
+    assert_eq!(first["proposals"].as_array().map(Vec::len), Some(28));
     assert_eq!(first["file_validations"].as_array().map(Vec::len), Some(3));
-    assert_eq!(first["rejections"].as_array().map(Vec::len), Some(10));
+    assert_eq!(first["rejections"].as_array().map(Vec::len), Some(11));
     assert!(first["timings"]["serialization_us"].is_u64());
     assert!(first["proposals"].as_array().is_some_and(|proposals| {
         proposals.iter().all(|proposal| {
@@ -69,6 +105,7 @@ fn java_edits_cli_is_read_only_deterministic_explainable_and_bounded() {
     let stdout = String::from_utf8_lossy(&human.stdout);
     assert!(stdout.contains("Java edit proposals (read-only)"));
     assert!(stdout.contains("GUNPOWDER -> SULPHUR [MC18-MATERIAL-001]"));
+    assert!(stdout.contains("FIREWORK_ROCKET -> FIREWORK [MC18-ENTITY-005]"));
     assert!(stdout.contains("safe to apply downstream: true"));
 
     let after = snapshot_tree(&corpus);

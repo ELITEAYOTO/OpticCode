@@ -33,7 +33,7 @@ process runner borne avec timeout, sortie limitee et terminaison de l'arbre Wind
 - Phase 3 : recherche depots externes et analyse Qwen Code terminees.
 - Phase 4 : MVP Rust fonctionnel.
 - Phase 5 : tools Java en cours ; apply/worktree, Tree-sitter, index B1, edits B2 et pipeline worktree B3 termines.
-- Qualite courante : 145 tests workspace, Clippy strict et build release valides.
+- Qualite courante : 147 tests workspace, Clippy strict et build release valides.
 - Phase 6 : prototype RAG JSONL fonctionnel, index scalable a faire.
 - Phase 7 : agent iteratif non commence.
 
@@ -100,6 +100,7 @@ cargo run -q -- context --path benchmarks/mini-bukkit-plugin
 cargo run -q -- analyze-java --path benchmarks/mini-bukkit-plugin
 cargo run -q -- java-syntax --path benchmarks/mini-bukkit-plugin --json
 cargo run -q -- java-index --path benchmarks/java-index-mini --json
+cargo run -q -- java-legacy-rules --json
 cargo run -q -- java-edits --path benchmarks/java-edits-legacy --json
 cargo run -q -- java-edits-verify --path C:\path\to\clean-git-project --json
 cargo run -q -- build --path benchmarks/mini-bukkit-plugin
@@ -145,13 +146,16 @@ cargo run -q -- inspect --path benchmarks/mini-bukkit-plugin
 .\scripts\run-java-index-quality.ps1 -Full
 .\scripts\run-java-edits-quality.ps1
 .\scripts\run-java-edits-quality.ps1 -Full
+.\scripts\run-java-legacy-quality.ps1
+.\scripts\run-java-legacy-quality.ps1 -Full
 .\scripts\run-java-edit-worktree-quality.ps1
 .\scripts\run-java-edit-worktree-quality.ps1 -Full
 ```
 
 ## Prochaine etape
 
-Etendre prudemment le corpus de regles legacy, puis construire `CONTEXT-001`
-sur l'index symbolique pour reduire les fichiers et tokens envoyes au modele.
+LEGACY-002 est termine avec 26 regles sourcees et compilees. La prochaine etape
+est `CONTEXT-001` sur l'index symbolique pour reduire les fichiers et tokens
+envoyes au modele.
 Les resolutions incertaines restent read-only et la promotion d'un resultat
 vers le projet source demeure un sprint distinct avec approbation explicite.

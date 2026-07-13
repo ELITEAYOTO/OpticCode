@@ -15,7 +15,12 @@ use crate::java_index::{
     analyze_java_index, JavaIndexFile, JavaIndexOptions, JavaIndexedReference, JavaResolutionStatus,
 };
 use crate::java_syntax::SourceRange;
-use legacy::{is_exact_rule_target, qualifier_is_proven, rule_for_reference, LegacyJavaRule};
+use legacy::{is_exact_rule_target, qualifier_is_proven, rule_for_reference};
+pub use legacy::{
+    legacy_rule_catalog, LegacyJavaRule, LegacyRuleCatalog, LegacyRuleEvidenceLevel,
+    LegacyRuleSource, LEGACY_JAVA_RULES, LEGACY_RULE_CATALOG_SCHEMA_VERSION, LEGACY_RULE_SET,
+    LEGACY_RULE_SOURCES,
+};
 pub use schema::{
     JavaEditConfidence, JavaEditCounts, JavaEditFileValidation, JavaEditLimits, JavaEditProposal,
     JavaEditProposalReport, JavaEditRejection, JavaEditRejectionKind, JavaEditTimings,
@@ -24,8 +29,8 @@ use validation::{
     read_source_snapshot, validate_file_edits, AstSafetyScanner, SnapshotError, SourceSnapshot,
 };
 
-pub const JAVA_EDIT_SCHEMA_VERSION: u32 = 1;
-pub const JAVA_EDIT_RULE_SET: &str = "minecraft_java_1_8_v1";
+pub const JAVA_EDIT_SCHEMA_VERSION: u32 = 2;
+pub const JAVA_EDIT_RULE_SET: &str = LEGACY_RULE_SET;
 pub const DEFAULT_JAVA_EDIT_PROPOSAL_LIMIT: usize = 10_000;
 pub const MAX_JAVA_EDIT_PROPOSAL_LIMIT: usize = 100_000;
 pub const MAX_JAVA_EDIT_REJECTIONS: usize = 256;
@@ -725,21 +730,21 @@ mod tests {
         let after = snapshot_java_files(&root);
 
         assert_eq!(before, after, "read-only analysis modified its corpus");
-        assert_eq!(report.schema_version, 1);
+        assert_eq!(report.schema_version, 2);
         assert_eq!(report.operation, "java_edit_proposals");
-        assert_eq!(report.rule_set, "minecraft_java_1_8_v1");
+        assert_eq!(report.rule_set, "minecraft_java_1_8_v2");
         assert!(report.index_analysis_complete);
         assert!(report.analysis_complete);
         assert!(report.safe_to_apply);
         assert!(!report.truncated);
-        assert_eq!(report.counts.references_examined, 85);
-        assert_eq!(report.counts.legacy_candidates, 26);
-        assert_eq!(report.counts.exact_target_matches, 18);
-        assert_eq!(report.counts.proposals, 16);
+        assert_eq!(report.counts.references_examined, 113);
+        assert_eq!(report.counts.legacy_candidates, 39);
+        assert_eq!(report.counts.exact_target_matches, 30);
+        assert_eq!(report.counts.proposals, 28);
         assert_eq!(report.counts.files_with_proposals, 3);
-        assert_eq!(report.counts.rejections, 10);
+        assert_eq!(report.counts.rejections, 11);
         assert_eq!(report.counts.rejected_non_exact, 1);
-        assert_eq!(report.counts.rejected_wrong_target, 7);
+        assert_eq!(report.counts.rejected_wrong_target, 8);
         assert_eq!(report.counts.rejected_shadowed_qualifier, 2);
         assert_eq!(report.counts.rejected_invalid_range, 0);
         assert_eq!(report.counts.overlap_conflicts, 0);
@@ -750,9 +755,10 @@ mod tests {
             .iter()
             .map(|proposal| proposal.rule_id)
             .collect::<BTreeSet<_>>();
-        assert_eq!(rule_ids.len(), 14);
+        assert_eq!(rule_ids.len(), 26);
         assert!(rule_ids.contains("MC18-MATERIAL-001"));
-        assert!(rule_ids.contains("MC18-ENTITY-003"));
+        assert!(rule_ids.contains("MC18-MATERIAL-019"));
+        assert!(rule_ids.contains("MC18-ENTITY-007"));
         assert!(report.proposals.iter().all(|proposal| {
             proposal.confidence == JavaEditConfidence::SyntaxExact
                 && proposal.target_id.starts_with("org.bukkit.")
