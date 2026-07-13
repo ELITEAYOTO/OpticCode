@@ -148,17 +148,22 @@ est revalidee juste avant ecriture et le rollback refuse toute derive inconnue.
 
 ### GIT-002 - Worktree jetable
 
-Objectif : verifier les patchs multi-fichiers sans toucher au worktree courant.
+Statut : termine et valide le 2026-07-13.
 
-Livrable futur :
+Objectif atteint : verifier les patchs multi-fichiers sans toucher au worktree courant.
 
-- creation sous `benchmarks/runs` ou dossier temporaire controle ;
+Livrable realise :
+
+- creation sous un dossier temporaire controle ;
 - build/test dans le worktree ;
-- rapport final ;
+- rapport final JSON avec snapshots, apply, build et diff ;
 - nettoyage uniquement du worktree cree et apres validation de chemin ;
+- lease listable et recovery manuelle fail-closed ;
 - aucun reset/clean du projet utilisateur.
 
-Declenchement : conditions atteintes ; prochain sprint actif.
+Validation : succes, build echoue, timeout, repo sale, traversal, cleanup et
+source inchangee testes sur de vrais depots temporaires. Voir
+[`worktree-verification.md`](worktree-verification.md).
 
 ## P1 - Intelligence code et contexte
 
@@ -402,9 +407,9 @@ Tree-sitter/Tantivy.
 2. Implementer PROC-001 timeout/cancellation. Fait.
 3. Implementer APPLY-001 apply transactionnel avec pannes simulees. Fait.
 4. Ajouter APPLY-002 concurrence optimiste. Fait pour le refus de conflit.
-5. Ajouter GIT-002 worktree jetable. Prochain sprint.
-6. Decouper les modules tools necessaires.
-7. Integrer CODE-001 Tree-sitter Java.
+5. Ajouter GIT-002 worktree jetable. Fait.
+6. Decouper les modules tools necessaires. Fait pour worktree ; poursuivre selon besoin.
+7. Integrer CODE-001 Tree-sitter Java. Prochain sprint.
 8. Construire CONTEXT-001 selection par tache.
 9. Migrer vers INDEX-001/002 SQLite + Tantivy.
 10. Construire AGENT-001/002.
@@ -413,19 +418,19 @@ Tree-sitter/Tantivy.
 
 ## Prochain sprint propose
 
-`GIT-002 - Worktree jetable de verification`.
+`CODE-001 - Tree-sitter Java`.
 
-Le process runner, le Git State Guard et l'apply transactionnel sont maintenant
-bornes et testes. Le prochain risque est de compiler un patch directement dans
-le worktree utilisateur avant d'avoir prouve son build. Un worktree temporaire
-doit isoler cette verification sans reset ni clean du projet original.
+Le process runner, le Git State Guard, l'apply transactionnel et le worktree
+jetable sont maintenant bornes et testes. Le prochain risque est le patch Java
+textuel global, qui peut toucher commentaires, chaines ou identifiants voisins.
+Tree-sitter doit fournir des positions syntaxiques fiables avant les patchs
+generaux de l'agent.
 
 Questions de conception a regler dans le code :
 
-- creation sous un chemin temporaire valide ;
-- rattachement au depot et commit exact a verifier ;
-- apply/build avec le process runner borne ;
-- rapport Git avant/apres dans le worktree ;
-- nettoyage exclusif du worktree cree par OpticCode ;
-- conservation des artefacts utiles en cas d'echec ;
-- aucun essai destructif sur un projet original.
+- choix des crates `tree-sitter` et `tree-sitter-java` compatibles avec la MSRV ;
+- extraction classes, methodes, imports, champs et positions byte ;
+- distinction code/commentaires/chaines pour les regles legacy ;
+- cache parse par fichier et invalidation par hash ;
+- rapport symbolique serialisable reutilisable par le contexte et l'agent ;
+- benchmarks sur mini plugin, Kspawners et un sous-ensemble PandaSpigot.

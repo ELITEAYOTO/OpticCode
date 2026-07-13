@@ -21,12 +21,19 @@ Job Object Windows valides avant l'apply transactionnel.
 Mise a jour APPLY-001 : l'apply transactionnel est maintenant implemente avec
 journal `prepared`, backups BLAKE3, etats append-only, rollback automatique,
 recovery explicite, concurrence optimiste et tests CLI reels. Voir
-[`apply-transaction.md`](apply-transaction.md). La prochaine cible est `GIT-002`,
-verification patch/build dans un worktree jetable.
+[`apply-transaction.md`](apply-transaction.md). GIT-002, alors cible suivante de
+l'audit, est maintenant termine dans la mise a jour ci-dessous.
 
 Validation post-audit : fmt et Clippy stricts OK, 96 tests workspace passes,
 build release OK. Les tests APPLY-001 utilisent uniquement des fixtures Git
 temporaires.
+
+Mise a jour du 2026-07-13 : GIT-002 est implemente dans un module separe avec
+worktree detache, apply transactionnel, build strict borne, diff, preuve de
+source inchangee, cleanup valide et leases recuperables. La validation courante
+atteint 105 tests workspace et Clippy strict sans avertissement. Voir
+[`worktree-verification.md`](worktree-verification.md). La prochaine cible est
+`CODE-001`, Tree-sitter Java.
 
 ## 1. Resume executif
 
@@ -52,7 +59,7 @@ Verdict global :
 | --- | --- | --- |
 | Cadrage et architecture | solide | la direction Rust + Ollama puis llama.cpp reste coherente |
 | Environnement Windows | operationnel | aucun nouvel outil lourd n'est requis maintenant |
-| CLI locale | fonctionnelle | 18 commandes disponibles |
+| CLI locale | fonctionnelle | 20 commandes disponibles |
 | Specialisation Bukkit 1.8 | utile mais etroite | bonnes premieres regles, couverture encore faible |
 | RAG | prototype valide | utile sur les cas legacy, pas encore scalable |
 | Safe apply | transactionnel | rollback/recovery valides, originaux encore bloques par le patch textuel |
@@ -61,9 +68,9 @@ Verdict global :
 | Qualite logicielle | bonne base | tests et lint verts, CI et couverture absentes |
 | Niveau produit | experimental | pas de release, configuration stable, TUI, daemon ou IDE |
 
-Position actuelle dans le plan : Phase 5.3 terminee pour l'apply transactionnel.
-Les projets personnels originaux restent hors tests ; la prochaine cible est un
-worktree jetable, puis Tree-sitter Java.
+Position actuelle dans le plan : Phase 5.4 terminee pour le worktree jetable.
+Les projets personnels originaux restent hors tests. Le worktree jetable est
+maintenant valide sur fixtures ; la prochaine cible est Tree-sitter Java.
 
 ## 2. Portee et methode de l'audit
 
@@ -252,6 +259,7 @@ opticcode-tools
   build.rs
   patch.rs
   apply.rs
+  worktree.rs
   rag_scan.rs
   rag_index.rs
   git_state.rs
@@ -261,16 +269,17 @@ Ce decoupage n'exige pas de multiplier immediatement les crates. Il doit d'abord
 
 ## 7. Fonctionnalites disponibles
 
-La CLI expose 16 commandes :
+La CLI expose maintenant 20 commandes :
 
 | Domaine | Commandes | Etat |
 | --- | --- | --- |
-| Workspace | `inspect`, `search`, `context` | fonctionnel |
+| Workspace | `inspect`, `git-state`, `search`, `context` | fonctionnel |
 | Java | `analyze-java`, `build` | fonctionnel, couverture limitee |
 | Connaissances | `profile`, `memory` | lecture seule fonctionnelle |
 | Sources | `pack-scan`, `rag-scan` | lecture seule fonctionnelle |
 | RAG | `rag-index`, `rag-search`, `rag-debug` | prototype fonctionnel |
-| Patches | `patch`, `apply` | fonctionnel pour regles deterministes |
+| Patches | `patch`, `apply`, `transactions` | fonctionnel pour regles deterministes |
+| Isolation | `worktree-verify`, `worktrees` | fonctionnel sur source Git propre |
 | LLM | `ask`, `plan` | fonctionnel via Ollama |
 
 ### 7.1 Inspection et recherche
@@ -506,9 +515,9 @@ Risques restants :
 8. Aucun build automatique n'est inclus dans la transaction apply.
 9. Sous Windows, la metadata de remplacement ne peut pas etre synchronisee de facon absolument portable.
 
-Verdict : safe apply est transactionnel et prouve sur fixtures Git. L'usage sur
-originaux reste volontairement differe tant que le patch Java est textuel et que
-la verification en worktree jetable n'existe pas.
+Verdict mis a jour : safe apply est transactionnel et la verification en
+worktree jetable existe. L'usage sur originaux reste volontairement differe tant
+que le patch Java est textuel et qu'aucune promotion controlee n'est implementee.
 
 ## 8. Donnees externes deja etudiees
 
@@ -770,7 +779,8 @@ Action : ajouter `--json` aux outils utilises par l'agent. L'agent ne doit pas p
 | 5 - tools Java | en cours | AST, builds configurables, tests plus larges |
 | 5.1 - safe apply | terminee pour scope legacy | extension aux patches generaux apres AST |
 | 5.2 - process runner | terminee | etendre aux futurs tools longs |
-| 5.3 - apply transactionnel | terminee | worktree de verification et AST Java |
+| 5.3 - apply transactionnel | terminee | extension aux patchs generaux apres AST Java |
+| 5.4 - worktree jetable | terminee | promotion controlee apres AST et approbation |
 | 5.5 - profils/memoire | prototype | ecriture controlee, provenance, deduplication |
 | 6 - RAG | prototype JSONL | Tantivy, incremental, symboles, evaluation large |
 | 7 - agent iteratif | non commence | depend des verrous P0/P1 |
@@ -789,7 +799,7 @@ Objectif : rendre le workflow copie/apply/build/undo attribuable et recuperable.
 5. Tester sur une copie Kspawners. Fait.
 6. Rendre le journal apply transactionnel. Fait.
 7. Ajouter les tests integration apply externe sale/propre. Fait.
-8. Exclure proprement les builds et gros dossiers lors de `--copy-to`. Reste a faire ou a remplacer par GIT-002.
+8. Remplacer la copie lourde pour la verification par GIT-002. Fait.
 
 Critere de sortie : apply puis build puis undo laisse le repo dans un etat explique, et chaque fichier modifie a une origine connue.
 
@@ -901,8 +911,9 @@ Choix de conception recommande : utiliser `git status --porcelain=v1 -z` ou un f
 
 - Build Git State Guard : termine (`6c4469a`).
 - Process runner borne : termine (`815994c`).
-- APPLY-001 : termine dans le worktree courant, en attente de commit explicite.
-- Prochain sprint : `GIT-002`, worktree jetable de verification.
+- APPLY-001 : termine et commite (`f5bb7b0`).
+- GIT-002 : implemente et valide localement, en attente de commit explicite.
+- Prochain sprint : `CODE-001`, Tree-sitter Java.
 
 ## 17. Definition de fini pour une V1 utile
 

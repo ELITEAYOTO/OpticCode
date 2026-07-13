@@ -475,6 +475,7 @@ Le verrou principal sur le bruit Maven et le process runner borne sont traites.
 APPLY-001 est maintenant termine : journal prepare, backups BLAKE3, rollback et
 recovery. Voir [`apply-transaction.md`](apply-transaction.md).
 
-La prochaine brique est `GIT-002` : reutiliser ce guard dans un worktree jetable
-pour attribuer les effets d'un patch puis d'un build avant toute proposition
-d'application sur le worktree utilisateur.
+`GIT-002` reutilise maintenant ce guard dans un worktree jetable pour attribuer
+les effets d'un patch puis d'un build. Voir
+[`worktree-verification.md`](worktree-verification.md). La prochaine brique est
+Tree-sitter Java.

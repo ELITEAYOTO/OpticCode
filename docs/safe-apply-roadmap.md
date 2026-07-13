@@ -440,7 +440,8 @@ Ne doit pas montrer de modification dans `benchmarks/mini-bukkit-plugin`.
 10. Ajouter un garde-fou LF/CRLF avant projets originaux. Fait.
 11. Ajouter un garde-fou d'etat Git apres build. Fait.
 12. Ajouter journal prepare, rollback automatique et recovery. Fait via APPLY-001.
-13. Verifier patch/build dans un worktree jetable. Prochaine cible GIT-002.
+13. Verifier patch/build dans un worktree jetable. Fait via GIT-002.
+14. Remplacer les transformations Java textuelles par Tree-sitter. Prochaine cible CODE-001.
 
 ## Risques
 

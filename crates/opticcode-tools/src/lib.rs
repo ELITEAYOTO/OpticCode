@@ -1,6 +1,7 @@
 pub mod apply_transaction;
 pub mod git_state;
 pub mod process_runner;
+pub mod worktree;
 
 use std::collections::BTreeMap;
 use std::ffi::OsString;

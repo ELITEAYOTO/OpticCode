@@ -332,7 +332,7 @@ Resultat exact du dernier run `-Full` le 2026-07-11 :
 
 ## Suite recommandee
 
-Le prochain sprint est `GIT-002` : verifier les patches et builds dans un
-worktree jetable avant de proposer un apply sur le worktree utilisateur. Ensuite,
-la priorite code est Tree-sitter Java afin d'eliminer les remplacements textuels
-dans commentaires et chaines.
+`GIT-002` est maintenant termine ; voir
+[`worktree-verification.md`](worktree-verification.md). La priorite suivante est
+Tree-sitter Java afin d'eliminer les remplacements textuels dans commentaires et
+chaines.

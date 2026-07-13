@@ -238,7 +238,7 @@ n'a detecte aucun changement supplementaire pendant ce build. L'original
 
 ## Suite
 
-`APPLY-001` est maintenant termine ; voir
-[`apply-transaction.md`](apply-transaction.md). La prochaine utilisation directe
-du runner sera `GIT-002` : borner le build de verification dans un worktree
-jetable lie a un patch candidat.
+`APPLY-001` et `GIT-002` sont maintenant termines ; voir
+[`apply-transaction.md`](apply-transaction.md) et
+[`worktree-verification.md`](worktree-verification.md). Le runner borne les
+commandes Git et le build du worktree jetable.

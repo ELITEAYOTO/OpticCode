@@ -170,6 +170,6 @@ Documentation detaillee :
 
 ## Prochaine action recommandee
 
-APPLY-001 est maintenant transactionnel et valide sur fixtures temporaires, sans
+APPLY-001 et GIT-002 sont maintenant valides sur fixtures temporaires, sans
 nouvelle ecriture sur Kspawners. Continuer les essais sur copies ou worktrees :
-la prochaine etape est `GIT-002`, puis Tree-sitter Java avant les originaux.
+la prochaine etape est Tree-sitter Java avant les originaux.

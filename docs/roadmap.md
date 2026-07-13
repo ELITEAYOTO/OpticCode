@@ -6,7 +6,7 @@ Etat audite et roadmap consolidee au 2026-07-11 :
 Ce document conserve l'historique detaille des phases. L'audit consolide fait
 foi pour les priorites et les criteres de sortie actuels.
 
-Derniere mise a jour : 2026-07-07
+Derniere mise a jour : 2026-07-13
 
 ## Vision courte
 
@@ -264,8 +264,10 @@ Etat actuel :
 - concurrence optimiste ajoutee : verification before/after et refus de derive externe ;
 - verrou OS workspace et refus des symlinks/jonctions sur cibles et journaux ;
 - tests CLI reels valident apply, inspect, list, undo, repo sale, rollback_failed et recovery ;
-- validation complete : 96 tests workspace, Clippy strict et build release OK ;
-- prochaine cible : verification patch/build dans un worktree jetable `GIT-002`.
+- verification GIT-002 ajoutee : worktree detache, apply, build strict, diff et cleanup ;
+- registre de leases et cleanup manuel fail-closed ajoutes pour les interruptions ;
+- validation complete : 105 tests workspace et Clippy strict OK ;
+- prochaine cible : parsing Java structure avec Tree-sitter `CODE-001`.
 
 ## Phase 5.1 - Safe Apply
 
@@ -353,6 +355,33 @@ Limites :
 - pas de recovery destructive automatique.
 
 Reference : [`apply-transaction.md`](apply-transaction.md).
+
+## Phase 5.4 - Worktree jetable de verification
+
+Statut : termine et valide sur depots temporaires Windows.
+
+Acquis :
+
+- source Git propre et commit exact verifies avant creation ;
+- worktree detache sous un stockage temporaire controle ;
+- compatibilite des chemins Windows `\\?\` avec Git for Windows ;
+- apply transactionnel puis build strict avec timeout/cancellation ;
+- rapport JSON avec snapshots, diff, apply, build et cleanup ;
+- preuve commit/etat Git source avant/apres ;
+- detached HEAD, refs utilisateur et Git State Guard source verifies ;
+- cleanup uniquement du worktree enregistre par OpticCode ;
+- leases listables et nettoyables apres interruption ;
+- resultat verification separe du cleanup et recovery idempotente ;
+- codes distincts pour verification, cleanup, precondition et run id ;
+- tests succes, build echoue, timeout, repo sale, traversal et recovery vide.
+
+Limites :
+
+- adaptateur public encore limite au patch legacy deterministe ;
+- aucun transfert automatique vers le projet source ;
+- recovery fail-closed si un dossier non enregistre contient des donnees.
+
+Reference : [`worktree-verification.md`](worktree-verification.md).
 
 ## Phase 5.5 - Profils, memoire et optimisation controlee
 

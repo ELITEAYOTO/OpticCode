@@ -1,6 +1,6 @@
 # OpticCode - Architecture cible
 
-Derniere mise a jour : 2026-07-11
+Derniere mise a jour : 2026-07-13
 
 ## Principe
 
@@ -34,6 +34,7 @@ optic-core
   |     +-- read/list/search files
   |     +-- preview/check patch
   |     +-- apply transactionnel + rollback/recovery
+  |     +-- disposable Git worktree verifier
   |     +-- git diff/status
   |     +-- bounded process runner
   |     +-- maven/gradle build
@@ -130,6 +131,23 @@ Etat implemente :
 La transaction n'est pas globalement atomique sur plusieurs fichiers. Elle
 garantit qu'un etat partiel est journalise et recuperable sans ecraser une derive
 externe inconnue. Voir [`apply-transaction.md`](apply-transaction.md).
+
+## Worktree de verification
+
+Etat implemente :
+
+- source Git propre et commit `HEAD` exact obligatoires ;
+- creation bornee d'un worktree detache sous `%TEMP%\opticcode-worktrees` ;
+- apply transactionnel et build strict uniquement dans ce worktree ;
+- capture de l'etat Git et du diff avant suppression ;
+- seconde capture du commit et de l'etat de la source ;
+- lease externe au worktree pour recovery apres crash ;
+- cleanup Git uniquement apres validation du chemin et de l'enregistrement ;
+- aucun transfert automatique vers la source.
+
+Le cycle de vie est isole dans `opticcode-tools/src/worktree.rs`. Il ne doit pas
+etre reintegre dans `apply_transaction.rs`. Voir
+[`worktree-verification.md`](worktree-verification.md).
 
 ## Runtime LLM
 

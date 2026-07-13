@@ -18,9 +18,10 @@ Le projet ne vise pas a entrainer un modele IA depuis zero. Il construit une cou
 ## Etat actuel
 
 Le projet a maintenant un MVP Rust fonctionnel : inspection, analyse Java/Bukkit,
-Ollama/Qwen, RAG JSONL, patch legacy, apply transactionnel, rollback/recovery et
-controle Git avant/apres build. Les builds passent aussi par un process runner
-borne avec timeout, sortie limitee et terminaison de l'arbre Windows.
+Ollama/Qwen, RAG JSONL, patch legacy, apply transactionnel, rollback/recovery,
+controle Git avant/apres build et verification dans un worktree jetable. Les
+builds passent aussi par un process runner borne avec timeout, sortie limitee et
+terminaison de l'arbre Windows.
 
 - Phase 0 : audit environnement Windows 10 termine.
 - Phase 1 : documentation de cadrage terminee.
@@ -28,7 +29,7 @@ borne avec timeout, sortie limitee et terminaison de l'arbre Windows.
 - Phase 2 : benchmark Ollama / Qwen2.5-Coder 14B termine.
 - Phase 3 : recherche depots externes et analyse Qwen Code terminees.
 - Phase 4 : MVP Rust fonctionnel.
-- Phase 5 : tools Java en cours ; safe apply transactionnel termine pour le scope legacy deterministe.
+- Phase 5 : tools Java en cours ; apply transactionnel et worktree de verification termines pour le scope legacy deterministe.
 - Phase 6 : prototype RAG JSONL fonctionnel, index scalable a faire.
 - Phase 7 : agent iteratif non commence.
 
@@ -38,6 +39,7 @@ borne avec timeout, sortie limitee et terminaison de l'arbre Windows.
 - [Build Git State Guard](docs/build-git-state-guard.md)
 - [Process runner borne](docs/process-runner.md)
 - [Apply transactionnel et recovery](docs/apply-transaction.md)
+- [Verification dans un worktree jetable](docs/worktree-verification.md)
 - [Backlog canonique d'optimisation](docs/optimization-backlog.md)
 - [Etat environnement](docs/environment-audit.md)
 - [Roadmap](docs/roadmap.md)
@@ -99,6 +101,9 @@ cargo run -q -- apply --path C:\path\to\git-project --undo <transaction-id> --al
 cargo run -q -- transactions --path C:\path\to\git-project --json
 cargo run -q -- transactions --path C:\path\to\git-project --inspect <transaction-id> --json
 cargo run -q -- transactions --path C:\path\to\git-project --recover <transaction-id> --allow-external --yes --json
+cargo run -q -- worktree-verify --path C:\path\to\clean-git-project --json
+cargo run -q -- worktrees --json
+cargo run -q -- worktrees --cleanup <run-id> --yes --json
 cargo run -q -- profile --path benchmarks/mini-bukkit-plugin --profile minecraft-java-1.8
 cargo run -q -- memory --path benchmarks/mini-bukkit-plugin --profile minecraft-java-1.8
 cargo run -q -- pack-scan --path "C:\Users\timot\Desktop\RAG-1.8-Minecraft\1.8-JavaDoc\resource-pack-1.8\LegacyPack" --limit 25
@@ -119,10 +124,13 @@ cargo run -q -- inspect --path benchmarks/mini-bukkit-plugin
 .\scripts\run-build-git-guard-quality.ps1
 .\scripts\run-git-snapshot-benchmark.ps1 -Iterations 5
 .\scripts\run-apply-transaction-quality.ps1
+.\scripts\run-worktree-quality.ps1
+.\scripts\run-worktree-quality.ps1 -Full
 ```
 
 ## Prochaine etape
 
-Ajouter `GIT-002` : verifier patch et build dans un worktree jetable avant toute
-proposition d'application sur le worktree utilisateur. L'etape suivante sera
-Tree-sitter Java pour remplacer les transformations textuelles globales.
+Ajouter `CODE-001` : integrer Tree-sitter Java pour remplacer les
+transformations textuelles globales par des edits fondes sur des positions
+syntaxiques. GIT-002 est termine ; aucune promotion automatique vers le projet
+source n'est encore autorisee.

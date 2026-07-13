@@ -532,6 +532,7 @@ etre mesure sur PandaSpigot avant toute optimisation ou mise en cache.
 18. Isoler le bruit de build Maven. Fait via Build Git State Guard.
 19. Ajouter un process runner borne avec timeout/cancellation. Fait.
 20. Rendre le journal apply transactionnel. Fait via APPLY-001.
-21. Verifier patch et build dans un worktree jetable. Prochaine cible GIT-002.
+21. Verifier patch et build dans un worktree jetable. Fait via GIT-002.
+22. Remplacer les edits Java textuels par Tree-sitter. Prochaine cible CODE-001.
 
 Backlog consolide : `docs/optimization-backlog.md`.

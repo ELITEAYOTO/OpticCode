@@ -1,6 +1,6 @@
 # OpticCode - Decisions techniques
 
-Derniere mise a jour : 2026-07-06
+Derniere mise a jour : 2026-07-13
 
 ## Decisions validees
 
@@ -937,3 +937,32 @@ Raison :
   effectues apres l'apply ;
 - `ReplaceFileW` et `MoveFileExW` offrent la meilleure atomicite pratique par
   fichier, sans pretendre a une transaction globale du filesystem.
+
+### D-056 - Verification dans un worktree Git detache
+
+Statut : valide.
+
+Decision :
+
+- exiger une source Git propre et resoudre le commit `HEAD` exact ;
+- creer un worktree detache sous `%TEMP%\opticcode-worktrees` ;
+- appliquer et compiler uniquement dans ce worktree ;
+- activer le Git State Guard strict pendant le build ;
+- conserver apply, build, snapshots et diff dans un rapport JSON versionne ;
+- revalider le commit et l'etat Git de la source apres le cleanup ;
+- verifier detached HEAD et empreinter les refs utilisateur avant/apres ;
+- publier une lease hors du worktree avant creation pour permettre la recovery ;
+- n'autoriser le cleanup que pour le chemin controle et enregistre par Git ;
+- ne supprimer un dossier non enregistre que s'il est vide ;
+- refuser symlinks, jonctions, reparse points et run ids non conformes ;
+- ne jamais promouvoir automatiquement le resultat vers le projet source.
+- separer resultat de verification, resultat de cleanup et besoin de recovery ;
+- rendre un cleanup deja termine idempotent.
+
+Raison :
+
+- un build peut produire du bruit ou modifier des fichiers suivis ;
+- rollbacker apres un build dans le projet utilisateur expose inutilement les originaux ;
+- un worktree detache isole le commit teste sans dupliquer le depot `.git` ;
+- la lease permet de retrouver un worktree abandonne apres un crash ;
+- separer verification et promotion garde l'approbation utilisateur explicite.

@@ -19,6 +19,12 @@ use opticcode_tools::process_runner::{
     CancellationToken, ProcessOutputStats, ProcessStatus, ProcessTermination,
     DEFAULT_PROCESS_OUTPUT_LIMIT_BYTES, DEFAULT_PROCESS_TIMEOUT_SECONDS,
 };
+use opticcode_tools::worktree::{
+    cleanup_disposable_worktree, list_disposable_worktrees, verify_java_legacy_patch_in_worktree,
+    worktree_operation_error_kind, WorktreeCleanupReport, WorktreeLeaseInspection,
+    WorktreeOperationErrorKind, WorktreeVerificationOptions, WorktreeVerificationReport,
+    WorktreeVerificationStatus, DEFAULT_WORKTREE_GIT_TIMEOUT_SECONDS,
+};
 use opticcode_tools::{
     analyze_java_project, apply_java_legacy_patch_in_place_with_options,
     apply_java_legacy_patch_to_copy, build_java_project_with_cancellation, build_project_context,
@@ -156,6 +162,26 @@ enum Command {
         recover: Option<String>,
         #[arg(long)]
         allow_external: bool,
+        #[arg(long)]
+        yes: bool,
+        #[arg(long)]
+        json: bool,
+    },
+    WorktreeVerify {
+        #[arg(long, default_value = ".")]
+        path: PathBuf,
+        #[arg(long, default_value_t = DEFAULT_PROCESS_TIMEOUT_SECONDS)]
+        timeout_seconds: u64,
+        #[arg(long, default_value_t = DEFAULT_WORKTREE_GIT_TIMEOUT_SECONDS)]
+        git_timeout_seconds: u64,
+        #[arg(long, default_value_t = DEFAULT_PROCESS_OUTPUT_LIMIT_BYTES)]
+        output_limit_bytes: usize,
+        #[arg(long)]
+        json: bool,
+    },
+    Worktrees {
+        #[arg(long)]
+        cleanup: Option<String>,
         #[arg(long)]
         yes: bool,
         #[arg(long)]
@@ -427,6 +453,86 @@ async fn main() -> Result<()> {
                 std::process::exit(apply_error_exit_code(&error));
             }
         },
+        Command::WorktreeVerify {
+            path,
+            timeout_seconds,
+            git_timeout_seconds,
+            output_limit_bytes,
+            json,
+        } => {
+            let cancellation = CancellationToken::new();
+            let signal_cancellation = cancellation.clone();
+            let signal_task = tokio::spawn(async move {
+                if tokio::signal::ctrl_c().await.is_ok() {
+                    signal_cancellation.cancel();
+                }
+            });
+            tokio::task::yield_now().await;
+            let result = verify_java_legacy_patch_in_worktree(
+                &path,
+                WorktreeVerificationOptions {
+                    build_timeout: Duration::from_secs(timeout_seconds),
+                    git_timeout: Duration::from_secs(git_timeout_seconds),
+                    output_limit_bytes,
+                },
+                &cancellation,
+            );
+            signal_task.abort();
+            match result {
+                Ok(report) => {
+                    if json {
+                        println!("{}", serde_json::to_string_pretty(&report)?);
+                    } else {
+                        println!("{}", report.to_display_string());
+                    }
+                    let exit_code = worktree_verification_exit_code(&report);
+                    if exit_code != 0 {
+                        std::process::exit(exit_code);
+                    }
+                }
+                Err(error) => {
+                    print_worktree_error("worktree_verify", &error, json)?;
+                    std::process::exit(worktree_error_exit_code(&error));
+                }
+            }
+        }
+        Command::Worktrees { cleanup, yes, json } => {
+            if let Some(run_id) = cleanup {
+                if !yes {
+                    let error = anyhow::anyhow!("worktrees --cleanup requires --yes");
+                    print_worktree_error("worktree_cleanup", &error, json)?;
+                    std::process::exit(WORKTREE_EXIT_PRECONDITION);
+                }
+                match cleanup_disposable_worktree(&run_id) {
+                    Ok(report) => {
+                        print_worktree_cleanup(&report, json)?;
+                        if !report.success {
+                            std::process::exit(WORKTREE_EXIT_CLEANUP_FAILED);
+                        }
+                    }
+                    Err(error) => {
+                        print_worktree_error("worktree_cleanup", &error, json)?;
+                        std::process::exit(worktree_error_exit_code(&error));
+                    }
+                }
+            } else {
+                let leases = list_disposable_worktrees()?;
+                if json {
+                    println!(
+                        "{}",
+                        serde_json::to_string_pretty(&WorktreeListJson {
+                            schema_version: 1,
+                            leases: &leases,
+                        })?
+                    );
+                } else {
+                    println!("Disposable worktrees: {}", leases.len());
+                    for lease in &leases {
+                        println!("- {}", lease.to_display_string());
+                    }
+                }
+            }
+        }
         Command::Ask {
             prompt,
             path,
@@ -524,6 +630,65 @@ const APPLY_EXIT_ROLLED_BACK: i32 = 2;
 const APPLY_EXIT_ROLLBACK_FAILED: i32 = 3;
 const APPLY_EXIT_PRECONDITION: i32 = 4;
 const APPLY_EXIT_INVALID_TRANSACTION: i32 = 5;
+const WORKTREE_EXIT_VERIFICATION_FAILED: i32 = 6;
+const WORKTREE_EXIT_CLEANUP_FAILED: i32 = 7;
+const WORKTREE_EXIT_PRECONDITION: i32 = 8;
+const WORKTREE_EXIT_INVALID_RUN_ID: i32 = 9;
+
+fn worktree_verification_exit_code(report: &WorktreeVerificationReport) -> i32 {
+    if !report.cleanup_success {
+        WORKTREE_EXIT_CLEANUP_FAILED
+    } else if report.status == WorktreeVerificationStatus::Passed && report.success() {
+        0
+    } else {
+        WORKTREE_EXIT_VERIFICATION_FAILED
+    }
+}
+
+fn worktree_error_exit_code(error: &anyhow::Error) -> i32 {
+    match worktree_operation_error_kind(error) {
+        Some(WorktreeOperationErrorKind::InvalidRunId) => WORKTREE_EXIT_INVALID_RUN_ID,
+        Some(WorktreeOperationErrorKind::Precondition) => WORKTREE_EXIT_PRECONDITION,
+        Some(WorktreeOperationErrorKind::Git | WorktreeOperationErrorKind::Storage) | None => {
+            WORKTREE_EXIT_VERIFICATION_FAILED
+        }
+    }
+}
+
+fn print_worktree_error(operation: &str, error: &anyhow::Error, json: bool) -> Result<()> {
+    let kind =
+        worktree_operation_error_kind(error).unwrap_or(WorktreeOperationErrorKind::Precondition);
+    if json {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&WorktreeErrorJson {
+                schema_version: 1,
+                operation,
+                operation_success: false,
+                error_kind: kind,
+                error: format!("{error:#}"),
+            })?
+        );
+    } else {
+        eprintln!("Error: {error:#}");
+    }
+    Ok(())
+}
+
+fn print_worktree_cleanup(report: &WorktreeCleanupReport, json: bool) -> Result<()> {
+    if json {
+        println!("{}", serde_json::to_string_pretty(report)?);
+    } else {
+        println!("Worktree cleanup: {}", report.run_id);
+        println!("- path: {}", report.worktree.display());
+        println!("- success: {}", report.success);
+        println!("- descriptor removed: {}", report.descriptor_removed);
+        for error in &report.errors {
+            println!("Error: {error}");
+        }
+    }
+    Ok(())
+}
 
 enum ApplyCommandOutput {
     Plan(Box<ApplyPlan>),
@@ -897,6 +1062,21 @@ struct ApplyErrorJson<'a> {
     operation: &'a str,
     operation_success: bool,
     error_kind: ApplyTransactionErrorKind,
+    error: String,
+}
+
+#[derive(Serialize)]
+struct WorktreeListJson<'a> {
+    schema_version: u32,
+    leases: &'a [WorktreeLeaseInspection],
+}
+
+#[derive(Serialize)]
+struct WorktreeErrorJson<'a> {
+    schema_version: u32,
+    operation: &'a str,
+    operation_success: bool,
+    error_kind: WorktreeOperationErrorKind,
     error: String,
 }
 
