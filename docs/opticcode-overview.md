@@ -40,6 +40,7 @@ local, Git isole les essais et Maven/Gradle compilent les projets Java.
 - verification dans un worktree detache ;
 - analyse Java read-only avec offsets d'octets, hashes et diagnostics ;
 - index inter-fichiers avec resolutions exactes, ambigues ou non resolues ;
+- propositions d'edits Java avec hash, ranges, octets attendus et reparse ;
 - aucune modification automatique provenant directement du modele.
 
 ## Etat actuel
@@ -50,14 +51,15 @@ references entre fichiers, proposer certains patches legacy, appliquer une
 transaction recuperable, compiler et verifier un patch dans un worktree
 temporaire.
 
-La prochaine brique est la production read-only d'edits Java cibles sur des
-ranges AST verifies. L'index refuse deja de choisir arbitrairement entre deux
-classes ou methodes portant le meme nom.
+La production read-only d'edits Java cibles est maintenant disponible pour 14
+regles Bukkit 1.8. L'index refuse de choisir arbitrairement entre deux classes
+ou methodes, puis le moteur verifie hash, qualificateur, octets et syntaxe. La
+prochaine brique executera ces edits uniquement dans un worktree jetable.
 
 ## Ce qui reste avant une V1 autonome
 
 - index symbolique incremental et persistant pour les tres grands depots ;
-- edits Java cibles, verification des octets attendus et reparse ;
+- integration des edits Java dans apply/worktree et build borne ;
 - RAG scalable avec provenance ;
 - boucle agent bornee plan -> tools -> build -> correction ;
 - approbation finale et promotion controlee ;

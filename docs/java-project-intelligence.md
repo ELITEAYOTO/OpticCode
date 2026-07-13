@@ -146,8 +146,10 @@ build apres patch : succes
 ## Prochaines etapes
 
 1. `CODE-001B1` index symbolique inter-fichiers read-only. Fait.
-2. Construire `CODE-001B2`, propositions d'edits sur ranges AST verifies.
-3. Etendre l'apply transactionnel aux futurs patches AST avec confirmation explicite.
-4. Relier progressivement l'analyse Tree-sitter au profil `minecraft-java-1.8`.
+2. Construire `CODE-001B2`, propositions d'edits sur ranges AST verifies. Fait.
+3. Construire `CODE-001B3`, verification/apply uniquement dans un worktree.
+4. Etendre ensuite l'apply transactionnel aux futurs patches AST avec confirmation explicite.
+5. Relier progressivement l'analyse Tree-sitter au profil `minecraft-java-1.8`.
 
-Voir [`java-syntax.md`](java-syntax.md) et [`java-index.md`](java-index.md).
+Voir [`java-syntax.md`](java-syntax.md), [`java-index.md`](java-index.md) et
+[`java-edits.md`](java-edits.md).

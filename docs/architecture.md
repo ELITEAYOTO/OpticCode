@@ -40,6 +40,7 @@ optic-core
   |     +-- maven/gradle build
   |     +-- Java Tree-sitter read-only syntax analysis
   |     +-- Java cross-file symbol index and conservative resolver
+  |     +-- read-only AST-ranged Java edit proposals
   |
   +-- optic-rag
   |     +-- sqlite metadata
@@ -174,9 +175,19 @@ Etat index read-only implemente :
 - timings separes pour lecture, parse, extraction, index et resolution ;
 - commande `java-index` et JSON versionne.
 
-La prochaine etape est la production d'edits legacy cibles sur ranges AST,
-puis un index incremental/persistant lorsque les mesures le justifieront. Voir
-[`java-syntax.md`](java-syntax.md) et [`java-index.md`](java-index.md).
+Etat edits read-only implemente :
+
+- module independant `opticcode-tools/src/java_edits/` ;
+- 14 regles Bukkit 1.8 partagees avec le workflow legacy historique ;
+- cible exacte, qualificateur/import prouve et shadows connus refuses ;
+- hash BLAKE3, noeud/octet attendu, ranges non chevauchants et IDs stables ;
+- simulation de fin vers debut et reparse en memoire ;
+- sortie compacte `java-edits` humaine/JSON, sans aucune ecriture.
+
+La prochaine etape est l'adaptateur `CODE-001B3` qui executera ces edits via
+APPLY-001 dans GIT-002, puis un index incremental/persistant lorsque les mesures
+le justifieront. Voir [`java-syntax.md`](java-syntax.md),
+[`java-index.md`](java-index.md) et [`java-edits.md`](java-edits.md).
 
 ## Runtime LLM
 

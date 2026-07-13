@@ -10,7 +10,8 @@ Ces regles servent a trois endroits :
 
 - profil `minecraft-java-1.8` ;
 - analyse `analyze-java` ;
-- patch preview `patch`.
+- patch preview `patch` ;
+- propositions AST read-only `java-edits` ;
 - scan preparatoire `pack-scan`.
 
 ## Sources locales consultees
@@ -59,6 +60,8 @@ La commande `pack-scan` confirme aussi la presence de nombreux `models/block`, `
 - Ne pas convertir automatiquement les laines, vitres, tapis, bois ou variantes de blocs colorees sans verifier les data values.
 - Pour les blocks/items avec metadata en 1.8, preferer signaler le risque plutot que produire une correction approximative.
 - Les noms issus du resource pack ne correspondent pas toujours directement aux enums Bukkit `Material`.
+- Un nom identique ne suffit jamais : `SpawnReason.SPAWNER` ne doit pas etre
+  confondu avec `Material.SPAWNER` ; l'identite qualifiee doit etre prouvee.
 - `item.monsterPlacer` est le nom resource-pack 1.8 des spawn eggs ; cote Bukkit 1.8, verifier `Material.MONSTER_EGG` et les donnees d'entite associees.
 - Les spawners custom Volkaria devront etre indexes plus tard via RAG/CIT, pas hardcodes dans le moteur.
 

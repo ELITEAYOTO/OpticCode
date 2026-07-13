@@ -996,7 +996,7 @@ Raison :
   stabilisation du schema, sans coupler le parser au workflow Git.
 
 Suite retenue : `CODE-001B1` construit uniquement l'index read-only ;
-`CODE-001B2` introduira ensuite les propositions d'edits verifiees.
+`CODE-001B2` a ensuite introduit les propositions d'edits verifiees.
 
 ### D-058 - Resolution Java conservatrice avant toute transformation
 
@@ -1029,3 +1029,43 @@ Raison :
   un format persistant.
 
 Reference : [`java-index.md`](java-index.md).
+
+### D-059 - Edits Java read-only comme contrat avant l'ecriture
+
+Statut : valide.
+
+Decision :
+
+- isoler CODE-001B2 sous `java_edits/`, sans ajouter de logique dans
+  `worktree.rs` ou `apply_transaction.rs` ;
+- partager une table unique de 14 regles Bukkit 1.8 avec le workflow legacy ;
+- n'emettre une proposition que pour un acces de membre resolu `exact` vers
+  l'identite Bukkit complete attendue ;
+- exiger qualificateur pleinement qualifie ou import explicite ;
+- refuser les variables, parametres, type parameters et imports statiques
+  connus qui peuvent masquer le qualificateur ;
+- relire chaque fichier candidat avec chemins Windows controles et borne de
+  taille, puis comparer son hash BLAKE3 a celui de B1 ;
+- inclure range du noeud, range de l'edit, contenu attendu, remplacement,
+  raison, confiance et identifiant stable ;
+- refuser ranges invalides/chevauchants et appliquer la simulation de la fin
+  vers le debut avant reparse Tree-sitter ;
+- garder la sortie compacte sans source complete ni gros diff ;
+- distinguer les rejets attendus des erreurs structurelles fail-closed ;
+- ne realiser aucune ecriture dans B2.
+
+Raison :
+
+- un nom de membre seul ne prouve pas son proprietaire, comme le montre le vrai
+  cas Kspawners `CreatureSpawnEvent.SpawnReason.SPAWNER` ;
+- un contrat read-only est testable et versionnable avant de toucher APPLY-001 ;
+- hash, octets attendus et reparse permettent au futur adaptateur de refuser
+  une source qui a derive ;
+- les propositions compactes pourront alimenter worktree, contexte et agent
+  sans transporter des fichiers entiers.
+
+Suite retenue : CODE-001B3 reverifiera ce contrat et le convertira en mutations
+APPLY-001 uniquement dans un worktree GIT-002. Aucune promotion automatique ne
+sera ajoutee.
+
+Reference : [`java-edits.md`](java-edits.md).

@@ -205,12 +205,19 @@ Reste apres B1 :
 - index incremental/persistant par hash pour depasser 5 000 fichiers ;
 - classpath/JAR uniquement si les mesures qualite le justifient.
 
-Reste pour `CODE-001B2` :
+Realise pour `CODE-001B2` :
 
 - edits legacy sur ranges AST avec hash et octets attendus ;
 - refus des ranges invalides ou chevauchantes et reparse du resultat ;
-- application uniquement via APPLY-001 dans GIT-002 avec build borne ;
-- integration progressive dans `analyze-java` et le generateur de patch.
+- refus des mauvaises cibles, resolutions incertaines et shadows connus ;
+- sortie read-only compacte, corpus qualite et vraie regression Kspawners.
+
+Reste pour `CODE-001B3` :
+
+- revalider les preconditions juste avant ecriture ;
+- convertir les propositions en mutations APPLY-001 uniquement dans GIT-002 ;
+- reparse, build borne et diff final ;
+- conserver la promotion vers la source hors scope.
 
 Ne pas commencer par Rust/C++/JavaScript. Java couvre le besoin produit direct.
 
@@ -442,26 +449,26 @@ Tree-sitter/Tantivy.
 5. Ajouter GIT-002 worktree jetable. Fait.
 6. Decouper les modules tools necessaires. Fait pour worktree ; poursuivre selon besoin.
 7. Integrer CODE-001 Tree-sitter Java et CODE-001B1. Fait.
-8. Construire CODE-001B2, edits cibles read-only.
-9. Construire CONTEXT-001 selection par tache.
-10. Migrer vers INDEX-001/002 SQLite + Tantivy.
-11. Construire AGENT-001/002.
-12. Ajouter streaming/provider.
-13. Evaluer llama.cpp, Q5 et IDE seulement sur preuves.
+8. Construire CODE-001B2, edits cibles read-only. Fait.
+9. Construire CODE-001B3, verification des edits en worktree.
+10. Construire CONTEXT-001 selection par tache.
+11. Migrer vers INDEX-001/002 SQLite + Tantivy.
+12. Construire AGENT-001/002.
+13. Ajouter streaming/provider.
+14. Evaluer llama.cpp, Q5 et IDE seulement sur preuves.
 
 ## Prochain sprint propose
 
-`CODE-001B2 - Propositions d'edits Java ciblees`.
+`CODE-001B3 - Verification des edits AST dans un worktree`.
 
-Le parseur et l'index read-only fournissent maintenant des positions, identites
-et liens inter-fichiers expliques. Le prochain risque est de convertir une
-resolution prouvee en edit sans toucher un commentaire, une chaine, un mauvais
-overload ou une source ayant derive.
+Le parseur, l'index et B2 fournissent maintenant des edits read-only valides et
+expliques. Le prochain risque est de convertir ce contrat en ecritures sans
+dupliquer les controles ni exposer le projet source.
 
 Contraintes du prochain sprint :
 
-- range AST, hash source et octets attendus obligatoires ;
-- aucune proposition sur `ambiguous`, `unresolved` ou syntaxe invalide ;
-- refus des overlaps, application de fin vers debut et reparse ;
-- sortie read-only avant toute integration APPLY-001/GIT-002 ;
-- premiers cas legacy mesures sur corpus et copies seulement.
+- revalidation du hash, du noeud et des octets dans le worktree ;
+- conversion explicite vers `FileMutation` transactionnel ;
+- build strict borne, diff et cleanup/recovery GIT-002 ;
+- aucune ecriture ou promotion dans le projet utilisateur ;
+- tests de derive entre proposition et apply, rollback et build echoue.

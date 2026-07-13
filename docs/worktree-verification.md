@@ -195,6 +195,7 @@ cargo test --workspace                          105 tests OK
 
 ## Suite
 
-Tree-sitter Java et l'index inter-fichiers read-only sont maintenant disponibles.
-La prochaine cible est `CODE-001B2` : produire des edits bases sur des noeuds et
-positions syntaxiques avant d'autoriser des patchs generaux issus du modele.
+Tree-sitter Java, l'index inter-fichiers et les propositions d'edits B2 sont
+maintenant disponibles. La prochaine cible est `CODE-001B3` : revalider ces
+edits et les convertir en mutations APPLY-001 uniquement dans le worktree,
+avant build et diff. Aucun transfert vers la source ne sera ajoute a ce sprint.

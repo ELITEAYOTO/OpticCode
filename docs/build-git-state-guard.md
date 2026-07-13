@@ -477,6 +477,6 @@ recovery. Voir [`apply-transaction.md`](apply-transaction.md).
 
 `GIT-002` reutilise maintenant ce guard dans un worktree jetable pour attribuer
 les effets d'un patch puis d'un build. Voir
-[`worktree-verification.md`](worktree-verification.md). La prochaine brique est
-CODE-001B2 : edits Java cibles sur ranges AST, apres la baseline Tree-sitter et
-l'index inter-fichiers B1 maintenant termines.
+[`worktree-verification.md`](worktree-verification.md). Les edits Java B2 sont
+maintenant produits et valides en memoire. La prochaine brique est CODE-001B3,
+qui les fera passer par le guard et le build borne dans le worktree.

@@ -15,6 +15,9 @@ use opticcode_tools::apply_transaction::{
     ApplyTransactionResult,
 };
 use opticcode_tools::git_state::capture_git_state;
+use opticcode_tools::java_edits::{
+    propose_java_edits, JavaEditOptions, DEFAULT_JAVA_EDIT_PROPOSAL_LIMIT,
+};
 use opticcode_tools::java_index::{
     analyze_java_index, JavaIndexOptions, DEFAULT_JAVA_INDEX_CANDIDATE_LIMIT,
     DEFAULT_JAVA_INDEX_REFERENCE_LIMIT, DEFAULT_JAVA_INDEX_SYMBOL_LIMIT,
@@ -106,6 +109,26 @@ enum Command {
         reference_limit: usize,
         #[arg(long, default_value_t = DEFAULT_JAVA_INDEX_CANDIDATE_LIMIT)]
         candidate_limit: usize,
+        #[arg(long)]
+        json: bool,
+    },
+    JavaEdits {
+        #[arg(long, default_value = ".")]
+        path: PathBuf,
+        #[arg(long, default_value_t = DEFAULT_JAVA_SYNTAX_FILE_LIMIT)]
+        limit: usize,
+        #[arg(long, default_value_t = DEFAULT_JAVA_SYNTAX_FILE_BYTES)]
+        max_file_bytes: u64,
+        #[arg(long, default_value_t = DEFAULT_JAVA_SYNTAX_ITEM_LIMIT)]
+        item_limit: usize,
+        #[arg(long, default_value_t = DEFAULT_JAVA_INDEX_SYMBOL_LIMIT)]
+        symbol_limit: usize,
+        #[arg(long, default_value_t = DEFAULT_JAVA_INDEX_REFERENCE_LIMIT)]
+        reference_limit: usize,
+        #[arg(long, default_value_t = DEFAULT_JAVA_INDEX_CANDIDATE_LIMIT)]
+        candidate_limit: usize,
+        #[arg(long, default_value_t = DEFAULT_JAVA_EDIT_PROPOSAL_LIMIT)]
+        proposal_limit: usize,
         #[arg(long)]
         json: bool,
     },
@@ -375,6 +398,47 @@ async fn main() -> Result<()> {
                     max_symbols: symbol_limit,
                     max_references: reference_limit,
                     max_candidates_per_reference: candidate_limit,
+                },
+            )?;
+            if json {
+                let serialization_started = Instant::now();
+                let _ = serde_json::to_vec(&report)?;
+                report.timings.serialization_us = Some(
+                    serialization_started
+                        .elapsed()
+                        .as_micros()
+                        .min(u128::from(u64::MAX)) as u64,
+                );
+                println!("{}", serde_json::to_string_pretty(&report)?);
+            } else {
+                println!("{}", report.to_display_string());
+            }
+        }
+        Command::JavaEdits {
+            path,
+            limit,
+            max_file_bytes,
+            item_limit,
+            symbol_limit,
+            reference_limit,
+            candidate_limit,
+            proposal_limit,
+            json,
+        } => {
+            let mut report = propose_java_edits(
+                &path,
+                JavaEditOptions {
+                    index: JavaIndexOptions {
+                        syntax: JavaSyntaxOptions {
+                            max_files: limit,
+                            max_file_bytes,
+                            max_items_per_kind: item_limit,
+                        },
+                        max_symbols: symbol_limit,
+                        max_references: reference_limit,
+                        max_candidates_per_reference: candidate_limit,
+                    },
+                    max_proposals: proposal_limit,
                 },
             )?;
             if json {

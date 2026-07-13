@@ -269,8 +269,11 @@ Etat actuel :
 - validation GIT-002 : 105 tests workspace et Clippy strict OK ;
 - baseline Tree-sitter Java read-only ajoutee avec tests anti-faux-positifs ;
 - index symbolique inter-fichiers B1 ajoute avec resolution conservatrice ;
-- validation complete : 120 tests workspace, Clippy strict et build release OK ;
-- prochaine cible : edits read-only sur ranges AST `CODE-001B2`.
+- propositions d'edits Java B2 ajoutees avec hash, ranges, octets attendus,
+  anti-shadow, simulation et reparse ;
+- corpus B2 de plus de 50 cas : 16/16 edits attendus et zero faux positif ;
+- validation complete : 132 tests workspace, Clippy strict et build release OK ;
+- prochaine cible : execution de B2 dans un worktree via `CODE-001B3`.
 
 ## Phase 5.1 - Safe Apply
 
@@ -388,7 +391,7 @@ Reference : [`worktree-verification.md`](worktree-verification.md).
 
 ## Phase 5.5 - Tree-sitter Java
 
-Statut : baseline read-only et index inter-fichiers B1 termines ; edits cibles a faire.
+Statut : baseline, index inter-fichiers B1 et edits read-only B2 termines.
 
 Acquis :
 
@@ -410,6 +413,12 @@ Acquis :
 - statuts `exact`, `unique_candidate`, `ambiguous`, `unresolved` et
   `invalid_syntax_context` ;
 - listes de candidats bornees sans choix arbitraire ;
+- commande `java-edits` humaine/JSON et schema versionne ;
+- propositions avec cible exacte, hash, noeud/octet attendu et ranges AST ;
+- refus des shadows connus, mauvaises cibles, overlaps et derives source ;
+- application simulee de fin vers debut et reparse en memoire ;
+- corpus legacy de plus de 50 cas avec 14/14 regles et zero faux positif ;
+- regression reelle Kspawners `SpawnReason.SPAWNER` correctement refusee ;
 - tests read-only sur mini Bukkit, Kspawners et PandaSpigot borne.
 
 Limites :
@@ -417,12 +426,13 @@ Limites :
 - resolution volontairement inferieure a `javac` : classpath, heritage,
   generiques et types runtime non couverts ;
 - pas de cache incremental ou persistant ;
-- pas encore d'edit ou de patch base sur les ranges AST ;
+- edits B2 pas encore consommes par APPLY-001/GIT-002 ;
 - `analyze-java` conserve temporairement son parseur textuel historique.
 
-Suite : `CODE-001B2` edits cibles, puis `CONTEXT-001`.
+Suite : `CODE-001B3` verification/apply en worktree, puis `CONTEXT-001`.
 
-References : [`java-syntax.md`](java-syntax.md) et [`java-index.md`](java-index.md).
+References : [`java-syntax.md`](java-syntax.md), [`java-index.md`](java-index.md)
+et [`java-edits.md`](java-edits.md).
 
 ## Phase 5.6 - Profils, memoire et optimisation controlee
 

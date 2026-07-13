@@ -1,5 +1,6 @@
 pub mod apply_transaction;
 pub mod git_state;
+pub mod java_edits;
 pub mod java_index;
 pub mod java_syntax;
 pub mod process_runner;
@@ -20,6 +21,9 @@ use apply_transaction::{
     ApplyTransactionState, FileMutation, APPLY_TRANSACTION_SCHEMA_VERSION,
 };
 use git_state::{capture_git_state, BuildGitReport};
+use java_edits::legacy::{
+    LegacyJavaRule as LegacySymbolReplacement, LEGACY_JAVA_RULES as LEGACY_SYMBOL_REPLACEMENTS,
+};
 use process_runner::{
     run_process_with_cancellation, CancellationToken, ProcessLaunchMode, ProcessOutputStats,
     ProcessRequest, ProcessStatus, ProcessTermination, DEFAULT_PROCESS_OUTPUT_LIMIT_BYTES,
@@ -283,86 +287,6 @@ struct RagChunkRecord {
     chunk_index: usize,
     text: String,
 }
-
-#[derive(Debug, Clone, Copy)]
-struct LegacySymbolReplacement {
-    modern: &'static str,
-    legacy: &'static str,
-    reason: &'static str,
-}
-
-const LEGACY_SYMBOL_REPLACEMENTS: &[LegacySymbolReplacement] = &[
-    LegacySymbolReplacement {
-        modern: "Material.GUNPOWDER",
-        legacy: "Material.SULPHUR",
-        reason: "Bukkit 1.8.8 uses SULPHUR for gunpowder.",
-    },
-    LegacySymbolReplacement {
-        modern: "Material.NETHER_WART",
-        legacy: "Material.NETHER_STALK",
-        reason: "Bukkit 1.8.8 uses NETHER_STALK for nether wart.",
-    },
-    LegacySymbolReplacement {
-        modern: "Material.SPAWNER",
-        legacy: "Material.MOB_SPAWNER",
-        reason: "Bukkit 1.8.8 uses MOB_SPAWNER for spawner blocks.",
-    },
-    LegacySymbolReplacement {
-        modern: "Material.MONSTER_SPAWNER",
-        legacy: "Material.MOB_SPAWNER",
-        reason: "Bukkit 1.8.8 uses MOB_SPAWNER for spawner blocks.",
-    },
-    LegacySymbolReplacement {
-        modern: "Material.SPAWN_EGG",
-        legacy: "Material.MONSTER_EGG",
-        reason: "Bukkit 1.8.8 uses MONSTER_EGG for spawn egg items.",
-    },
-    LegacySymbolReplacement {
-        modern: "Material.WOODEN_SHOVEL",
-        legacy: "Material.WOOD_SPADE",
-        reason: "Bukkit 1.8.8 uses SPADE names for shovels.",
-    },
-    LegacySymbolReplacement {
-        modern: "Material.STONE_SHOVEL",
-        legacy: "Material.STONE_SPADE",
-        reason: "Bukkit 1.8.8 uses SPADE names for shovels.",
-    },
-    LegacySymbolReplacement {
-        modern: "Material.IRON_SHOVEL",
-        legacy: "Material.IRON_SPADE",
-        reason: "Bukkit 1.8.8 uses SPADE names for shovels.",
-    },
-    LegacySymbolReplacement {
-        modern: "Material.DIAMOND_SHOVEL",
-        legacy: "Material.DIAMOND_SPADE",
-        reason: "Bukkit 1.8.8 uses SPADE names for shovels.",
-    },
-    LegacySymbolReplacement {
-        modern: "Material.GOLDEN_SHOVEL",
-        legacy: "Material.GOLD_SPADE",
-        reason: "Bukkit 1.8.8 uses SPADE names for shovels.",
-    },
-    LegacySymbolReplacement {
-        modern: "Material.GOLD_SHOVEL",
-        legacy: "Material.GOLD_SPADE",
-        reason: "Bukkit 1.8.8 uses SPADE names for shovels.",
-    },
-    LegacySymbolReplacement {
-        modern: "EntityType.ZOMBIFIED_PIGLIN",
-        legacy: "EntityType.PIG_ZOMBIE",
-        reason: "Bukkit 1.8.8 predates zombified piglin naming.",
-    },
-    LegacySymbolReplacement {
-        modern: "EntityType.MOOSHROOM",
-        legacy: "EntityType.MUSHROOM_COW",
-        reason: "Bukkit 1.8.8 uses MUSHROOM_COW for mooshrooms.",
-    },
-    LegacySymbolReplacement {
-        modern: "EntityType.SNOW_GOLEM",
-        legacy: "EntityType.SNOWMAN",
-        reason: "Bukkit 1.8.8 uses SNOWMAN for snow golems.",
-    },
-];
 
 pub fn inspect_workspace(root: &Path) -> Result<WorkspaceReport> {
     let root = fs::canonicalize(root)

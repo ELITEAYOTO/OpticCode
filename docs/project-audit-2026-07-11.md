@@ -49,6 +49,16 @@ multi-fichiers, Kspawners et jusqu'a 5 000 fichiers PandaSpigot. La prochaine
 cible est `CODE-001B2`, edits read-only sur ranges AST verifies. La validation
 courante atteint 120 tests workspace. Voir [`java-index.md`](java-index.md).
 
+Mise a jour CODE-001B2 du 2026-07-13 : le moteur `java_edits/` produit des
+propositions read-only avec cible exacte, hash BLAKE3, noeud et octets attendus,
+garde anti-shadow, ranges non chevauchants et reparse en memoire. Le corpus de
+plus de 50 cas couvre 14/14 regles avec 16 edits attendus et zero faux positif.
+Sur Kspawners, `CreatureSpawnEvent.SpawnReason.SPAWNER` est correctement refuse
+comme mauvaise cible. La prochaine cible est `CODE-001B3`, execution
+transactionnelle uniquement dans un worktree. Voir
+[`java-edits.md`](java-edits.md). La validation workspace atteint maintenant
+132 tests, Clippy strict sans avertissement et build release reussi.
+
 ## 1. Resume executif
 
 OpticCode n'est plus une simple idee ni un assemblage de documentation. Le depot contient un MVP Rust fonctionnel capable de :
@@ -61,6 +71,7 @@ OpticCode n'est plus une simple idee ni un assemblage de documentation. Le depot
 - charger un profil Minecraft Java 1.8 et une memoire Markdown ;
 - construire et interroger un index RAG JSONL local ;
 - proposer et verifier des corrections legacy deterministes ;
+- produire des edits Java cibles read-only avec preconditions verifiables ;
 - appliquer ces corrections avec confirmation, transaction, rollback et recovery ;
 - compiler un projet Java et resumer certaines erreurs ;
 - mesurer la latence, les tokens Ollama et la qualite de scenarios repetables.
@@ -73,10 +84,10 @@ Verdict global :
 | --- | --- | --- |
 | Cadrage et architecture | solide | la direction Rust + Ollama puis llama.cpp reste coherente |
 | Environnement Windows | operationnel | aucun nouvel outil lourd n'est requis maintenant |
-| CLI locale | fonctionnelle | 22 commandes disponibles |
+| CLI locale | fonctionnelle | commandes specialisees et sorties JSON versionnees |
 | Specialisation Bukkit 1.8 | utile mais etroite | bonnes premieres regles, couverture encore faible |
 | RAG | prototype valide | utile sur les cas legacy, pas encore scalable |
-| Safe apply | transactionnel | rollback/recovery valides, originaux encore bloques par le patch textuel |
+| Safe apply | transactionnel | rollback/recovery valides, adaptateur B2 vers worktree encore absent |
 | Agent iteratif | non commence | aucune boucle autonome de tools/build/correction |
 | Performance | mesuree | inference Qwen dominante, outils locaux rapides |
 | Qualite logicielle | bonne base | tests et lint verts, CI et couverture absentes |
@@ -84,7 +95,7 @@ Verdict global :
 
 Position actuelle dans le plan : Phase 5.4 terminee pour le worktree jetable.
 Les projets personnels originaux restent hors tests. Le worktree jetable et la
-   baseline Tree-sitter et index B1 sont valides ; la prochaine cible est CODE-001B2.
+   baseline Tree-sitter, index B1 et edits B2 sont valides ; la prochaine cible est CODE-001B3.
 
 ## 2. Portee et methode de l'audit
 
@@ -795,7 +806,7 @@ Action : ajouter `--json` aux outils utilises par l'agent. L'agent ne doit pas p
 | 5.2 - process runner | terminee | etendre aux futurs tools longs |
 | 5.3 - apply transactionnel | terminee | extension aux patchs generaux apres AST Java |
 | 5.4 - worktree jetable | terminee | promotion controlee apres AST et approbation |
-| 5.5 - Tree-sitter Java | baseline et B1 termines | B2 edits AST, puis contexte symbolique |
+| 5.5 - Tree-sitter Java | baseline, B1 et B2 termines | B3 worktree, puis contexte symbolique |
 | 5.6 - profils/memoire | prototype | ecriture controlee, provenance, deduplication |
 | 6 - RAG | prototype JSONL | Tantivy, incremental, symboles, evaluation large |
 | 7 - agent iteratif | non commence | depend des verrous P0/P1 |
@@ -828,9 +839,10 @@ Objectif : preparer l'agent sans encore lui donner une autonomie dangereuse.
 4. Ajouter une politique d'autorisation : read, write, build, shell.
 5. Integrer Tree-sitter Java pour classes, methodes, imports et positions. Baseline faite.
 6. Construire l'index inter-fichiers conservateur. Fait via CODE-001B1.
-7. Produire des edits read-only sur ranges AST verifies. Prochaine cible CODE-001B2.
-8. Selectionner le contexte selon la demande et les symboles.
-9. Ajouter une configuration `.opticcode/config.toml` versionnee facultative.
+7. Produire des edits read-only sur ranges AST verifies. Fait via CODE-001B2.
+8. Verifier et appliquer ces edits uniquement dans un worktree. Prochaine cible CODE-001B3.
+9. Selectionner le contexte selon la demande et les symboles.
+10. Ajouter une configuration `.opticcode/config.toml` versionnee facultative.
 
 Critere de sortie : un plan peut citer des fichiers/symboles reels et produire une sequence de tools structuree, sans appliquer de patch.
 
@@ -931,8 +943,9 @@ Choix de conception recommande : utiliser `git status --porcelain=v1 -z` ou un f
 - APPLY-001 : termine et commite (`f5bb7b0`).
 - GIT-002 : termine et commite (`ae6d056`).
 - CODE-001 read-only : termine et committe (`d6652e4`).
-- CODE-001B1 : index symbolique Java read-only termine.
-- Prochain sprint : `CODE-001B2`, propositions d'edits Java ciblees.
+- CODE-001B1 : index symbolique Java read-only termine (`d631d69`).
+- CODE-001B2 : propositions d'edits Java ciblees terminees.
+- Prochain sprint : `CODE-001B3`, verification transactionnelle en worktree.
 
 ## 17. Definition de fini pour une V1 utile
 
