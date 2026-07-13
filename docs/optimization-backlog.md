@@ -169,7 +169,7 @@ source inchangee testes sur de vrais depots temporaires. Voir
 
 ### CODE-001 - Tree-sitter Java
 
-Statut : baseline read-only terminee le 2026-07-13 ; index/edits en cours de cadrage.
+Statut : baseline read-only et index B1 termines le 2026-07-13 ; edits B2 a faire.
 
 Premier scope :
 
@@ -191,12 +191,19 @@ Realise :
 - tests anti-faux-positifs commentaires/chaines/text blocks ;
 - mesures read-only mini Bukkit, Kspawners et PandaSpigot borne.
 
-Reste pour `CODE-001B1` read-only :
+Realise pour `CODE-001B1` read-only :
 
-- index symbolique inter-fichiers par hash ;
-- requetes de symboles utiles au contexte ;
+- index symbolique inter-fichiers en memoire avec hashes source ;
 - identites stables pour classes imbriquees, overloads et membres ;
-- resolution bornee des imports explicites, wildcard et statiques.
+- resolution bornee des imports explicites, wildcard et statiques ;
+- statuts d'incertitude, raisons, candidats et CLI JSON versionnee ;
+- baseline de performance jusqu'a 5 000 fichiers PandaSpigot.
+
+Reste apres B1 :
+
+- API de requetes de symboles utile a `CONTEXT-001` ;
+- index incremental/persistant par hash pour depasser 5 000 fichiers ;
+- classpath/JAR uniquement si les mesures qualite le justifient.
 
 Reste pour `CODE-001B2` :
 
@@ -434,28 +441,27 @@ Tree-sitter/Tantivy.
 4. Ajouter APPLY-002 concurrence optimiste. Fait pour le refus de conflit.
 5. Ajouter GIT-002 worktree jetable. Fait.
 6. Decouper les modules tools necessaires. Fait pour worktree ; poursuivre selon besoin.
-7. Integrer CODE-001 Tree-sitter Java. Baseline read-only faite ; CODE-001B1 suivant.
-8. Construire CONTEXT-001 selection par tache.
-9. Migrer vers INDEX-001/002 SQLite + Tantivy.
-10. Construire AGENT-001/002.
-11. Ajouter streaming/provider.
-12. Evaluer llama.cpp, Q5 et IDE seulement sur preuves.
+7. Integrer CODE-001 Tree-sitter Java et CODE-001B1. Fait.
+8. Construire CODE-001B2, edits cibles read-only.
+9. Construire CONTEXT-001 selection par tache.
+10. Migrer vers INDEX-001/002 SQLite + Tantivy.
+11. Construire AGENT-001/002.
+12. Ajouter streaming/provider.
+13. Evaluer llama.cpp, Q5 et IDE seulement sur preuves.
 
 ## Prochain sprint propose
 
-`CODE-001B1 - Index symbolique Java read-only`.
+`CODE-001B2 - Propositions d'edits Java ciblees`.
 
-Le parseur Tree-sitter read-only fournit maintenant des positions fiables et
-separe code, commentaires et chaines. Le prochain risque est d'etablir des
-identites et liens inter-fichiers fiables. Aucun edit n'est ajoute dans B1.
+Le parseur et l'index read-only fournissent maintenant des positions, identites
+et liens inter-fichiers expliques. Le prochain risque est de convertir une
+resolution prouvee en edit sans toucher un commentaire, une chaine, un mauvais
+overload ou une source ayant derive.
 
-Questions de conception a regler dans le code :
+Contraintes du prochain sprint :
 
-- schema d'identite stable pour symboles et overloads ;
-- index en memoire puis persistant par hash ;
-- requetes exactes nom/type/methode et liens import -> declaration ;
-- format incremental en memoire par hash, preparant SQLite sans l'imposer ;
-- traitement explicite des fichiers partiellement invalides.
-
-`CODE-001B2` prendra ensuite en charge range + contenu attendu, adaptation des
-regles legacy, reparse et test patch/build dans GIT-002.
+- range AST, hash source et octets attendus obligatoires ;
+- aucune proposition sur `ambiguous`, `unresolved` ou syntaxe invalide ;
+- refus des overlaps, application de fin vers debut et reparse ;
+- sortie read-only avant toute integration APPLY-001/GIT-002 ;
+- premiers cas legacy mesures sur corpus et copies seulement.

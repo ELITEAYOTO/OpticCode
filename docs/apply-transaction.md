@@ -333,6 +333,7 @@ Resultat exact du dernier run `-Full` le 2026-07-11 :
 ## Suite recommandee
 
 `GIT-002` est maintenant termine ; voir
-[`worktree-verification.md`](worktree-verification.md). La priorite suivante est
-Tree-sitter Java afin d'eliminer les remplacements textuels dans commentaires et
-chaines.
+[`worktree-verification.md`](worktree-verification.md). Tree-sitter Java et
+l'index inter-fichiers read-only sont aussi termines. La priorite suivante est
+CODE-001B2 afin de remplacer les transformations textuelles par des edits sur
+ranges AST verifies.

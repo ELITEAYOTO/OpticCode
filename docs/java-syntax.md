@@ -11,6 +11,8 @@ modifier les sources.
 
 Le parseur textuel historique de `analyze-java` reste actif. La nouvelle commande
 `java-syntax` permet de comparer les resultats avant une migration controlee.
+Le schema syntaxique est en version 2 depuis l'ajout des usages de types et de
+l'arite des appels necessaires a CODE-001B1.
 
 ## Dependances
 
@@ -67,7 +69,9 @@ cargo run -q -- java-syntax `
 - classes, interfaces, enums, annotations-types et records ;
 - methodes, constructeurs, champs et constantes enum ;
 - modificateurs, annotations, types, parametres et signatures simples ;
-- appels de methode, acces de champ/enum, constructions, method references et annotations ;
+- usages de types, appels de methode, acces de champ/enum, constructions,
+  method references et annotations ;
+- nombre d'arguments des appels et constructions, utilise ensuite pour les overloads ;
 - commentaires ligne/bloc, chaines, caracteres et text blocks comme zones exclues ;
 - noeuds syntaxiques `ERROR` et `MISSING` comme diagnostics ;
 - hash BLAKE3 du contenu ;
@@ -148,9 +152,9 @@ Build release, Windows 10, Ryzen 7 3700X :
 
 | Source read-only | Decouverts | Parses | Erreurs | Symboles | References | Temps |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| mini Bukkit | 3 | 3 | 0 | 9 | 44 | 2,5 ms |
-| Kspawners | 35 | 35 | 0 | 799 | 4 472 | 104 ms |
-| PandaSpigot borne | 8 933 | 500 | 0 | 6 541 | 8 240 | 410 ms |
+| mini Bukkit | 3 | 3 | 0 | 9 | 71 | 2,8 ms |
+| Kspawners | 35 | 35 | 0 | 799 | 6 374 | 196 ms |
+| PandaSpigot borne | 8 933 | 500 | 0 | 6 541 | 16 261 | 976 ms |
 
 Ces chiffres incluent le scan, les lectures, le parse, l'extraction et la
 construction du rapport Rust. Ils ne mesurent pas la serialisation JSON ni le
@@ -186,15 +190,16 @@ Validation cible apres ce sprint :
 ```text
 cargo fmt --all -- --check                       OK
 cargo clippy --workspace ... -D warnings         OK
-cargo test --workspace                          114 tests OK
+cargo test --workspace                          120 tests OK
 cargo build --workspace --release                OK
 ```
 
 ## Limites assumees
 
 - Tree-sitter fournit une structure syntaxique, pas une resolution semantique.
-- Les imports, overloads, heritage et types generiques ne sont pas encore resolus.
-- Les references ne sont pas encore indexees entre fichiers.
+- CODE-001B1 resout maintenant les imports et certains overloads de facon
+  conservatrice, mais pas l'heritage complet ni l'inference generique.
+- Les references sont indexees entre fichiers en memoire, sans cache persistant.
 - Le parser accepte aussi des syntaxes Java modernes ; le profil Java 8 devra
   continuer a signaler ce qui est interdit pour Minecraft 1.8.8.
 - Aucun cache incremental par hash n'est encore persiste.
@@ -204,11 +209,11 @@ cargo build --workspace --release                OK
 
 La suite est volontairement separee en deux sous-sprints :
 
-1. `CODE-001B1` : index symbolique inter-fichiers strictement read-only,
-   identites stables, overloads, imports, requetes et cache par hash.
+1. `CODE-001B1` : termine ; index symbolique inter-fichiers strictement
+   read-only, identites stables, overloads et imports.
 2. `CODE-001B2` : production d'edits legacy cibles sans ecriture directe, puis
    verification hash + octets attendus + AST, refus des overlaps, application
    de la fin vers le debut, reparse, worktree et build borne.
 
 `CONTEXT-001` utilisera ensuite l'index B1 pour selectionner le contexte selon
-la tache.
+la tache. Voir [`java-index.md`](java-index.md).

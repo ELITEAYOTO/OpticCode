@@ -997,3 +997,35 @@ Raison :
 
 Suite retenue : `CODE-001B1` construit uniquement l'index read-only ;
 `CODE-001B2` introduira ensuite les propositions d'edits verifiees.
+
+### D-058 - Resolution Java conservatrice avant toute transformation
+
+Statut : valide.
+
+Decision :
+
+- construire CODE-001B1 dans un module `java_index/` separe ;
+- reutiliser un unique rapport Tree-sitter par fichier et rester read-only ;
+- identifier types, overloads et membres par noms qualifies/signatures stables ;
+- prendre en compte contexte local, package, imports explicites/statiques,
+  wildcard, `java.lang` et noms pleinement qualifies dans un ordre documente ;
+- retourner `exact`, `unique_candidate`, `ambiguous`, `unresolved` ou
+  `invalid_syntax_context`, avec candidats et raison ;
+- ne jamais choisir une cible quand plusieurs candidats restent possibles ;
+- borner declarations, references et candidats ; examiner au plus une entree de
+  plus que la limite d'affichage pour conserver la decision d'ambiguite ;
+- garder `analysis_complete` independant de la seule troncature d'affichage des
+  candidats, tout en exposant cette troncature ;
+- ne pas ajouter SQLite, Tantivy, classpath JAR ou cache persistant dans B1 ;
+- n'autoriser B2 a transformer que les resolutions suffisamment prouvees.
+
+Raison :
+
+- Tree-sitter connait la syntaxe mais pas toute la semantique de `javac` ;
+- une incertitude structuree est plus sure qu'une resolution heuristique cachee ;
+- les bornes evitent qu'un nom courant produise une allocation proportionnelle
+  a un grand depot ;
+- la baseline en memoire permet de mesurer le besoin incremental avant de figer
+  un format persistant.
+
+Reference : [`java-index.md`](java-index.md).

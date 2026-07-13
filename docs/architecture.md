@@ -39,6 +39,7 @@ optic-core
   |     +-- bounded process runner
   |     +-- maven/gradle build
   |     +-- Java Tree-sitter read-only syntax analysis
+  |     +-- Java cross-file symbol index and conservative resolver
   |
   +-- optic-rag
   |     +-- sqlite metadata
@@ -161,10 +162,21 @@ Etat read-only implemente :
 - commentaires et chaines identifies comme zones non-code ;
 - Java partiellement invalide conserve avec diagnostics `ERROR`/`MISSING` ;
 - sortie JSON versionnee et commande `java-syntax` ;
-- aucune edition ni resolution semantique.
+- usages de types et arite des appels pour la couche d'index ;
+- aucune edition.
 
-La prochaine etape est un index inter-fichiers par hash puis des edits legacy
-cibles sur ranges AST. Voir [`java-syntax.md`](java-syntax.md).
+Etat index read-only implemente :
+
+- module independant `opticcode-tools/src/java_index/` ;
+- identifiants qualifies et signatures d'overloads deterministes ;
+- contexte package/imports et resolution inter-fichiers explicable ;
+- incertitude structuree, candidats bornes et aucune cible arbitraire ;
+- timings separes pour lecture, parse, extraction, index et resolution ;
+- commande `java-index` et JSON versionne.
+
+La prochaine etape est la production d'edits legacy cibles sur ranges AST,
+puis un index incremental/persistant lorsque les mesures le justifieront. Voir
+[`java-syntax.md`](java-syntax.md) et [`java-index.md`](java-index.md).
 
 ## Runtime LLM
 

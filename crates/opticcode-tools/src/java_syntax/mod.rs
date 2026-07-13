@@ -16,7 +16,7 @@ use walkdir::{DirEntry, WalkDir};
 
 use parser::JavaSyntaxParser;
 
-pub const JAVA_SYNTAX_SCHEMA_VERSION: u32 = 1;
+pub const JAVA_SYNTAX_SCHEMA_VERSION: u32 = 2;
 pub const DEFAULT_JAVA_SYNTAX_FILE_LIMIT: usize = 500;
 pub const MAX_JAVA_SYNTAX_FILE_LIMIT: usize = 5_000;
 pub const DEFAULT_JAVA_SYNTAX_FILE_BYTES: u64 = 2 * 1024 * 1024;
@@ -264,6 +264,7 @@ pub struct JavaParameter {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum JavaReferenceKind {
+    TypeUsage,
     MethodInvocation,
     FieldAccess,
     ConstructorCall,
@@ -277,6 +278,7 @@ pub struct JavaReference {
     pub name: String,
     pub qualifier: Option<String>,
     pub container: Option<String>,
+    pub argument_count: Option<usize>,
     pub range: SourceRange,
     pub name_range: SourceRange,
 }
@@ -762,6 +764,9 @@ public final class Demo {
             .iter()
             .any(|symbol| symbol.kind == JavaSymbolKind::AnnotationType));
         assert!(report.references.iter().any(|reference| {
+            reference.kind == JavaReferenceKind::TypeUsage && reference.name == "Material"
+        }));
+        assert!(report.references.iter().any(|reference| {
             reference.kind == JavaReferenceKind::FieldAccess
                 && reference.qualifier.as_deref() == Some("Material")
                 && reference.name == "GUNPOWDER"
@@ -769,11 +774,12 @@ public final class Demo {
         assert!(report.references.iter().any(|reference| {
             reference.kind == JavaReferenceKind::MethodInvocation
                 && reference.name == "broadcastMessage"
+                && reference.argument_count == Some(1)
         }));
-        assert!(report
-            .references
-            .iter()
-            .any(|reference| reference.kind == JavaReferenceKind::ConstructorCall));
+        assert!(report.references.iter().any(|reference| {
+            reference.kind == JavaReferenceKind::ConstructorCall
+                && reference.argument_count == Some(0)
+        }));
         assert!(report
             .symbols
             .iter()

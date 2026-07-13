@@ -1,7 +1,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command as ProcessCommand;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use anyhow::{bail, Context, Result};
 use clap::{Parser, Subcommand};
@@ -15,6 +15,10 @@ use opticcode_tools::apply_transaction::{
     ApplyTransactionResult,
 };
 use opticcode_tools::git_state::capture_git_state;
+use opticcode_tools::java_index::{
+    analyze_java_index, JavaIndexOptions, DEFAULT_JAVA_INDEX_CANDIDATE_LIMIT,
+    DEFAULT_JAVA_INDEX_REFERENCE_LIMIT, DEFAULT_JAVA_INDEX_SYMBOL_LIMIT,
+};
 use opticcode_tools::java_syntax::{
     analyze_java_syntax, JavaSyntaxOptions, DEFAULT_JAVA_SYNTAX_FILE_BYTES,
     DEFAULT_JAVA_SYNTAX_FILE_LIMIT, DEFAULT_JAVA_SYNTAX_ITEM_LIMIT,
@@ -84,6 +88,24 @@ enum Command {
         max_file_bytes: u64,
         #[arg(long, default_value_t = DEFAULT_JAVA_SYNTAX_ITEM_LIMIT)]
         item_limit: usize,
+        #[arg(long)]
+        json: bool,
+    },
+    JavaIndex {
+        #[arg(long, default_value = ".")]
+        path: PathBuf,
+        #[arg(long, default_value_t = DEFAULT_JAVA_SYNTAX_FILE_LIMIT)]
+        limit: usize,
+        #[arg(long, default_value_t = DEFAULT_JAVA_SYNTAX_FILE_BYTES)]
+        max_file_bytes: u64,
+        #[arg(long, default_value_t = DEFAULT_JAVA_SYNTAX_ITEM_LIMIT)]
+        item_limit: usize,
+        #[arg(long, default_value_t = DEFAULT_JAVA_INDEX_SYMBOL_LIMIT)]
+        symbol_limit: usize,
+        #[arg(long, default_value_t = DEFAULT_JAVA_INDEX_REFERENCE_LIMIT)]
+        reference_limit: usize,
+        #[arg(long, default_value_t = DEFAULT_JAVA_INDEX_CANDIDATE_LIMIT)]
+        candidate_limit: usize,
         #[arg(long)]
         json: bool,
     },
@@ -327,6 +349,43 @@ async fn main() -> Result<()> {
                 },
             )?;
             if json {
+                println!("{}", serde_json::to_string_pretty(&report)?);
+            } else {
+                println!("{}", report.to_display_string());
+            }
+        }
+        Command::JavaIndex {
+            path,
+            limit,
+            max_file_bytes,
+            item_limit,
+            symbol_limit,
+            reference_limit,
+            candidate_limit,
+            json,
+        } => {
+            let mut report = analyze_java_index(
+                &path,
+                JavaIndexOptions {
+                    syntax: JavaSyntaxOptions {
+                        max_files: limit,
+                        max_file_bytes,
+                        max_items_per_kind: item_limit,
+                    },
+                    max_symbols: symbol_limit,
+                    max_references: reference_limit,
+                    max_candidates_per_reference: candidate_limit,
+                },
+            )?;
+            if json {
+                let serialization_started = Instant::now();
+                let _ = serde_json::to_vec(&report)?;
+                report.timings.serialization_us = Some(
+                    serialization_started
+                        .elapsed()
+                        .as_micros()
+                        .min(u128::from(u64::MAX)) as u64,
+                );
                 println!("{}", serde_json::to_string_pretty(&report)?);
             } else {
                 println!("{}", report.to_display_string());

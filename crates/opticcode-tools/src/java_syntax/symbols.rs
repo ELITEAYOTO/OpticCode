@@ -119,6 +119,9 @@ impl Collector<'_> {
             "object_creation_expression" => self.collect_constructor_call(node, containers),
             "method_reference" => self.collect_method_reference(node, containers),
             "annotation" | "marker_annotation" => self.collect_annotation(node, containers),
+            "type_identifier" | "scoped_type_identifier" if is_type_usage_root(node) => {
+                self.collect_type_usage(node, containers)
+            }
             _ => {}
         }
 
@@ -304,6 +307,17 @@ impl Collector<'_> {
         );
     }
 
+    fn collect_type_usage(&mut self, node: Node<'_>, containers: &[String]) {
+        let name_node = node.child_by_field_name("name").or(Some(node));
+        self.collect_reference(
+            JavaReferenceKind::TypeUsage,
+            node,
+            name_node,
+            node.child_by_field_name("scope"),
+            containers,
+        );
+    }
+
     fn collect_reference(
         &mut self,
         kind: JavaReferenceKind,
@@ -320,6 +334,12 @@ impl Collector<'_> {
             name: bounded_node_text(name_node, self.source),
             qualifier: qualifier_node.map(|qualifier| bounded_node_text(qualifier, self.source)),
             container: container_name(containers),
+            argument_count: match kind {
+                JavaReferenceKind::MethodInvocation | JavaReferenceKind::ConstructorCall => {
+                    node.child_by_field_name("arguments").map(named_child_count)
+                }
+                _ => None,
+            },
             range: source_range(node),
             name_range: source_range(name_node),
         });
@@ -513,6 +533,16 @@ fn type_symbol_kind(kind: &str) -> Option<JavaSymbolKind> {
         "record_declaration" => Some(JavaSymbolKind::Record),
         _ => None,
     }
+}
+
+fn is_type_usage_root(node: Node<'_>) -> bool {
+    node.parent()
+        .is_none_or(|parent| parent.kind() != "scoped_type_identifier")
+}
+
+fn named_child_count(node: Node<'_>) -> usize {
+    let mut cursor = node.walk();
+    node.named_children(&mut cursor).count()
 }
 
 fn excluded_region_kind(node: Node<'_>, source: &[u8]) -> Option<JavaExcludedRegionKind> {

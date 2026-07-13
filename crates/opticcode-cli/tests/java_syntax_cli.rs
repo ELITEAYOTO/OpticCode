@@ -70,7 +70,7 @@ fn java_syntax_cli_is_read_only_bounded_and_structured() {
     let full = run_java_syntax(&fixture.root, 10);
     assert_eq!(full.status.code(), Some(0));
     let report = parse_json(&full);
-    assert_eq!(report["schema_version"], 1);
+    assert_eq!(report["schema_version"], 2);
     assert_eq!(report["operation"], "java_syntax");
     assert_eq!(report["limits"]["max_files"], 10);
     assert_eq!(report["limits"]["max_file_bytes"], 1_048_576);

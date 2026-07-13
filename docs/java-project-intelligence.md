@@ -74,7 +74,8 @@ Build command: mvn -q -DskipTests package
 ## Limites connues
 
 - `analyze-java` utilise encore son analyse historique textuelle ;
-- `java-syntax` fournit maintenant Tree-sitter read-only, sans resolution semantique ;
+- `java-syntax` fournit Tree-sitter read-only et `java-index` relie maintenant
+  les declarations/references avec une resolution conservatrice ;
 - n'applique pas encore les patchs automatiquement.
 
 ## Prochaines etapes
@@ -144,9 +145,9 @@ build apres patch : succes
 
 ## Prochaines etapes
 
-1. Construire `CODE-001B1`, index symbolique inter-fichiers read-only depuis `java-syntax`.
+1. `CODE-001B1` index symbolique inter-fichiers read-only. Fait.
 2. Construire `CODE-001B2`, propositions d'edits sur ranges AST verifies.
 3. Etendre l'apply transactionnel aux futurs patches AST avec confirmation explicite.
 4. Relier progressivement l'analyse Tree-sitter au profil `minecraft-java-1.8`.
 
-Voir [`java-syntax.md`](java-syntax.md).
+Voir [`java-syntax.md`](java-syntax.md) et [`java-index.md`](java-index.md).

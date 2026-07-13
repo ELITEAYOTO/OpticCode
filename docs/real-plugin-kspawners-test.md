@@ -172,4 +172,5 @@ Documentation detaillee :
 
 APPLY-001 et GIT-002 sont maintenant valides sur fixtures temporaires, sans
 nouvelle ecriture sur Kspawners. Continuer les essais sur copies ou worktrees :
-la prochaine etape est Tree-sitter Java avant les originaux.
+Tree-sitter Java et l'index B1 sont termines ; la prochaine etape est CODE-001B2
+sur corpus et copies avant les originaux.

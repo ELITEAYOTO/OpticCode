@@ -195,6 +195,6 @@ cargo test --workspace                          105 tests OK
 
 ## Suite
 
-La prochaine cible est `CODE-001` : Tree-sitter Java. Elle doit remplacer les
-remplacements textuels globaux par des edits bases sur des noeuds et positions
-syntaxiques avant d'autoriser des patchs generaux issus du modele.
+Tree-sitter Java et l'index inter-fichiers read-only sont maintenant disponibles.
+La prochaine cible est `CODE-001B2` : produire des edits bases sur des noeuds et
+positions syntaxiques avant d'autoriser des patchs generaux issus du modele.

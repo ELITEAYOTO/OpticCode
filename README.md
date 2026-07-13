@@ -20,7 +20,8 @@ Le projet ne vise pas a entrainer un modele IA depuis zero. Il construit une cou
 Le projet a maintenant un MVP Rust fonctionnel : inspection, analyse Java/Bukkit,
 Ollama/Qwen, RAG JSONL, patch legacy, apply transactionnel, rollback/recovery,
 controle Git avant/apres build, verification dans un worktree jetable et analyse
-syntaxique Java read-only avec Tree-sitter. Les builds passent aussi par un
+syntaxique Java read-only avec Tree-sitter, puis index symbolique inter-fichiers
+avec resolution conservatrice. Les builds passent aussi par un
 process runner borne avec timeout, sortie limitee et terminaison de l'arbre Windows.
 
 - Phase 0 : audit environnement Windows 10 termine.
@@ -29,18 +30,20 @@ process runner borne avec timeout, sortie limitee et terminaison de l'arbre Wind
 - Phase 2 : benchmark Ollama / Qwen2.5-Coder 14B termine.
 - Phase 3 : recherche depots externes et analyse Qwen Code terminees.
 - Phase 4 : MVP Rust fonctionnel.
-- Phase 5 : tools Java en cours ; apply/worktree termines et baseline Tree-sitter Java read-only fonctionnelle.
+- Phase 5 : tools Java en cours ; apply/worktree, Tree-sitter read-only et index Java B1 termines.
 - Phase 6 : prototype RAG JSONL fonctionnel, index scalable a faire.
 - Phase 7 : agent iteratif non commence.
 
 ## Documentation
 
+- [OpticCode en bref](docs/opticcode-overview.md)
 - [Audit complet du projet au 2026-07-11](docs/project-audit-2026-07-11.md)
 - [Build Git State Guard](docs/build-git-state-guard.md)
 - [Process runner borne](docs/process-runner.md)
 - [Apply transactionnel et recovery](docs/apply-transaction.md)
 - [Verification dans un worktree jetable](docs/worktree-verification.md)
 - [Analyse Java Tree-sitter](docs/java-syntax.md)
+- [Index symbolique Java inter-fichiers](docs/java-index.md)
 - [Backlog canonique d'optimisation](docs/optimization-backlog.md)
 - [Etat environnement](docs/environment-audit.md)
 - [Roadmap](docs/roadmap.md)
@@ -91,6 +94,7 @@ cargo run -q -- git-state --path . --json
 cargo run -q -- context --path benchmarks/mini-bukkit-plugin
 cargo run -q -- analyze-java --path benchmarks/mini-bukkit-plugin
 cargo run -q -- java-syntax --path benchmarks/mini-bukkit-plugin --json
+cargo run -q -- java-index --path benchmarks/java-index-mini --json
 cargo run -q -- build --path benchmarks/mini-bukkit-plugin
 cargo run -q -- build --path benchmarks/mini-bukkit-plugin --fail-on-worktree-change
 cargo run -q -- build --path benchmarks/mini-bukkit-plugin --json
@@ -130,11 +134,13 @@ cargo run -q -- inspect --path benchmarks/mini-bukkit-plugin
 .\scripts\run-worktree-quality.ps1 -Full
 .\scripts\run-java-syntax-quality.ps1
 .\scripts\run-java-syntax-quality.ps1 -Full
+.\scripts\run-java-index-quality.ps1
+.\scripts\run-java-index-quality.ps1 -Full
 ```
 
 ## Prochaine etape
 
-Continuer avec `CODE-001B1` : construire l'index de symboles/positions
-inter-fichiers strictement read-only. `CODE-001B2` ajoutera ensuite les premieres
-propositions d'edits legacy syntaxiquement ciblees. Aucune promotion automatique
-vers le projet source n'est autorisee.
+Continuer avec `CODE-001B2` : produire les premieres propositions d'edits legacy
+sur des ranges AST verifies, sans ecriture directe. Les resolutions `ambiguous`
+et `unresolved` restent read-only. Toute verification passe par un worktree et
+aucune promotion automatique vers le projet source n'est autorisee.

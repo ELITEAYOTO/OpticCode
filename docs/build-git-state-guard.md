@@ -478,4 +478,5 @@ recovery. Voir [`apply-transaction.md`](apply-transaction.md).
 `GIT-002` reutilise maintenant ce guard dans un worktree jetable pour attribuer
 les effets d'un patch puis d'un build. Voir
 [`worktree-verification.md`](worktree-verification.md). La prochaine brique est
-Tree-sitter Java.
+CODE-001B2 : edits Java cibles sur ranges AST, apres la baseline Tree-sitter et
+l'index inter-fichiers B1 maintenant termines.

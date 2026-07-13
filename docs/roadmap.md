@@ -268,8 +268,9 @@ Etat actuel :
 - registre de leases et cleanup manuel fail-closed ajoutes pour les interruptions ;
 - validation GIT-002 : 105 tests workspace et Clippy strict OK ;
 - baseline Tree-sitter Java read-only ajoutee avec tests anti-faux-positifs ;
-- validation complete : 114 tests workspace, Clippy strict et build release OK ;
-- prochaine cible : index symbolique read-only `CODE-001B1`, puis edits `CODE-001B2`.
+- index symbolique inter-fichiers B1 ajoute avec resolution conservatrice ;
+- validation complete : 120 tests workspace, Clippy strict et build release OK ;
+- prochaine cible : edits read-only sur ranges AST `CODE-001B2`.
 
 ## Phase 5.1 - Safe Apply
 
@@ -387,7 +388,7 @@ Reference : [`worktree-verification.md`](worktree-verification.md).
 
 ## Phase 5.5 - Tree-sitter Java
 
-Statut : baseline read-only terminee ; index et edits cibles a faire.
+Statut : baseline read-only et index inter-fichiers B1 termines ; edits cibles a faire.
 
 Acquis :
 
@@ -403,18 +404,25 @@ Acquis :
 - limites et troncatures explicites dans le schema JSON ;
 - symlinks, jonctions et reparse points ignores ou refuses selon leur position ;
 - commande `java-syntax` humaine/JSON ;
+- commande `java-index` humaine/JSON et schema versionne ;
+- identifiants stables pour types, overloads, champs et constantes ;
+- resolution locale, meme package, imports, `java.lang` et noms qualifies ;
+- statuts `exact`, `unique_candidate`, `ambiguous`, `unresolved` et
+  `invalid_syntax_context` ;
+- listes de candidats bornees sans choix arbitraire ;
 - tests read-only sur mini Bukkit, Kspawners et PandaSpigot borne.
 
 Limites :
 
-- pas de resolution semantique ni index inter-fichiers ;
-- pas de cache incremental ;
+- resolution volontairement inferieure a `javac` : classpath, heritage,
+  generiques et types runtime non couverts ;
+- pas de cache incremental ou persistant ;
 - pas encore d'edit ou de patch base sur les ranges AST ;
 - `analyze-java` conserve temporairement son parseur textuel historique.
 
-Suite : `CODE-001B1` index read-only, `CODE-001B2` edits cibles, puis `CONTEXT-001`.
+Suite : `CODE-001B2` edits cibles, puis `CONTEXT-001`.
 
-Reference : [`java-syntax.md`](java-syntax.md).
+References : [`java-syntax.md`](java-syntax.md) et [`java-index.md`](java-index.md).
 
 ## Phase 5.6 - Profils, memoire et optimisation controlee
 
