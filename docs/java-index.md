@@ -217,6 +217,8 @@ prouvee, avec hash source, octets attendus, reparse et verification en worktree.
 
 `CODE-001B2` fournit maintenant des propositions d'edits sur ranges AST avec
 hash, octets attendus, garde anti-shadow et reparse, sans ecriture directe. Voir
-[`java-edits.md`](java-edits.md). `CODE-001B3` les verifiera dans un worktree,
-puis `CONTEXT-001` utilisera les symboles et resolutions de B1 pour selectionner
-moins de fichiers et envoyer moins de tokens au modele local.
+[`java-edits.md`](java-edits.md). `CODE-001B3` les verifie maintenant dans un
+worktree ; voir
+[`java-edit-worktree.md`](java-edit-worktree.md). `CONTEXT-001` utilisera les
+symboles et resolutions de B1 pour selectionner moins de fichiers et envoyer
+moins de tokens au modele local.

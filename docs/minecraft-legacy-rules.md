@@ -1,6 +1,6 @@
 # OpticCode - Regles Minecraft Java 1.8 legacy
 
-Derniere mise a jour : 2026-07-06
+Derniere mise a jour : 2026-07-13
 
 ## Objectif
 
@@ -12,6 +12,7 @@ Ces regles servent a trois endroits :
 - analyse `analyze-java` ;
 - patch preview `patch` ;
 - propositions AST read-only `java-edits` ;
+- verification transactionnelle isolee `java-edits-verify` ;
 - scan preparatoire `pack-scan`.
 
 ## Sources locales consultees

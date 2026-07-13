@@ -54,10 +54,17 @@ propositions read-only avec cible exacte, hash BLAKE3, noeud et octets attendus,
 garde anti-shadow, ranges non chevauchants et reparse en memoire. Le corpus de
 plus de 50 cas couvre 14/14 regles avec 16 edits attendus et zero faux positif.
 Sur Kspawners, `CreatureSpawnEvent.SpawnReason.SPAWNER` est correctement refuse
-comme mauvaise cible. La prochaine cible est `CODE-001B3`, execution
-transactionnelle uniquement dans un worktree. Voir
-[`java-edits.md`](java-edits.md). La validation workspace atteint maintenant
-132 tests, Clippy strict sans avertissement et build release reussi.
+comme mauvaise cible. Voir [`java-edits.md`](java-edits.md). Cette etape seule
+portait la validation workspace a 132 tests, Clippy strict sans avertissement et
+build release reussi.
+
+Mise a jour CODE-001B3 du 2026-07-13 : `java-edits-verify` recalcule le contrat
+B2 dans un worktree detache au `HEAD` exact, rematerialise les edits, execute
+APPLY-001, reparse les octets ecrits, lance le build borne puis controle les
+hashes du snapshot Git final. Le rapport distingue revalidation, apply, build,
+cleanup et source ; aucune promotion n'existe. Voir
+[`java-edit-worktree.md`](java-edit-worktree.md). La validation courante atteint
+145 tests workspace, Clippy strict sans avertissement et build release reussi.
 
 ## 1. Resume executif
 
@@ -72,6 +79,7 @@ OpticCode n'est plus une simple idee ni un assemblage de documentation. Le depot
 - construire et interroger un index RAG JSONL local ;
 - proposer et verifier des corrections legacy deterministes ;
 - produire des edits Java cibles read-only avec preconditions verifiables ;
+- revalider, appliquer et compiler ces edits dans un worktree jetable ;
 - appliquer ces corrections avec confirmation, transaction, rollback et recovery ;
 - compiler un projet Java et resumer certaines erreurs ;
 - mesurer la latence, les tokens Ollama et la qualite de scenarios repetables.
@@ -87,15 +95,16 @@ Verdict global :
 | CLI locale | fonctionnelle | commandes specialisees et sorties JSON versionnees |
 | Specialisation Bukkit 1.8 | utile mais etroite | bonnes premieres regles, couverture encore faible |
 | RAG | prototype valide | utile sur les cas legacy, pas encore scalable |
-| Safe apply | transactionnel | rollback/recovery valides, adaptateur B2 vers worktree encore absent |
+| Safe apply | transactionnel et isole | B2 vers APPLY-001/GIT-002 valide, promotion volontairement absente |
 | Agent iteratif | non commence | aucune boucle autonome de tools/build/correction |
 | Performance | mesuree | inference Qwen dominante, outils locaux rapides |
 | Qualite logicielle | bonne base | tests et lint verts, CI et couverture absentes |
 | Niveau produit | experimental | pas de release, configuration stable, TUI, daemon ou IDE |
 
-Position actuelle dans le plan : Phase 5.4 terminee pour le worktree jetable.
+Position actuelle dans le plan : Phase 5.5 terminee jusqu'au pipeline Java B3.
 Les projets personnels originaux restent hors tests. Le worktree jetable et la
-   baseline Tree-sitter, index B1 et edits B2 sont valides ; la prochaine cible est CODE-001B3.
+baseline Tree-sitter, l'index B1, les edits B2 et leur verification B3 sont
+valides ; la prochaine cible est l'extension des regles puis `CONTEXT-001`.
 
 ## 2. Portee et methode de l'audit
 
@@ -840,7 +849,7 @@ Objectif : preparer l'agent sans encore lui donner une autonomie dangereuse.
 5. Integrer Tree-sitter Java pour classes, methodes, imports et positions. Baseline faite.
 6. Construire l'index inter-fichiers conservateur. Fait via CODE-001B1.
 7. Produire des edits read-only sur ranges AST verifies. Fait via CODE-001B2.
-8. Verifier et appliquer ces edits uniquement dans un worktree. Prochaine cible CODE-001B3.
+8. Verifier et appliquer ces edits uniquement dans un worktree. Fait via CODE-001B3.
 9. Selectionner le contexte selon la demande et les symboles.
 10. Ajouter une configuration `.opticcode/config.toml` versionnee facultative.
 
@@ -945,7 +954,8 @@ Choix de conception recommande : utiliser `git status --porcelain=v1 -z` ou un f
 - CODE-001 read-only : termine et committe (`d6652e4`).
 - CODE-001B1 : index symbolique Java read-only termine (`d631d69`).
 - CODE-001B2 : propositions d'edits Java ciblees terminees.
-- Prochain sprint : `CODE-001B3`, verification transactionnelle en worktree.
+- CODE-001B3 : verification transactionnelle en worktree terminee.
+- Prochain sprint : extension mesuree des regles legacy, puis `CONTEXT-001`.
 
 ## 17. Definition de fini pour une V1 utile
 

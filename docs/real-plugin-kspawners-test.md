@@ -174,5 +174,7 @@ APPLY-001 et GIT-002 sont maintenant valides sur fixtures temporaires, sans
 nouvelle ecriture sur Kspawners. Continuer les essais sur copies ou worktrees :
 Tree-sitter Java, l'index B1 et les propositions B2 sont termines. Le test B2
 read-only trouve `SpawnReason.SPAWNER`, prouve qu'il ne s'agit pas de
-`Material.SPAWNER` et produit zero edit. La prochaine etape est CODE-001B3 dans
-un worktree, toujours sans ecriture sur Kspawners original.
+`Material.SPAWNER` et produit zero edit. CODE-001B3 est maintenant valide sur
+fixtures Git temporaires. Kspawners original reste volontairement read-only ;
+une future verification B3 reelle devra partir d'une copie ou d'un commit Git
+propre explicitement choisi.

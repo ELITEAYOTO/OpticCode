@@ -41,6 +41,8 @@ local, Git isole les essais et Maven/Gradle compilent les projets Java.
 - analyse Java read-only avec offsets d'octets, hashes et diagnostics ;
 - index inter-fichiers avec resolutions exactes, ambigues ou non resolues ;
 - propositions d'edits Java avec hash, ranges, octets attendus et reparse ;
+- revalidation et application de ces edits dans un worktree detache ;
+- transaction, reparse disque, build borne, hashes Git finaux et cleanup ;
 - aucune modification automatique provenant directement du modele.
 
 ## Etat actuel
@@ -51,19 +53,23 @@ references entre fichiers, proposer certains patches legacy, appliquer une
 transaction recuperable, compiler et verifier un patch dans un worktree
 temporaire.
 
-La production read-only d'edits Java cibles est maintenant disponible pour 14
-regles Bukkit 1.8. L'index refuse de choisir arbitrairement entre deux classes
-ou methodes, puis le moteur verifie hash, qualificateur, octets et syntaxe. La
-prochaine brique executera ces edits uniquement dans un worktree jetable.
+La production read-only d'edits Java cibles est disponible pour 14 regles
+Bukkit 1.8. L'index refuse de choisir arbitrairement entre deux classes ou
+methodes, puis le moteur verifie hash, qualificateur, octets et syntaxe. Le
+pipeline B3 recalcule ensuite ces preuves dans un worktree au `HEAD` exact,
+applique transactionnellement, reparse, compile et controle le diff final sans
+toucher la source.
 
 ## Ce qui reste avant une V1 autonome
 
 - index symbolique incremental et persistant pour les tres grands depots ;
-- integration des edits Java dans apply/worktree et build borne ;
+- extension prudente des regles legacy et suite d'evaluation chiffree ;
 - RAG scalable avec provenance ;
 - boucle agent bornee plan -> tools -> build -> correction ;
 - approbation finale et promotion controlee ;
 - evaluation qualite, vitesse et consommation de tokens sur des projets reels.
 
 Pour les details techniques, voir la [roadmap](roadmap.md),
-l'[architecture](architecture.md) et l'[audit complet](project-audit-2026-07-11.md).
+l'[architecture](architecture.md), la
+[verification B3](java-edit-worktree.md) et
+l'[audit complet](project-audit-2026-07-11.md).

@@ -273,7 +273,9 @@ Etat actuel :
   anti-shadow, simulation et reparse ;
 - corpus B2 de plus de 50 cas : 16/16 edits attendus et zero faux positif ;
 - validation complete : 132 tests workspace, Clippy strict et build release OK ;
-- prochaine cible : execution de B2 dans un worktree via `CODE-001B3`.
+- pipeline B3 ajoute : double contrat, apply transactionnel, reparse, build,
+  hashes Git finaux, cleanup et source inchangee ;
+- prochaine cible : extension des regles legacy puis `CONTEXT-001`.
 
 ## Phase 5.1 - Safe Apply
 
@@ -391,7 +393,7 @@ Reference : [`worktree-verification.md`](worktree-verification.md).
 
 ## Phase 5.5 - Tree-sitter Java
 
-Statut : baseline, index inter-fichiers B1 et edits read-only B2 termines.
+Statut : baseline, index inter-fichiers B1, edits read-only B2 et pipeline B3 termines.
 
 Acquis :
 
@@ -419,20 +421,27 @@ Acquis :
 - application simulee de fin vers debut et reparse en memoire ;
 - corpus legacy de plus de 50 cas avec 14/14 regles et zero faux positif ;
 - regression reelle Kspawners `SpawnReason.SPAWNER` correctement refusee ;
-- tests read-only sur mini Bukkit, Kspawners et PandaSpigot borne.
+- tests read-only sur mini Bukkit, Kspawners et PandaSpigot borne ;
+- commande `java-edits-verify` humaine/JSON et schema versionne ;
+- reanalyse B2 dans un worktree detache au `HEAD` exact ;
+- empreinte source/worktree, rematerialisation et apply transactionnel ;
+- reparse apres ecriture, build borne et Git State Guard strict ;
+- hashes finaux verifies, diff borne, cleanup/recovery et source inchangee ;
+- aucun transfert automatique vers le projet original.
+- validation B3 complete : 145 tests workspace, Clippy strict et build release OK.
 
 Limites :
 
 - resolution volontairement inferieure a `javac` : classpath, heritage,
   generiques et types runtime non couverts ;
 - pas de cache incremental ou persistant ;
-- edits B2 pas encore consommes par APPLY-001/GIT-002 ;
 - `analyze-java` conserve temporairement son parseur textuel historique.
 
-Suite : `CODE-001B3` verification/apply en worktree, puis `CONTEXT-001`.
+Suite : extension mesuree des regles legacy, puis `CONTEXT-001`.
 
-References : [`java-syntax.md`](java-syntax.md), [`java-index.md`](java-index.md)
-et [`java-edits.md`](java-edits.md).
+References : [`java-syntax.md`](java-syntax.md), [`java-index.md`](java-index.md),
+[`java-edits.md`](java-edits.md) et
+[`java-edit-worktree.md`](java-edit-worktree.md).
 
 ## Phase 5.6 - Profils, memoire et optimisation controlee
 

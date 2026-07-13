@@ -174,7 +174,11 @@ tracked_was_clean_before = false
 ```
 
 Cette representation conserve a la fois le bruit preexistant et l'activite du
-build, ce qu'une categorie unique ne pourrait pas exprimer.
+build, ce qu'une categorie unique ne pourrait pas exprimer. En mode strict, un
+fichier suivi deja sale qui evolue encore pendant le build est aussi une
+violation ; son empreinte avant/apres apporte la preuve. La disparition d'un
+changement suivi preexistant est egalement refusee : un build ne doit pas
+restaurer ou supprimer silencieusement l'etat prepare avant son lancement.
 
 ## Chemins de build connus
 
@@ -463,8 +467,10 @@ grand worktree, pas BLAKE3.
   restent sans empreinte et sont compares avec moins de precision.
 - La liste des chemins `build_generated` est heuristique et devra devenir
   configurable par profil/projet.
-- Le mode strict actuel vise exactement les fichiers suivis propres avant le
-  build. Une politique future pourra aussi interdire les sorties non suivies.
+- Le mode strict vise les fichiers suivis qui apparaissent ou evoluent pendant
+  le build, y compris un fichier deja sale dont le hash change ou dont le
+  changement disparait. Une politique future pourra aussi interdire les sorties
+  non suivies.
 - Le guard observe et explique ; il ne restaure ni ne supprime aucun fichier.
 - Le process runner borne traite maintenant timeout/cancellation ; voir
   [`process-runner.md`](process-runner.md).
@@ -478,5 +484,6 @@ recovery. Voir [`apply-transaction.md`](apply-transaction.md).
 `GIT-002` reutilise maintenant ce guard dans un worktree jetable pour attribuer
 les effets d'un patch puis d'un build. Voir
 [`worktree-verification.md`](worktree-verification.md). Les edits Java B2 sont
-maintenant produits et valides en memoire. La prochaine brique est CODE-001B3,
-qui les fera passer par le guard et le build borne dans le worktree.
+maintenant produits en memoire puis verifies par CODE-001B3 dans le guard et le
+build borne du worktree. Voir
+[`java-edit-worktree.md`](java-edit-worktree.md).

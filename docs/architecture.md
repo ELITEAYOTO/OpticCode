@@ -184,10 +184,27 @@ Etat edits read-only implemente :
 - simulation de fin vers debut et reparse en memoire ;
 - sortie compacte `java-edits` humaine/JSON, sans aucune ecriture.
 
-La prochaine etape est l'adaptateur `CODE-001B3` qui executera ces edits via
-APPLY-001 dans GIT-002, puis un index incremental/persistant lorsque les mesures
-le justifieront. Voir [`java-syntax.md`](java-syntax.md),
-[`java-index.md`](java-index.md) et [`java-edits.md`](java-edits.md).
+Etat verification B3 implemente :
+
+- module d'orchestration separe `opticcode-tools/src/java_edit_worktree.rs` ;
+- empreinte complete des contrats B2 source/worktree au meme commit ;
+- rematerialisation hash/ranges/octets/overlaps juste avant APPLY-001 ;
+- mutations transactionnelles uniquement dans le worktree GIT-002 ;
+- verification des octets et reparse apres ecriture ;
+- build borne avec Git State Guard strict ;
+- validation des hashes attendus dans le snapshot Git final ;
+- diff et patch bornes, cleanup/recovery et source recontrolee ;
+- aucune promotion vers le projet source.
+
+Le cycle GIT-002 accepte maintenant une etape apply injectee, mais conserve une
+seule implementation du worktree, du build, du diff et du cleanup. Les futures
+regles Java ne doivent pas ajouter leur logique dans `worktree.rs`.
+
+La prochaine etape est l'extension mesuree des regles legacy puis
+`CONTEXT-001`. Un index incremental/persistant attendra des mesures qui le
+justifient. Voir [`java-syntax.md`](java-syntax.md),
+[`java-index.md`](java-index.md), [`java-edits.md`](java-edits.md) et
+[`java-edit-worktree.md`](java-edit-worktree.md).
 
 ## Runtime LLM
 

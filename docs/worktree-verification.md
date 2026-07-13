@@ -196,6 +196,8 @@ cargo test --workspace                          105 tests OK
 ## Suite
 
 Tree-sitter Java, l'index inter-fichiers et les propositions d'edits B2 sont
-maintenant disponibles. La prochaine cible est `CODE-001B3` : revalider ces
-edits et les convertir en mutations APPLY-001 uniquement dans le worktree,
-avant build et diff. Aucun transfert vers la source ne sera ajoute a ce sprint.
+maintenant relies par `CODE-001B3`. Le cycle de vie GIT-002 accepte une etape
+apply injectee, et `java-edits-verify` revalide puis convertit les edits en
+mutations APPLY-001 avant reparse, build et diff. Voir
+[`java-edit-worktree.md`](java-edit-worktree.md). Aucun transfert vers la source
+n'est implemente.

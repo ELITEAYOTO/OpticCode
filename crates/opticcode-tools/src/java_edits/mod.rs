@@ -5,10 +5,11 @@ mod schema;
 mod validation;
 
 use std::collections::BTreeMap;
+use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
-use anyhow::{bail, Result};
+use anyhow::{bail, Context, Result};
 
 use crate::java_index::{
     analyze_java_index, JavaIndexFile, JavaIndexOptions, JavaIndexedReference, JavaResolutionStatus,
@@ -33,6 +34,14 @@ pub const MAX_JAVA_EDIT_REJECTIONS: usize = 256;
 pub struct JavaEditOptions {
     pub index: JavaIndexOptions,
     pub max_proposals: usize,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct JavaEditMaterializedFile {
+    pub(crate) path: PathBuf,
+    pub(crate) expected_before: Vec<u8>,
+    pub(crate) desired_after: Vec<u8>,
+    pub(crate) validation: JavaEditFileValidation,
 }
 
 impl Default for JavaEditOptions {
@@ -395,6 +404,157 @@ pub fn propose_java_edits(
         rejections,
         warnings,
     })
+}
+
+pub(crate) fn materialize_java_edits(
+    root: &Path,
+    report: &JavaEditProposalReport,
+) -> Result<Vec<JavaEditMaterializedFile>> {
+    if !report.safe_to_apply || !report.analysis_complete || report.truncated {
+        bail!("Java edit proposal report is not complete and safe for materialization");
+    }
+
+    let root = fs::canonicalize(root)
+        .with_context(|| format!("failed to resolve Java edit root: {}", root.display()))?;
+    if root != report.root {
+        bail!(
+            "Java edit report root mismatch: expected {}, found {}",
+            report.root.display(),
+            root.display()
+        );
+    }
+
+    let mut grouped = BTreeMap::<PathBuf, Vec<JavaEditProposal>>::new();
+    for proposal in &report.proposals {
+        grouped
+            .entry(proposal.file.clone())
+            .or_default()
+            .push(proposal.clone());
+    }
+
+    let mut expected_validations = BTreeMap::<PathBuf, &JavaEditFileValidation>::new();
+    for validation in &report.file_validations {
+        if expected_validations
+            .insert(validation.path.clone(), validation)
+            .is_some()
+        {
+            bail!(
+                "Java edit report contains duplicate validation for {}",
+                validation.path.display()
+            );
+        }
+    }
+    if grouped.len() != expected_validations.len() {
+        bail!(
+            "Java edit proposal/validation file count mismatch: {} proposal file(s), {} validation file(s)",
+            grouped.len(),
+            expected_validations.len()
+        );
+    }
+
+    let mut scanner = AstSafetyScanner::new()?;
+    let mut materialized = Vec::with_capacity(grouped.len());
+    for (path, proposals) in grouped {
+        let expected = expected_validations.remove(&path).with_context(|| {
+            format!(
+                "Java edit report has no file validation for {}",
+                path.display()
+            )
+        })?;
+        if !expected.syntax_valid_before || !expected.syntax_valid_after {
+            bail!(
+                "Java edit validation is not syntax-safe for {}",
+                path.display()
+            );
+        }
+        if proposals.len() != expected.edit_count {
+            bail!(
+                "Java edit count changed for {}: expected {}, found {}",
+                path.display(),
+                expected.edit_count,
+                proposals.len()
+            );
+        }
+        if proposals
+            .iter()
+            .any(|proposal| proposal.source_hash != expected.source_hash)
+        {
+            bail!("Java edit source hashes disagree for {}", path.display());
+        }
+
+        let snapshot = read_source_snapshot(
+            &root,
+            &path,
+            &expected.source_hash,
+            report.limits.index.max_file_bytes,
+            &mut scanner,
+        )
+        .map_err(|error| match error {
+            SnapshotError::Invalid(message) | SnapshotError::Changed(message) => {
+                anyhow::anyhow!(message)
+            }
+        })?;
+        let result = validate_file_edits(&snapshot, &proposals, expected.syntax_valid_before);
+        if !result.rejections.is_empty() {
+            let details = result
+                .rejections
+                .iter()
+                .map(|rejection| rejection.message.as_str())
+                .collect::<Vec<_>>()
+                .join("; ");
+            bail!(
+                "Java edit materialization rejected {}: {}",
+                path.display(),
+                details
+            );
+        }
+        let actual = result.validation.with_context(|| {
+            format!(
+                "Java edit materialization produced no validation for {}",
+                path.display()
+            )
+        })?;
+        let proposed_source = result.proposed_source.with_context(|| {
+            format!(
+                "Java edit materialization produced no bytes for {}",
+                path.display()
+            )
+        })?;
+        if !same_file_validation(expected, &actual) {
+            bail!(
+                "Java edit validation contract changed for {}",
+                path.display()
+            );
+        }
+
+        materialized.push(JavaEditMaterializedFile {
+            path,
+            expected_before: snapshot.source.into_bytes(),
+            desired_after: proposed_source.into_bytes(),
+            validation: actual,
+        });
+    }
+
+    if !expected_validations.is_empty() {
+        bail!("Java edit report contains validations without proposals");
+    }
+    Ok(materialized)
+}
+
+fn same_file_validation(
+    expected: &JavaEditFileValidation,
+    actual: &JavaEditFileValidation,
+) -> bool {
+    expected.path == actual.path
+        && expected.source_hash == actual.source_hash
+        && expected.proposed_hash == actual.proposed_hash
+        && expected.source_bytes == actual.source_bytes
+        && expected.proposed_bytes == actual.proposed_bytes
+        && expected.edit_count == actual.edit_count
+        && expected.proposal_ids == actual.proposal_ids
+        && expected.syntax_valid_before == actual.syntax_valid_before
+        && expected.syntax_valid_after == actual.syntax_valid_after
+        && expected.diagnostics_after == actual.diagnostics_after
 }
 
 fn build_proposal(

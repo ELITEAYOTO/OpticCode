@@ -212,11 +212,12 @@ Realise pour `CODE-001B2` :
 - refus des mauvaises cibles, resolutions incertaines et shadows connus ;
 - sortie read-only compacte, corpus qualite et vraie regression Kspawners.
 
-Reste pour `CODE-001B3` :
+Realise pour `CODE-001B3` :
 
+- recalculer le contrat B2 dans le worktree et comparer son empreinte ;
 - revalider les preconditions juste avant ecriture ;
 - convertir les propositions en mutations APPLY-001 uniquement dans GIT-002 ;
-- reparse, build borne et diff final ;
+- reparse avant/apres ecriture, build borne, hashes Git et diff final ;
 - conserver la promotion vers la source hors scope.
 
 Ne pas commencer par Rust/C++/JavaScript. Java couvre le besoin produit direct.
@@ -450,7 +451,7 @@ Tree-sitter/Tantivy.
 6. Decouper les modules tools necessaires. Fait pour worktree ; poursuivre selon besoin.
 7. Integrer CODE-001 Tree-sitter Java et CODE-001B1. Fait.
 8. Construire CODE-001B2, edits cibles read-only. Fait.
-9. Construire CODE-001B3, verification des edits en worktree.
+9. Construire CODE-001B3, verification des edits en worktree. Fait.
 10. Construire CONTEXT-001 selection par tache.
 11. Migrer vers INDEX-001/002 SQLite + Tantivy.
 12. Construire AGENT-001/002.
@@ -459,16 +460,17 @@ Tree-sitter/Tantivy.
 
 ## Prochain sprint propose
 
-`CODE-001B3 - Verification des edits AST dans un worktree`.
+`LEGACY-002 - Extension mesuree des regles`, puis `CONTEXT-001`.
 
-Le parseur, l'index et B2 fournissent maintenant des edits read-only valides et
-expliques. Le prochain risque est de convertir ce contrat en ecritures sans
-dupliquer les controles ni exposer le projet source.
+Le parseur, l'index, B2 et B3 fournissent maintenant un pipeline complet jusqu'au
+build et au diff sans exposer le projet source. La prochaine valeur produit est
+d'elargir prudemment les incompatibilites 1.8 couvertes, puis de reduire le
+contexte envoye au modele avec l'index symbolique.
 
 Contraintes du prochain sprint :
 
-- revalidation du hash, du noeud et des octets dans le worktree ;
-- conversion explicite vers `FileMutation` transactionnel ;
-- build strict borne, diff et cleanup/recovery GIT-002 ;
-- aucune ecriture ou promotion dans le projet utilisateur ;
-- tests de derive entre proposition et apply, rollback et build echoue.
+- une source authoritative par nouvelle regle legacy ;
+- cas positif, mauvaises cibles, commentaires, chaines et shadows ;
+- zero faux positif sur le corpus avant activation B3 ;
+- benchmark avant/apres sur plugins reels read-only ;
+- aucune promotion dans le projet utilisateur.

@@ -844,7 +844,9 @@ Decision :
 - conserver separement `existed_before`, `changed_during_build` et `tracked_was_clean_before` ;
 - ajouter `build --json` avec un schema versionne ;
 - ajouter `build --fail-on-worktree-change` ;
-- faire echouer le mode strict si un fichier suivi propre devient sale ou si Git ne peut pas etre capture ;
+- faire echouer le mode strict si un fichier suivi apparait, evolue ou revient
+  propre pendant le build, meme s'il etait deja sale avant, ou si Git ne peut
+  pas etre capture ;
 - ne jamais restaurer, nettoyer ou supprimer automatiquement les changements observes.
 
 Raison :
@@ -853,6 +855,8 @@ Raison :
 - le futur agent doit attribuer les changements avant de proposer un rollback ;
 - le format NUL supporte espaces, Unicode, renommages et chemins Windows ;
 - une empreinte distingue un bruit preexistant inchange d'un fichier regenere ;
+- une evolution ou disparition d'un changement suivi prepare avant le build ne
+  doit jamais etre annoncee comme un build strict reussi ;
 - le test Kspawners a confirme la detection d'un JAR non suivi regenere sans faux echec strict.
 
 ### D-053 - BLAKE3 et metriques pour les snapshots Git
@@ -1064,8 +1068,50 @@ Raison :
 - les propositions compactes pourront alimenter worktree, contexte et agent
   sans transporter des fichiers entiers.
 
-Suite retenue : CODE-001B3 reverifiera ce contrat et le convertira en mutations
-APPLY-001 uniquement dans un worktree GIT-002. Aucune promotion automatique ne
-sera ajoutee.
+Suite realisee : CODE-001B3 reverifie ce contrat et le convertit en mutations
+APPLY-001 uniquement dans un worktree GIT-002. Aucune promotion automatique
+n'est ajoutee.
 
 Reference : [`java-edits.md`](java-edits.md).
+
+### D-060 - Executer les edits AST uniquement dans un worktree revalide
+
+Statut : valide.
+
+Decision :
+
+- isoler CODE-001B3 dans `java_edit_worktree.rs` ;
+- rendre l'etape apply du cycle GIT-002 injectable sans dupliquer creation,
+  build, diff, guard source, cleanup ou recovery ;
+- analyser d'abord la source read-only, puis recalculer B2 dans le worktree
+  detache cree depuis le `HEAD` propre exact ;
+- comparer une empreinte BLAKE3 du contrat fonctionnel complet, sans chemins
+  absolus ni timings ;
+- refuser toute analyse unsafe, incomplete ou tronquee ;
+- relire et revalider hash, noeud, range, octets et overlaps juste avant apply ;
+- convertir uniquement les fichiers entierement valides en `FileMutation` avec
+  octets `expected_before` et `desired_after` ;
+- utiliser APPLY-001 avec politique Git propre dans le worktree ;
+- verifier les octets et reparser chaque fichier apres transaction ;
+- lancer le build borne avec Git State Guard strict ;
+- comparer les hashes proposes au snapshot Git final et refuser tout changement
+  inattendu hors metadonnees `.opticcode` ;
+- borner le patch et le diff exposes dans le JSON tout en conservant hashes et
+  tailles ;
+- separer verification, cleanup et recovery dans le resultat ;
+- ne jamais promouvoir le resultat vers la source dans B3.
+
+Raison :
+
+- copier directement une proposition B2 laisserait une fenetre entre analyse et
+  ecriture ;
+- une seconde resolution dans le commit reel du worktree prouve a nouveau la
+  cible qualifiee et les faux positifs ;
+- APPLY-001 ferme la fenetre entre rematerialisation et remplacement par sa
+  comparaison byte-identique ;
+- le reparse post-ecriture detecte un resultat disque different de la simulation ;
+- le snapshot final ferme la fenetre entre reparse et fin du build ;
+- reutiliser GIT-002 evite deux implementations concurrentes du cleanup Windows ;
+- garder la promotion separee preserve l'approbation utilisateur.
+
+Reference : [`java-edit-worktree.md`](java-edit-worktree.md).

@@ -194,18 +194,19 @@ La couverture inclut :
   edites dans cette version ;
 - seules les 14 regles deterministes Bukkit 1.8 sont supportees ;
 - metadata/data values/NBT des blocs et spawn eggs restent hors scope ;
-- `patch`, `apply` et `worktree-verify` utilisent encore leur adaptateur legacy
-  textuel historique ;
+- `patch`, `apply` et `worktree-verify` conservent leur adaptateur legacy
+  historique pour compatibilite ; `java-edits-verify` utilise le contrat AST ;
 - aucune promotion vers un projet source n'existe.
 - le pic memoire n'est pas encore mesure par un benchmark robuste ; il reste une
   metrique obligatoire avant l'index incremental grande echelle.
 
 ## Suite
 
-`CODE-001B3` branchera ces propositions sur APPLY-001 uniquement dans un
-worktree GIT-002 : revalidation du hash et des octets, mutations
-transactionnelles, reparse, build borne et diff final. La source utilisateur
-restera inchangee et aucune promotion automatique ne sera ajoutee.
+`CODE-001B3` est maintenant disponible via `java-edits-verify`. Il recalcule le
+contrat dans un worktree GIT-002, rematerialise hash/ranges/octets, utilise
+APPLY-001, reparse, compile puis verifie les hashes Git finaux. La source reste
+inchangee et aucune promotion automatique n'est ajoutee. Voir
+[`java-edit-worktree.md`](java-edit-worktree.md).
 
 Apres cette integration, `CONTEXT-001` utilisera l'index symbolique pour reduire
 les fichiers et tokens envoyes au modele.

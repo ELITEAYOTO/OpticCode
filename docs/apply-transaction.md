@@ -325,8 +325,8 @@ Resultat exact du dernier run `-Full` le 2026-07-11 :
   pas un attaquant local qui reecrit manifeste et backups ensemble.
 - Pas de build inclus dans la meme transaction.
 - Pas encore de budget maximal de fichiers/octets par apply.
-- Le generateur `patch/apply` reste textuel ; B2 produit des edits AST fiables,
-  mais son adaptateur transactionnel n'est pas encore branche.
+- Le generateur historique `patch/apply` reste textuel ; B3 convertit des edits
+  AST fiables en transactions uniquement dans un worktree.
 - Une transaction invalide avant `prepared` est inspectable mais pas recuperee
   automatiquement, car aucune cible n'a encore ete modifiee.
 
@@ -334,6 +334,6 @@ Resultat exact du dernier run `-Full` le 2026-07-11 :
 
 `GIT-002` est maintenant termine ; voir
 [`worktree-verification.md`](worktree-verification.md). Tree-sitter Java et
-l'index inter-fichiers et les propositions read-only B2 sont aussi termines. La
-priorite suivante est CODE-001B3 : revalider puis convertir ces propositions en
-mutations APPLY-001 uniquement dans un worktree GIT-002.
+l'index inter-fichiers, B2 et le pipeline B3 sont aussi termines. Voir
+[`java-edit-worktree.md`](java-edit-worktree.md). La priorite suivante est
+l'extension mesuree des regles legacy puis `CONTEXT-001`.

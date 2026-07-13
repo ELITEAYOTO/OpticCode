@@ -147,9 +147,10 @@ build apres patch : succes
 
 1. `CODE-001B1` index symbolique inter-fichiers read-only. Fait.
 2. Construire `CODE-001B2`, propositions d'edits sur ranges AST verifies. Fait.
-3. Construire `CODE-001B3`, verification/apply uniquement dans un worktree.
-4. Etendre ensuite l'apply transactionnel aux futurs patches AST avec confirmation explicite.
+3. Construire `CODE-001B3`, verification/apply uniquement dans un worktree. Fait.
+4. Etendre les regles legacy puis selectionner le contexte par symboles.
 5. Relier progressivement l'analyse Tree-sitter au profil `minecraft-java-1.8`.
 
 Voir [`java-syntax.md`](java-syntax.md), [`java-index.md`](java-index.md) et
-[`java-edits.md`](java-edits.md).
+[`java-edits.md`](java-edits.md) et
+[`java-edit-worktree.md`](java-edit-worktree.md).

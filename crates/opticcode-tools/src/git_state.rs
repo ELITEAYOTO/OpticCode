@@ -398,7 +398,7 @@ impl BuildGitReport {
             } else {
                 out.push_str("\nChanges detected during build:\n");
                 for classified in changes_during_build {
-                    let strict = if classified.tracked_was_clean_before {
+                    let strict = if strict_candidate(classified) {
                         " [strict]"
                     } else {
                         ""
@@ -793,27 +793,58 @@ fn count_diff(
         if classified.changed_during_build {
             counts.changed_during_build += 1;
         }
-        if classified.tracked_was_clean_before {
+        if strict_candidate(classified) {
             counts.strict_candidates += 1;
         }
     }
+    counts.changed_during_build = counts.changed_during_build.saturating_add(resolved.len());
+    counts.strict_candidates = counts
+        .strict_candidates
+        .saturating_add(resolved.iter().filter(|change| change.is_tracked()).count());
 
     counts
 }
 
 fn strict_reasons(diff: &GitStateDiff) -> Vec<String> {
-    diff.changes_after
+    let mut reasons = diff
+        .changes_after
         .iter()
-        .filter(|classified| classified.tracked_was_clean_before)
+        .filter(|classified| strict_candidate(classified))
         .map(|classified| {
-            format!(
-                "tracked file was clean before build and changed: {} {} (origin={})",
-                classified.change.kind.as_str(),
-                classified.change.display_path(),
-                classified.origin.as_str()
-            )
+            if classified.tracked_was_clean_before {
+                format!(
+                    "tracked file was clean before build and changed: {} {} (origin={})",
+                    classified.change.kind.as_str(),
+                    classified.change.display_path(),
+                    classified.origin.as_str()
+                )
+            } else {
+                format!(
+                    "tracked file changed again during build: {} {} (origin={})",
+                    classified.change.kind.as_str(),
+                    classified.change.display_path(),
+                    classified.origin.as_str()
+                )
+            }
         })
-        .collect()
+        .collect::<Vec<_>>();
+    reasons.extend(
+        diff.resolved_pre_existing
+            .iter()
+            .filter(|change| change.is_tracked())
+            .map(|change| {
+                format!(
+                    "tracked pre-existing change was removed or restored during build: {} {}",
+                    change.kind.as_str(),
+                    change.display_path()
+                )
+            }),
+    );
+    reasons
+}
+
+fn strict_candidate(classified: &ClassifiedGitChange) -> bool {
+    classified.changed_during_build && classified.change.is_tracked()
 }
 
 #[cfg(test)]
@@ -926,6 +957,54 @@ mod tests {
         assert!(classified.changed_during_build);
         assert_eq!(classified.origin, GitChangeOrigin::TrackedChanged);
         assert!(!classified.tracked_was_clean_before);
+
+        let report =
+            BuildGitReport::from_snapshots(before, after, true).expect("snapshots should compare");
+        assert!(report.strict_violation());
+        assert_eq!(
+            report
+                .diff
+                .as_ref()
+                .expect("captured report should have diff")
+                .counts
+                .strict_candidates,
+            1
+        );
+        assert!(report.strict_policy.reasons[0].contains("tracked file changed again during build"));
+    }
+
+    #[test]
+    fn strict_policy_rejects_a_tracked_change_resolved_during_build() {
+        let root = PathBuf::from("C:/repo");
+        let before = GitStateSnapshot {
+            schema_version: 1,
+            root: root.clone(),
+            changes: vec![change(
+                GitChangeKind::Modified,
+                "src/Main.java",
+                Some("before"),
+            )],
+            metrics: Default::default(),
+        };
+        let after = GitStateSnapshot {
+            schema_version: 1,
+            root,
+            changes: Vec::new(),
+            metrics: Default::default(),
+        };
+
+        let report =
+            BuildGitReport::from_snapshots(before, after, true).expect("snapshots should compare");
+        let diff = report
+            .diff
+            .as_ref()
+            .expect("captured report should have diff");
+        assert_eq!(diff.counts.resolved_pre_existing, 1);
+        assert_eq!(diff.counts.changed_during_build, 1);
+        assert_eq!(diff.counts.strict_candidates, 1);
+        assert!(report.strict_violation());
+        assert!(report.strict_policy.reasons[0]
+            .contains("tracked pre-existing change was removed or restored"));
     }
 
     #[test]

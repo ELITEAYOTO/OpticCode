@@ -27,6 +27,7 @@ pub(super) enum SnapshotError {
 
 pub(super) struct FileValidationResult {
     pub(super) validation: Option<JavaEditFileValidation>,
+    pub(super) proposed_source: Option<String>,
     pub(super) rejections: Vec<JavaEditRejection>,
     pub(super) reparse_us: u64,
 }
@@ -230,6 +231,7 @@ pub(super) fn validate_file_edits(
     if !rejections.is_empty() {
         return FileValidationResult {
             validation: None,
+            proposed_source: None,
             rejections,
             reparse_us: 0,
         };
@@ -251,6 +253,7 @@ pub(super) fn validate_file_edits(
         Err(error) => {
             return FileValidationResult {
                 validation: None,
+                proposed_source: None,
                 rejections: vec![rejection(
                     JavaEditRejectionKind::PostEditSyntaxInvalid,
                     snapshot,
@@ -288,6 +291,7 @@ pub(super) fn validate_file_edits(
 
     FileValidationResult {
         validation: Some(validation),
+        proposed_source: Some(proposed),
         rejections,
         reparse_us,
     }

@@ -20,9 +20,10 @@ Le projet ne vise pas a entrainer un modele IA depuis zero. Il construit une cou
 Le projet a maintenant un MVP Rust fonctionnel : inspection, analyse Java/Bukkit,
 Ollama/Qwen, RAG JSONL, patch legacy, apply transactionnel, rollback/recovery,
 controle Git avant/apres build, verification dans un worktree jetable et analyse
-syntaxique Java read-only avec Tree-sitter, puis index symbolique inter-fichiers
-avec resolution conservatrice et propositions d'edits AST legacy verifiees en
-memoire. Les builds passent aussi par un
+syntaxique Java avec Tree-sitter, puis index symbolique inter-fichiers avec
+resolution conservatrice et propositions d'edits AST legacy. Ces propositions
+sont maintenant revalidees, appliquees transactionnellement, reparses, compilees
+et controlees jusqu'au hash Git final dans un worktree detache. Les builds passent aussi par un
 process runner borne avec timeout, sortie limitee et terminaison de l'arbre Windows.
 
 - Phase 0 : audit environnement Windows 10 termine.
@@ -31,7 +32,8 @@ process runner borne avec timeout, sortie limitee et terminaison de l'arbre Wind
 - Phase 2 : benchmark Ollama / Qwen2.5-Coder 14B termine.
 - Phase 3 : recherche depots externes et analyse Qwen Code terminees.
 - Phase 4 : MVP Rust fonctionnel.
-- Phase 5 : tools Java en cours ; apply/worktree, Tree-sitter, index B1 et edits read-only B2 termines.
+- Phase 5 : tools Java en cours ; apply/worktree, Tree-sitter, index B1, edits B2 et pipeline worktree B3 termines.
+- Qualite courante : 145 tests workspace, Clippy strict et build release valides.
 - Phase 6 : prototype RAG JSONL fonctionnel, index scalable a faire.
 - Phase 7 : agent iteratif non commence.
 
@@ -46,6 +48,7 @@ process runner borne avec timeout, sortie limitee et terminaison de l'arbre Wind
 - [Analyse Java Tree-sitter](docs/java-syntax.md)
 - [Index symbolique Java inter-fichiers](docs/java-index.md)
 - [Propositions d'edits Java ciblees](docs/java-edits.md)
+- [Verification des edits Java en worktree](docs/java-edit-worktree.md)
 - [Backlog canonique d'optimisation](docs/optimization-backlog.md)
 - [Etat environnement](docs/environment-audit.md)
 - [Roadmap](docs/roadmap.md)
@@ -98,6 +101,7 @@ cargo run -q -- analyze-java --path benchmarks/mini-bukkit-plugin
 cargo run -q -- java-syntax --path benchmarks/mini-bukkit-plugin --json
 cargo run -q -- java-index --path benchmarks/java-index-mini --json
 cargo run -q -- java-edits --path benchmarks/java-edits-legacy --json
+cargo run -q -- java-edits-verify --path C:\path\to\clean-git-project --json
 cargo run -q -- build --path benchmarks/mini-bukkit-plugin
 cargo run -q -- build --path benchmarks/mini-bukkit-plugin --fail-on-worktree-change
 cargo run -q -- build --path benchmarks/mini-bukkit-plugin --json
@@ -141,11 +145,13 @@ cargo run -q -- inspect --path benchmarks/mini-bukkit-plugin
 .\scripts\run-java-index-quality.ps1 -Full
 .\scripts\run-java-edits-quality.ps1
 .\scripts\run-java-edits-quality.ps1 -Full
+.\scripts\run-java-edit-worktree-quality.ps1
+.\scripts\run-java-edit-worktree-quality.ps1 -Full
 ```
 
 ## Prochaine etape
 
-Continuer avec `CODE-001B3` : revalider et appliquer les propositions B2
-uniquement dans un worktree GIT-002, puis lancer le build borne et produire le
-diff final. Les resolutions incertaines restent read-only et aucune promotion
-automatique vers le projet source n'est autorisee.
+Etendre prudemment le corpus de regles legacy, puis construire `CONTEXT-001`
+sur l'index symbolique pour reduire les fichiers et tokens envoyes au modele.
+Les resolutions incertaines restent read-only et la promotion d'un resultat
+vers le projet source demeure un sprint distinct avec approbation explicite.

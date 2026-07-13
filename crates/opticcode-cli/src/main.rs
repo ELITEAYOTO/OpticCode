@@ -15,6 +15,10 @@ use opticcode_tools::apply_transaction::{
     ApplyTransactionResult,
 };
 use opticcode_tools::git_state::capture_git_state;
+use opticcode_tools::java_edit_worktree::{
+    java_edit_worktree_error_kind, verify_java_edits_in_worktree, JavaEditWorktreeErrorKind,
+    JavaEditWorktreeOptions, JavaEditWorktreeReport,
+};
 use opticcode_tools::java_edits::{
     propose_java_edits, JavaEditOptions, DEFAULT_JAVA_EDIT_PROPOSAL_LIMIT,
 };
@@ -129,6 +133,32 @@ enum Command {
         candidate_limit: usize,
         #[arg(long, default_value_t = DEFAULT_JAVA_EDIT_PROPOSAL_LIMIT)]
         proposal_limit: usize,
+        #[arg(long)]
+        json: bool,
+    },
+    JavaEditsVerify {
+        #[arg(long, default_value = ".")]
+        path: PathBuf,
+        #[arg(long, default_value_t = DEFAULT_JAVA_SYNTAX_FILE_LIMIT)]
+        limit: usize,
+        #[arg(long, default_value_t = DEFAULT_JAVA_SYNTAX_FILE_BYTES)]
+        max_file_bytes: u64,
+        #[arg(long, default_value_t = DEFAULT_JAVA_SYNTAX_ITEM_LIMIT)]
+        item_limit: usize,
+        #[arg(long, default_value_t = DEFAULT_JAVA_INDEX_SYMBOL_LIMIT)]
+        symbol_limit: usize,
+        #[arg(long, default_value_t = DEFAULT_JAVA_INDEX_REFERENCE_LIMIT)]
+        reference_limit: usize,
+        #[arg(long, default_value_t = DEFAULT_JAVA_INDEX_CANDIDATE_LIMIT)]
+        candidate_limit: usize,
+        #[arg(long, default_value_t = DEFAULT_JAVA_EDIT_PROPOSAL_LIMIT)]
+        proposal_limit: usize,
+        #[arg(long, default_value_t = DEFAULT_PROCESS_TIMEOUT_SECONDS)]
+        timeout_seconds: u64,
+        #[arg(long, default_value_t = DEFAULT_WORKTREE_GIT_TIMEOUT_SECONDS)]
+        git_timeout_seconds: u64,
+        #[arg(long, default_value_t = DEFAULT_PROCESS_OUTPUT_LIMIT_BYTES)]
+        output_limit_bytes: usize,
         #[arg(long)]
         json: bool,
     },
@@ -453,6 +483,71 @@ async fn main() -> Result<()> {
                 println!("{}", serde_json::to_string_pretty(&report)?);
             } else {
                 println!("{}", report.to_display_string());
+            }
+        }
+        Command::JavaEditsVerify {
+            path,
+            limit,
+            max_file_bytes,
+            item_limit,
+            symbol_limit,
+            reference_limit,
+            candidate_limit,
+            proposal_limit,
+            timeout_seconds,
+            git_timeout_seconds,
+            output_limit_bytes,
+            json,
+        } => {
+            let cancellation = CancellationToken::new();
+            let signal_cancellation = cancellation.clone();
+            let signal_task = tokio::spawn(async move {
+                if tokio::signal::ctrl_c().await.is_ok() {
+                    signal_cancellation.cancel();
+                }
+            });
+            tokio::task::yield_now().await;
+            let result = verify_java_edits_in_worktree(
+                &path,
+                JavaEditWorktreeOptions {
+                    edits: JavaEditOptions {
+                        index: JavaIndexOptions {
+                            syntax: JavaSyntaxOptions {
+                                max_files: limit,
+                                max_file_bytes,
+                                max_items_per_kind: item_limit,
+                            },
+                            max_symbols: symbol_limit,
+                            max_references: reference_limit,
+                            max_candidates_per_reference: candidate_limit,
+                        },
+                        max_proposals: proposal_limit,
+                    },
+                    worktree: WorktreeVerificationOptions {
+                        build_timeout: Duration::from_secs(timeout_seconds),
+                        git_timeout: Duration::from_secs(git_timeout_seconds),
+                        output_limit_bytes,
+                    },
+                },
+                &cancellation,
+            );
+            signal_task.abort();
+            match result {
+                Ok(report) => {
+                    if json {
+                        println!("{}", serde_json::to_string_pretty(&report)?);
+                    } else {
+                        println!("{}", report.to_display_string());
+                    }
+                    let exit_code = java_edit_worktree_exit_code(&report);
+                    if exit_code != 0 {
+                        std::process::exit(exit_code);
+                    }
+                }
+                Err(error) => {
+                    print_java_edit_worktree_error(&error, json)?;
+                    std::process::exit(java_edit_worktree_error_exit_code(&error));
+                }
             }
         }
         Command::Build {
@@ -805,6 +900,28 @@ fn worktree_verification_exit_code(report: &WorktreeVerificationReport) -> i32 {
     }
 }
 
+fn java_edit_worktree_exit_code(report: &JavaEditWorktreeReport) -> i32 {
+    if !report.cleanup_success {
+        WORKTREE_EXIT_CLEANUP_FAILED
+    } else if report.success() {
+        0
+    } else {
+        WORKTREE_EXIT_VERIFICATION_FAILED
+    }
+}
+
+fn java_edit_worktree_error_exit_code(error: &anyhow::Error) -> i32 {
+    match java_edit_worktree_error_kind(error) {
+        Some(JavaEditWorktreeErrorKind::Precondition) => WORKTREE_EXIT_PRECONDITION,
+        Some(
+            JavaEditWorktreeErrorKind::Verification
+            | JavaEditWorktreeErrorKind::Git
+            | JavaEditWorktreeErrorKind::Storage,
+        )
+        | None => WORKTREE_EXIT_VERIFICATION_FAILED,
+    }
+}
+
 fn worktree_error_exit_code(error: &anyhow::Error) -> i32 {
     match worktree_operation_error_kind(error) {
         Some(WorktreeOperationErrorKind::InvalidRunId) => WORKTREE_EXIT_INVALID_RUN_ID,
@@ -824,6 +941,26 @@ fn print_worktree_error(operation: &str, error: &anyhow::Error, json: bool) -> R
             serde_json::to_string_pretty(&WorktreeErrorJson {
                 schema_version: 1,
                 operation,
+                operation_success: false,
+                error_kind: kind,
+                error: format!("{error:#}"),
+            })?
+        );
+    } else {
+        eprintln!("Error: {error:#}");
+    }
+    Ok(())
+}
+
+fn print_java_edit_worktree_error(error: &anyhow::Error, json: bool) -> Result<()> {
+    let kind =
+        java_edit_worktree_error_kind(error).unwrap_or(JavaEditWorktreeErrorKind::Verification);
+    if json {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&JavaEditWorktreeErrorJson {
+                schema_version: 1,
+                operation: "java_edits_verify",
                 operation_success: false,
                 error_kind: kind,
                 error: format!("{error:#}"),
@@ -1237,6 +1374,15 @@ struct WorktreeErrorJson<'a> {
     operation: &'a str,
     operation_success: bool,
     error_kind: WorktreeOperationErrorKind,
+    error: String,
+}
+
+#[derive(Serialize)]
+struct JavaEditWorktreeErrorJson {
+    schema_version: u32,
+    operation: &'static str,
+    operation_success: bool,
+    error_kind: JavaEditWorktreeErrorKind,
     error: String,
 }
 

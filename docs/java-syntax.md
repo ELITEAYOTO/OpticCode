@@ -213,8 +213,9 @@ La suite est volontairement separee en deux sous-sprints :
    read-only, identites stables, overloads et imports.
 2. `CODE-001B2` : termine ; editions legacy read-only avec hash, octets
    attendus, refus des overlaps, application simulee et reparse.
-3. `CODE-001B3` : verifier et appliquer B2 dans un worktree, puis build borne.
+3. `CODE-001B3` : termine ; revalidation et apply dans un worktree, puis build borne.
 
 `CONTEXT-001` utilisera ensuite l'index B1 pour selectionner le contexte selon
 la tache. Voir [`java-index.md`](java-index.md) et
-[`java-edits.md`](java-edits.md).
+[`java-edits.md`](java-edits.md) et
+[`java-edit-worktree.md`](java-edit-worktree.md).

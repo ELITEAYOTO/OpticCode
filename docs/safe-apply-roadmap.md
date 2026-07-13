@@ -446,7 +446,7 @@ Ne doit pas montrer de modification dans `benchmarks/mini-bukkit-plugin`.
 15. Construire l'index read-only CODE-001B1. Fait.
 16. Remplacer les transformations textuelles par des ranges AST verifies dans
     CODE-001B2. Fait pour la production read-only.
-17. Brancher ces edits sur APPLY-001 uniquement dans GIT-002 via CODE-001B3.
+17. Brancher ces edits sur APPLY-001 uniquement dans GIT-002 via CODE-001B3. Fait.
 
 ## Risques
 

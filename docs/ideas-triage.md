@@ -145,7 +145,8 @@ Action OpticCode :
 - `git apply --check` : fait ;
 - safe apply avec confirmation, journal et undo : fait ;
 - journal transactionnel et rollback automatique : fait via APPLY-001 ;
-- prochaine etape : verification dans un worktree jetable, puis Tree-sitter Java.
+- verification dans un worktree jetable, Tree-sitter Java et pipeline B3 : faits ;
+- prochaine etape : extension legacy mesuree puis contexte symbolique borne.
 
 ### 5. Streaming
 

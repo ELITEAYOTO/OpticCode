@@ -163,6 +163,9 @@ pub struct WorktreeApplyReport {
     pub change_count: usize,
     pub files: Vec<String>,
     pub patch: String,
+    pub patch_bytes: usize,
+    pub patch_hash: String,
+    pub patch_complete: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub check: Option<PatchCheckResult>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -174,6 +177,7 @@ pub struct WorktreeApplyReport {
 impl WorktreeApplyReport {
     fn from_plan(plan: ApplyPlan) -> Self {
         let root = plan.proposal.root.clone();
+        let patch = plan.proposal.combined_diff();
         Self {
             success: plan.success(),
             change_count: plan.proposal.changes.len(),
@@ -190,7 +194,10 @@ impl WorktreeApplyReport {
                         .replace('\\', "/")
                 })
                 .collect(),
-            patch: plan.proposal.combined_diff(),
+            patch_bytes: patch.len(),
+            patch_hash: format!("blake3:{}:{}", patch.len(), blake3::hash(patch.as_bytes())),
+            patch,
+            patch_complete: true,
             check: plan.check,
             apply: plan.apply,
             transaction: plan.transaction,
@@ -404,8 +411,33 @@ pub fn verify_java_legacy_patch_in_worktree(
     options: WorktreeVerificationOptions,
     cancellation: &CancellationToken,
 ) -> Result<WorktreeVerificationReport> {
+    verify_in_disposable_worktree_with_apply(
+        source_project,
+        options,
+        cancellation,
+        |worktree_project| {
+            apply_java_legacy_patch_in_place(worktree_project).map(WorktreeApplyReport::from_plan)
+        },
+    )
+}
+
+pub(crate) fn verify_in_disposable_worktree_with_apply<F>(
+    source_project: &Path,
+    options: WorktreeVerificationOptions,
+    cancellation: &CancellationToken,
+    mut apply_action: F,
+) -> Result<WorktreeVerificationReport>
+where
+    F: FnMut(&Path) -> Result<WorktreeApplyReport>,
+{
     let storage = WorktreeStorage::default_storage()?;
-    verify_java_legacy_patch_with_storage(source_project, options, cancellation, storage)
+    verify_patch_with_storage(
+        source_project,
+        options,
+        cancellation,
+        storage,
+        &mut apply_action,
+    )
 }
 
 pub fn list_disposable_worktrees() -> Result<Vec<WorktreeLeaseInspection>> {
@@ -471,12 +503,16 @@ fn cleanup_disposable_worktree_in(
     )
 }
 
-fn verify_java_legacy_patch_with_storage(
+fn verify_patch_with_storage<F>(
     source_project: &Path,
     options: WorktreeVerificationOptions,
     cancellation: &CancellationToken,
     storage: WorktreeStorage,
-) -> Result<WorktreeVerificationReport> {
+    apply_action: &mut F,
+) -> Result<WorktreeVerificationReport>
+where
+    F: FnMut(&Path) -> Result<WorktreeApplyReport>,
+{
     let started_at = Instant::now();
     validate_options(options)?;
     let source_project = fs::canonicalize(source_project).map_err(|error| {
@@ -629,7 +665,7 @@ fn verify_java_legacy_patch_with_storage(
             let cancelled = creation.status == ProcessStatus::Cancelled;
             report.creation = Some(creation);
             if created {
-                run_verification_pipeline(&mut report, options, cancellation);
+                run_verification_pipeline(&mut report, options, cancellation, apply_action);
             } else {
                 report.status = if cancelled {
                     WorktreeVerificationStatus::Cancelled
@@ -773,11 +809,14 @@ fn verify_java_legacy_patch_with_storage(
     Ok(report)
 }
 
-fn run_verification_pipeline(
+fn run_verification_pipeline<F>(
     report: &mut WorktreeVerificationReport,
     options: WorktreeVerificationOptions,
     cancellation: &CancellationToken,
-) {
+    apply_action: &mut F,
+) where
+    F: FnMut(&Path) -> Result<WorktreeApplyReport>,
+{
     match capture_git_state(&report.worktree_root) {
         Ok(snapshot) if snapshot.changes.is_empty() => report.worktree_before = Some(snapshot),
         Ok(snapshot) => {
@@ -847,9 +886,8 @@ fn run_verification_pipeline(
         }
     }
 
-    match apply_java_legacy_patch_in_place(&report.worktree_project) {
-        Ok(plan) => {
-            let apply = WorktreeApplyReport::from_plan(plan);
+    match apply_action(&report.worktree_project) {
+        Ok(apply) => {
             let success = apply.success;
             report.apply = Some(apply);
             if !success {
@@ -861,7 +899,7 @@ fn run_verification_pipeline(
             report.status = WorktreeVerificationStatus::ApplyFailed;
             report
                 .errors
-                .push(format!("transactional apply failed: {error:#}"));
+                .push(format!("worktree apply pipeline failed: {error:#}"));
             return;
         }
     }
