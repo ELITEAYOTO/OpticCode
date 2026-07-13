@@ -40,6 +40,7 @@ local, Git isole les essais et Maven/Gradle compilent les projets Java.
 - verification dans un worktree detache ;
 - analyse Java read-only avec offsets d'octets, hashes et diagnostics ;
 - index inter-fichiers avec resolutions exactes, ambigues ou non resolues ;
+- contexte Java par tache avec symboles, appelants, ranges et budgets expliques ;
 - propositions d'edits Java avec hash, ranges, octets attendus et reparse ;
 - revalidation et application de ces edits dans un worktree detache ;
 - transaction, reparse disque, build borne, hashes Git finaux et cleanup ;
@@ -52,6 +53,12 @@ Qwen, rechercher dans un RAG local, analyser Java, indexer les declarations et
 references entre fichiers, proposer certains patches legacy, appliquer une
 transaction recuperable, compiler et verifier un patch dans un worktree
 temporaire.
+
+CONTEXT-001 sait maintenant distinguer les overloads, signaler une ambiguite,
+suivre un niveau de relations exactes et n'ajouter `pom.xml` ou `plugin.yml` que
+si la demande le justifie. Sur cinq demandes controlees, il passe de 4 140 a
+1 206 tokens estimes face au contexte historique (-70,87 %). Il reste volontairement
+separe de `ask` et `plan` avant le benchmark Qwen A/B.
 
 La production read-only d'edits Java cibles est disponible pour 26 regles
 Bukkit 1.8 avec sources epinglees et compilation legacy. L'index refuse de choisir arbitrairement entre deux classes ou
@@ -68,9 +75,11 @@ toucher la source.
 - boucle agent bornee plan -> tools -> build -> correction ;
 - approbation finale et promotion controlee ;
 - evaluation qualite, vitesse et consommation de tokens sur des projets reels.
+- integration A/B du contexte symbolique dans les commandes LLM ;
 
 Pour les details techniques, voir la [roadmap](roadmap.md),
 l'[architecture](architecture.md), la
 [preuve des regles legacy](java-legacy-rules.md), la
 [verification B3](java-edit-worktree.md) et
+l'[selection de contexte Java](java-context.md), puis
 l'[audit complet](project-audit-2026-07-11.md).

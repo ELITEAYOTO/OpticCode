@@ -15,6 +15,16 @@ use opticcode_tools::apply_transaction::{
     ApplyTransactionResult,
 };
 use opticcode_tools::git_state::capture_git_state;
+use opticcode_tools::java_context::{
+    build_java_task_context, JavaTaskContextOptions, DEFAULT_JAVA_CONTEXT_BYTES,
+    DEFAULT_JAVA_CONTEXT_CALLER_LIMIT, DEFAULT_JAVA_CONTEXT_CANDIDATE_LIMIT,
+    DEFAULT_JAVA_CONTEXT_CHARS, DEFAULT_JAVA_CONTEXT_IDENTIFIER_LIMIT,
+    DEFAULT_JAVA_CONTEXT_PRIMARY_SYMBOL_LIMIT, DEFAULT_JAVA_CONTEXT_RELATED_LIMIT,
+    DEFAULT_JAVA_CONTEXT_RELATION_DEPTH, DEFAULT_JAVA_CONTEXT_RELATION_LIMIT,
+    DEFAULT_JAVA_CONTEXT_SNIPPET_BYTES, DEFAULT_JAVA_CONTEXT_SNIPPET_LIMIT,
+    DEFAULT_JAVA_CONTEXT_SYMBOL_VISIT_LIMIT, DEFAULT_JAVA_CONTEXT_TERM_LIMIT,
+    DEFAULT_JAVA_CONTEXT_TOKEN_LIMIT, DEFAULT_JAVA_CONTEXT_WARNING_LIMIT,
+};
 use opticcode_tools::java_edit_worktree::{
     java_edit_worktree_error_kind, verify_java_edits_in_worktree, JavaEditWorktreeErrorKind,
     JavaEditWorktreeOptions, JavaEditWorktreeReport,
@@ -59,6 +69,61 @@ struct Cli {
     command: Command,
 }
 
+#[derive(Debug, Parser)]
+#[command(name = "opticcode java-context")]
+#[command(about = "Select bounded Java context for a concrete coding task.")]
+struct JavaContextArgs {
+    task: String,
+    #[arg(long, default_value = ".")]
+    path: PathBuf,
+    #[arg(long, default_value_t = DEFAULT_JAVA_SYNTAX_FILE_LIMIT)]
+    limit: usize,
+    #[arg(long, default_value_t = DEFAULT_JAVA_SYNTAX_FILE_BYTES)]
+    max_file_bytes: u64,
+    #[arg(long, default_value_t = DEFAULT_JAVA_SYNTAX_ITEM_LIMIT)]
+    item_limit: usize,
+    #[arg(long, default_value_t = DEFAULT_JAVA_INDEX_SYMBOL_LIMIT)]
+    symbol_limit: usize,
+    #[arg(long, default_value_t = DEFAULT_JAVA_INDEX_REFERENCE_LIMIT)]
+    reference_limit: usize,
+    #[arg(long, default_value_t = DEFAULT_JAVA_INDEX_CANDIDATE_LIMIT)]
+    candidate_limit: usize,
+    #[arg(long, default_value_t = DEFAULT_JAVA_CONTEXT_IDENTIFIER_LIMIT)]
+    identifier_limit: usize,
+    #[arg(long, default_value_t = DEFAULT_JAVA_CONTEXT_TERM_LIMIT)]
+    term_limit: usize,
+    #[arg(long, default_value_t = DEFAULT_JAVA_CONTEXT_SYMBOL_VISIT_LIMIT)]
+    visited_symbol_limit: usize,
+    #[arg(long, default_value_t = DEFAULT_JAVA_CONTEXT_PRIMARY_SYMBOL_LIMIT)]
+    primary_symbol_limit: usize,
+    #[arg(long, default_value_t = DEFAULT_JAVA_CONTEXT_CANDIDATE_LIMIT)]
+    selection_limit: usize,
+    #[arg(long, default_value_t = DEFAULT_JAVA_CONTEXT_RELATION_LIMIT)]
+    relation_limit: usize,
+    #[arg(long, default_value_t = DEFAULT_JAVA_CONTEXT_RELATION_DEPTH)]
+    relation_depth: usize,
+    #[arg(long, default_value_t = DEFAULT_JAVA_CONTEXT_SNIPPET_LIMIT)]
+    snippet_limit: usize,
+    #[arg(long, default_value_t = DEFAULT_JAVA_CONTEXT_SNIPPET_BYTES)]
+    snippet_bytes: usize,
+    #[arg(long, default_value_t = DEFAULT_JAVA_CONTEXT_BYTES)]
+    context_bytes: usize,
+    #[arg(long, default_value_t = DEFAULT_JAVA_CONTEXT_CHARS)]
+    context_chars: usize,
+    #[arg(long, default_value_t = DEFAULT_JAVA_CONTEXT_TOKEN_LIMIT)]
+    context_tokens: usize,
+    #[arg(long, default_value_t = DEFAULT_JAVA_CONTEXT_WARNING_LIMIT)]
+    warning_limit: usize,
+    #[arg(long, default_value_t = DEFAULT_JAVA_CONTEXT_CALLER_LIMIT)]
+    caller_limit: usize,
+    #[arg(long, default_value_t = DEFAULT_JAVA_CONTEXT_RELATED_LIMIT)]
+    related_limit: usize,
+    #[arg(long)]
+    compare_baseline: bool,
+    #[arg(long)]
+    json: bool,
+}
+
 #[derive(Debug, Subcommand)]
 enum Command {
     Inspect {
@@ -82,6 +147,8 @@ enum Command {
         #[arg(long, default_value = ".")]
         path: PathBuf,
     },
+    /// Select bounded Java context for a concrete coding task.
+    JavaContext,
     AnalyzeJava {
         #[arg(long, default_value = ".")]
         path: PathBuf,
@@ -346,11 +413,114 @@ enum Command {
     },
 }
 
-#[tokio::main]
-async fn main() -> Result<()> {
+fn main() -> Result<()> {
+    if let Some(args) = parse_isolated_java_context() {
+        return run_java_context(args);
+    }
     let cli = Cli::parse();
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()?;
+    runtime.block_on(Box::pin(run_command(cli.command)))
+}
 
-    match cli.command {
+fn parse_isolated_java_context() -> Option<JavaContextArgs> {
+    let mut args = std::env::args_os();
+    args.next()?;
+    let first = args.next()?;
+    let mut parser_args = vec![std::ffi::OsString::from("opticcode java-context")];
+    if first == std::ffi::OsStr::new("java-context") {
+        parser_args.extend(args);
+    } else if first == std::ffi::OsStr::new("help")
+        && args.next().as_deref() == Some(std::ffi::OsStr::new("java-context"))
+    {
+        parser_args.push(std::ffi::OsString::from("--help"));
+        parser_args.extend(args);
+    } else {
+        return None;
+    }
+    Some(JavaContextArgs::parse_from(parser_args))
+}
+
+fn run_java_context(
+    JavaContextArgs {
+        task,
+        path,
+        limit,
+        max_file_bytes,
+        item_limit,
+        symbol_limit,
+        reference_limit,
+        candidate_limit,
+        identifier_limit,
+        term_limit,
+        visited_symbol_limit,
+        primary_symbol_limit,
+        selection_limit,
+        relation_limit,
+        relation_depth,
+        snippet_limit,
+        snippet_bytes,
+        context_bytes,
+        context_chars,
+        context_tokens,
+        warning_limit,
+        caller_limit,
+        related_limit,
+        compare_baseline,
+        json,
+    }: JavaContextArgs,
+) -> Result<()> {
+    let mut report = build_java_task_context(
+        &path,
+        &task,
+        JavaTaskContextOptions {
+            index: JavaIndexOptions {
+                syntax: JavaSyntaxOptions {
+                    max_files: limit,
+                    max_file_bytes,
+                    max_items_per_kind: item_limit,
+                },
+                max_symbols: symbol_limit,
+                max_references: reference_limit,
+                max_candidates_per_reference: candidate_limit,
+            },
+            max_query_identifiers: identifier_limit,
+            max_query_terms: term_limit,
+            max_symbols_visited: visited_symbol_limit,
+            max_primary_symbols: primary_symbol_limit,
+            max_candidates: selection_limit,
+            max_relations: relation_limit,
+            max_relation_depth: relation_depth,
+            max_snippets: snippet_limit,
+            max_snippet_bytes: snippet_bytes,
+            max_context_bytes: context_bytes,
+            max_context_chars: context_chars,
+            max_estimated_tokens: context_tokens,
+            max_warnings: warning_limit,
+            max_callers_per_symbol: caller_limit,
+            max_related_symbols: related_limit,
+            compare_baseline,
+        },
+    )?;
+    if json {
+        let serialization_started = Instant::now();
+        let _ = serde_json::to_vec(&report)?;
+        report.timings.serialization_us = Some(
+            serialization_started
+                .elapsed()
+                .as_micros()
+                .min(u128::from(u64::MAX)) as u64,
+        );
+        println!("{}", serde_json::to_string_pretty(&report)?);
+    } else {
+        println!("{}", report.to_display_string());
+    }
+    Ok(())
+}
+
+async fn run_command(command: Command) -> Result<()> {
+    match command {
         Command::Inspect { path } => {
             let report = inspect_workspace(&path)?;
             println!("{}", report.to_display_string());
@@ -386,6 +556,7 @@ async fn main() -> Result<()> {
             let context = build_project_context(&path)?;
             println!("{}", context.to_display_string());
         }
+        Command::JavaContext => bail!("java-context must be dispatched by its isolated parser"),
         Command::AnalyzeJava { path } => {
             let analysis = analyze_java_project(&path)?;
             println!("{}", analysis.to_display_string());

@@ -23,7 +23,9 @@ controle Git avant/apres build, verification dans un worktree jetable et analyse
 syntaxique Java avec Tree-sitter, puis index symbolique inter-fichiers avec
 resolution conservatrice et propositions d'edits AST legacy. Ces propositions
 sont maintenant revalidees, appliquees transactionnellement, reparses, compilees
-et controlees jusqu'au hash Git final dans un worktree detache. Les builds passent aussi par un
+et controlees jusqu'au hash Git final dans un worktree detache. CONTEXT-001
+selectionne maintenant declarations, appelants et fichiers de configuration
+selon la demande, avec ranges AST, raisons, couts et budgets explicites. Les builds passent aussi par un
 process runner borne avec timeout, sortie limitee et terminaison de l'arbre Windows.
 
 - Phase 0 : audit environnement Windows 10 termine.
@@ -32,8 +34,8 @@ process runner borne avec timeout, sortie limitee et terminaison de l'arbre Wind
 - Phase 2 : benchmark Ollama / Qwen2.5-Coder 14B termine.
 - Phase 3 : recherche depots externes et analyse Qwen Code terminees.
 - Phase 4 : MVP Rust fonctionnel.
-- Phase 5 : tools Java en cours ; apply/worktree, Tree-sitter, index B1, edits B2 et pipeline worktree B3 termines.
-- Qualite courante : 147 tests workspace, Clippy strict et build release valides.
+- Phase 5 : tools Java en cours ; apply/worktree, Tree-sitter, index B1, edits B2, pipeline B3, LEGACY-002 et CONTEXT-001 termines.
+- Qualite courante : 162 tests workspace, Clippy strict, build release et gates Java valides.
 - Phase 6 : prototype RAG JSONL fonctionnel, index scalable a faire.
 - Phase 7 : agent iteratif non commence.
 
@@ -49,6 +51,7 @@ process runner borne avec timeout, sortie limitee et terminaison de l'arbre Wind
 - [Index symbolique Java inter-fichiers](docs/java-index.md)
 - [Propositions d'edits Java ciblees](docs/java-edits.md)
 - [Verification des edits Java en worktree](docs/java-edit-worktree.md)
+- [Contexte Java guide par les symboles](docs/java-context.md)
 - [Backlog canonique d'optimisation](docs/optimization-backlog.md)
 - [Etat environnement](docs/environment-audit.md)
 - [Roadmap](docs/roadmap.md)
@@ -100,6 +103,7 @@ cargo run -q -- context --path benchmarks/mini-bukkit-plugin
 cargo run -q -- analyze-java --path benchmarks/mini-bukkit-plugin
 cargo run -q -- java-syntax --path benchmarks/mini-bukkit-plugin --json
 cargo run -q -- java-index --path benchmarks/java-index-mini --json
+cargo run -q -- java-context "dev.opticcode.util.Helpers#create(String)" --path benchmarks/java-index-mini --compare-baseline --json
 cargo run -q -- java-legacy-rules --json
 cargo run -q -- java-edits --path benchmarks/java-edits-legacy --json
 cargo run -q -- java-edits-verify --path C:\path\to\clean-git-project --json
@@ -150,12 +154,16 @@ cargo run -q -- inspect --path benchmarks/mini-bukkit-plugin
 .\scripts\run-java-legacy-quality.ps1 -Full
 .\scripts\run-java-edit-worktree-quality.ps1
 .\scripts\run-java-edit-worktree-quality.ps1 -Full
+.\scripts\run-java-context-quality.ps1
+.\scripts\run-java-context-quality.ps1 -Full
 ```
 
 ## Prochaine etape
 
-LEGACY-002 est termine avec 26 regles sourcees et compilees. La prochaine etape
-est `CONTEXT-001` sur l'index symbolique pour reduire les fichiers et tokens
-envoyes au modele.
+CONTEXT-001 est termine : sur cinq demandes reproductibles, il reduit le
+contexte de 4 140 a 1 206 tokens estimes (-70,87 %) face au selecteur historique,
+sans manquer les symboles/roles attendus. La prochaine etape est CONTEXT-002 :
+integration optionnelle A/B dans `ask` et `plan`, avec mesure de la qualite Qwen
+avant activation par defaut.
 Les resolutions incertaines restent read-only et la promotion d'un resultat
 vers le projet source demeure un sprint distinct avec approbation explicite.

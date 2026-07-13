@@ -1,0 +1,58 @@
+[
+  {
+    "id": "exact-overload-and-caller",
+    "task": "dev.opticcode.util.Helpers#create(String)",
+    "expected_primary": "dev.opticcode.util.Helpers#create(String)",
+    "expected_ambiguous": false,
+    "required_symbols": [
+      "dev.opticcode.util.Helpers#create(String)",
+      "dev.opticcode.app.Plugin#start()"
+    ],
+    "required_roles": ["primary_declaration", "caller"],
+    "forbidden_symbol_fragments": [],
+    "forbidden_path_fragments": ["Duplicate.java"]
+  },
+  {
+    "id": "ambiguous-simple-name",
+    "task": "Duplicate",
+    "expected_primary": "dev.opticcode.alpha.Duplicate",
+    "expected_ambiguous": true,
+    "required_symbols": [
+      "dev.opticcode.alpha.Duplicate",
+      "dev.opticcode.beta.Duplicate"
+    ],
+    "required_roles": ["primary_declaration"],
+    "forbidden_symbol_fragments": [],
+    "forbidden_path_fragments": []
+  },
+  {
+    "id": "bukkit-descriptor",
+    "task": "Ajouter une commande Bukkit et sa permission dans plugin.yml",
+    "expected_primary": null,
+    "expected_ambiguous": false,
+    "required_symbols": [],
+    "required_roles": ["bukkit_descriptor"],
+    "forbidden_symbol_fragments": [],
+    "forbidden_path_fragments": ["pom.xml"]
+  },
+  {
+    "id": "maven-manifest",
+    "task": "Mettre a jour la dependency Maven dans pom.xml",
+    "expected_primary": null,
+    "expected_ambiguous": false,
+    "required_symbols": [],
+    "required_roles": ["build_manifest"],
+    "forbidden_symbol_fragments": [],
+    "forbidden_path_fragments": ["plugin.yml"]
+  },
+  {
+    "id": "unresolved-symbol",
+    "task": "MissingType",
+    "expected_primary": "dev.opticcode.app.Plugin",
+    "expected_ambiguous": false,
+    "required_symbols": ["dev.opticcode.app.Plugin"],
+    "required_roles": ["primary_declaration"],
+    "forbidden_symbol_fragments": ["MissingType"],
+    "forbidden_path_fragments": []
+  }
+]

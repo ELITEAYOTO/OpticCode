@@ -66,6 +66,17 @@ cleanup et source ; aucune promotion n'existe. Voir
 [`java-edit-worktree.md`](java-edit-worktree.md). La validation courante atteint
 147 tests workspace, Clippy strict sans avertissement et build release reussi.
 
+Mise a jour CONTEXT-001 du 2026-07-13 : `java-context` selectionne maintenant
+declarations, overloads, appelants et configs selon la demande, sur les ranges
+AST de B1. Les budgets fichiers/symboles/relations/profondeur/snippets/octets/
+caracteres/tokens/diagnostics/warnings sont explicites. Le vrai binaire debug,
+400 fichiers, les cycles, jonctions, Unicode/CRLF et Java invalide sont testes.
+Le benchmark controle reduit 4 140 a 1 206 tokens estimes (-70,87 %) face au
+selecteur historique, sans manque attendu ni bruit interdit. Il ne prouve pas
+encore la qualite Qwen et reste debranche de `ask`/`plan`. Voir
+[`java-context.md`](java-context.md). La validation complete atteint 162 tests
+workspace, Clippy strict sans avertissement et build release reussi.
+
 ## 1. Resume executif
 
 OpticCode n'est plus une simple idee ni un assemblage de documentation. Le depot contient un MVP Rust fonctionnel capable de :
@@ -73,6 +84,7 @@ OpticCode n'est plus une simple idee ni un assemblage de documentation. Le depot
 - inspecter un workspace local ;
 - rechercher du texte ;
 - construire un contexte projet borne ;
+- selectionner un contexte Java selon les symboles reels de la demande ;
 - analyser un projet Maven/Gradle Bukkit de facon deterministe ;
 - appeler Qwen2.5-Coder 14B via Ollama ;
 - charger un profil Minecraft Java 1.8 et une memoire Markdown ;
@@ -101,10 +113,11 @@ Verdict global :
 | Qualite logicielle | bonne base | tests et lint verts, CI et couverture absentes |
 | Niveau produit | experimental | pas de release, configuration stable, TUI, daemon ou IDE |
 
-Position actuelle dans le plan : Phase 5.5 terminee jusqu'au pipeline Java B3.
+Position actuelle dans le plan : Phase 5.5 terminee jusqu'a CONTEXT-001.
 Les projets personnels originaux restent hors tests. Le worktree jetable et la
 baseline Tree-sitter, l'index B1, les edits B2 et leur verification B3 sont
-valides ; la prochaine cible est l'extension des regles puis `CONTEXT-001`.
+valides ; LEGACY-002 et CONTEXT-001 le sont aussi. La prochaine cible est
+CONTEXT-002, integration A/B dans les commandes LLM.
 
 ## 2. Portee et methode de l'audit
 
@@ -955,7 +968,9 @@ Choix de conception recommande : utiliser `git status --porcelain=v1 -z` ou un f
 - CODE-001B1 : index symbolique Java read-only termine (`d631d69`).
 - CODE-001B2 : propositions d'edits Java ciblees terminees.
 - CODE-001B3 : verification transactionnelle en worktree terminee.
-- Prochain sprint : extension mesuree des regles legacy, puis `CONTEXT-001`.
+- LEGACY-002 : 26 regles legacy prouvees et compilees, termine (`a195fee`).
+- CONTEXT-001 : selection symbolique bornee et benchmark reproductible termine.
+- Prochain sprint : `CONTEXT-002`, integration A/B dans `ask` et `plan`.
 
 ## 17. Definition de fini pour une V1 utile
 

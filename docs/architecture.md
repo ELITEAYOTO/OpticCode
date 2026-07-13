@@ -197,15 +197,31 @@ Etat verification B3 implemente :
 - diff et patch bornes, cleanup/recovery et source recontrolee ;
 - aucune promotion vers le projet source.
 
+Etat contexte CONTEXT-001 implemente :
+
+- module independant `opticcode-tools/src/java_context/` ;
+- requete normalisee, correspondances bornees et scores expliques ;
+- declarations principales, overloads, ambiguites et appelants exacts ;
+- expansion read-only a un niveau avec visited set et cycles signales ;
+- ranges AST relues une seule fois par fichier et hashes controles ;
+- `pom.xml` et `plugin.yml` selectionnes seulement selon la demande ;
+- budgets fichiers/symboles/relations/snippets/octets/caracteres/tokens ;
+- diagnostics, avertissements, ignores et troncatures exposes dans un JSON plat ;
+- `analysis_complete` separe de `selection_complete` ;
+- commande `java-context` isolee du grand derive Clap pour la pile Windows ;
+- aucun branchement automatique au runtime LLM avant comparaison A/B.
+
 Le cycle GIT-002 accepte maintenant une etape apply injectee, mais conserve une
 seule implementation du worktree, du build, du diff et du cleanup. Les futures
 regles Java ne doivent pas ajouter leur logique dans `worktree.rs`.
 
-LEGACY-002 est termine. La prochaine etape est `CONTEXT-001`. Un index
+LEGACY-002 et CONTEXT-001 sont termines. La prochaine etape est `CONTEXT-002`,
+integration optionnelle dans `ask`/`plan` avec benchmark Qwen. Un index
 incremental/persistant attendra des mesures qui le
 justifient. Voir [`java-syntax.md`](java-syntax.md),
 [`java-index.md`](java-index.md), [`java-edits.md`](java-edits.md) et
-[`java-edit-worktree.md`](java-edit-worktree.md).
+[`java-edit-worktree.md`](java-edit-worktree.md), puis
+[`java-context.md`](java-context.md).
 
 ## Runtime LLM
 

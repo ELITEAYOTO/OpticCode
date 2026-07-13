@@ -208,5 +208,6 @@ APPLY-001, reparse, compile puis verifie les hashes Git finaux. La source reste
 inchangee et aucune promotion automatique n'est ajoutee. Voir
 [`java-edit-worktree.md`](java-edit-worktree.md).
 
-Apres cette integration, `CONTEXT-001` utilisera l'index symbolique pour reduire
-les fichiers et tokens envoyes au modele.
+`CONTEXT-001` utilise maintenant cet index symbolique pour reduire les fichiers
+et tokens envoyes au modele ; voir [`java-context.md`](java-context.md). La
+prochaine etape est son integration A/B dans `ask` et `plan` (`CONTEXT-002`).

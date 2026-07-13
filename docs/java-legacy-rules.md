@@ -100,7 +100,8 @@ Le corpus `benchmarks/java-edits-legacy` mesure maintenant :
 Le fixture `benchmarks/java-legacy-compile` reference les 24 constantes legacy
 distinctes et compile reellement en Java 8 contre Spigot API 1.8.8. B3 couvre
 aussi les deux proprietaires de `FIREWORK_ROCKET` dans un worktree detache.
-La gate workspace atteint 147 tests, Clippy strict et build release valides.
+La gate workspace atteint maintenant 162 tests, Clippy strict et build release
+valides.
 
 Commande de validation :
 
@@ -120,5 +121,6 @@ Commande de validation :
   renommage enum ;
 - aucune regle ne contourne les controles B2/B3, le reparse ou le build.
 
-La prochaine priorite est `CONTEXT-001`, afin d'utiliser l'index symbolique pour
-reduire le contexte envoye a Qwen.
+CONTEXT-001 utilise maintenant cet index pour reduire le contexte. La prochaine
+priorite est CONTEXT-002, comparaison A/B dans `ask` et `plan` avant activation
+par defaut.

@@ -219,6 +219,8 @@ prouvee, avec hash source, octets attendus, reparse et verification en worktree.
 hash, octets attendus, garde anti-shadow et reparse, sans ecriture directe. Voir
 [`java-edits.md`](java-edits.md). `CODE-001B3` les verifie maintenant dans un
 worktree ; voir
-[`java-edit-worktree.md`](java-edit-worktree.md). `CONTEXT-001` utilisera les
-symboles et resolutions de B1 pour selectionner moins de fichiers et envoyer
-moins de tokens au modele local.
+[`java-edit-worktree.md`](java-edit-worktree.md). `CONTEXT-001` utilise
+maintenant les symboles et resolutions de B1 pour selectionner moins de fichiers
+et envoyer moins de tokens au modele local ; voir
+[`java-context.md`](java-context.md). `CONTEXT-002` mesurera son integration A/B
+dans `ask` et `plan` avant activation par defaut.

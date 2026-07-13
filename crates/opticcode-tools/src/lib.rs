@@ -1,5 +1,6 @@
 pub mod apply_transaction;
 pub mod git_state;
+pub mod java_context;
 pub mod java_edit_worktree;
 pub mod java_edits;
 pub mod java_index;

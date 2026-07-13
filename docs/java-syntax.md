@@ -214,8 +214,10 @@ La suite est volontairement separee en deux sous-sprints :
 2. `CODE-001B2` : termine ; editions legacy read-only avec hash, octets
    attendus, refus des overlaps, application simulee et reparse.
 3. `CODE-001B3` : termine ; revalidation et apply dans un worktree, puis build borne.
+4. `CONTEXT-001` : termine ; selection read-only selon la tache, symboles et
+   ranges B1, relations a un niveau et budgets explicites.
 
-`CONTEXT-001` utilisera ensuite l'index B1 pour selectionner le contexte selon
-la tache. Voir [`java-index.md`](java-index.md) et
-[`java-edits.md`](java-edits.md) et
-[`java-edit-worktree.md`](java-edit-worktree.md).
+Voir [`java-index.md`](java-index.md), [`java-edits.md`](java-edits.md),
+[`java-edit-worktree.md`](java-edit-worktree.md) et
+[`java-context.md`](java-context.md). La suite est `CONTEXT-002`, integration
+A/B dans `ask` et `plan` avant toute activation par defaut.

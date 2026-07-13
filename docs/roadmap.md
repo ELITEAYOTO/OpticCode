@@ -276,7 +276,8 @@ Etat actuel :
 - pipeline B3 ajoute : double contrat, apply transactionnel, reparse, build,
   hashes Git finaux, cleanup et source inchangee ;
 - LEGACY-002 : 26 regles, provenance SHA-256 et compilation Spigot 1.8.8 ;
-- prochaine cible : `CONTEXT-001`.
+- CONTEXT-001 : selection symbolique bornee et benchmark -70,87 % tokens estimes ;
+- prochaine cible : `CONTEXT-002`, integration Qwen A/B.
 
 ## Phase 5.1 - Safe Apply
 
@@ -392,9 +393,9 @@ Limites :
 
 Reference : [`worktree-verification.md`](worktree-verification.md).
 
-## Phase 5.5 - Tree-sitter Java
+## Phase 5.5 - Tree-sitter Java et contexte symbolique
 
-Statut : baseline, index inter-fichiers B1, edits read-only B2 et pipeline B3 termines.
+Statut : baseline, index B1, edits B2/B3, LEGACY-002 et CONTEXT-001 termines.
 
 Acquis :
 
@@ -429,7 +430,17 @@ Acquis :
 - reparse apres ecriture, build borne et Git State Guard strict ;
 - hashes finaux verifies, diff borne, cleanup/recovery et source inchangee ;
 - aucun transfert automatique vers le projet original.
-- validation B3 complete : 145 tests workspace, Clippy strict et build release OK.
+- catalogue legacy etendu a 26 regles prouvees et compilees contre Spigot 1.8.8 ;
+- commande `java-context` humaine/JSON, read-only et guidee par la demande ;
+- overloads, ambiguites, declarations, appelants et relations exactes expliques ;
+- fichiers `pom.xml`/`plugin.yml` ajoutes uniquement quand la demande les vise ;
+- budgets separes pour fichiers, symboles, relations, profondeur, snippets,
+  octets, caracteres, tokens, diagnostics et avertissements ;
+- analyse et selection completes distinguees, troncatures et ignores exposes ;
+- sous-parseur Clap isole pour eviter le stack overflow debug Windows ;
+- tests reels CLI, jonction, 400 fichiers, cycles, Unicode/CRLF et Java invalide ;
+- benchmark : 4 140 -> 1 206 tokens estimes (-70,87 %) sur cinq demandes.
+- validation complete : 162 tests workspace, Clippy strict et build release OK.
 
 Limites :
 
@@ -437,13 +448,17 @@ Limites :
   generiques et types runtime non couverts ;
 - pas de cache incremental ou persistant ;
 - `analyze-java` conserve temporairement son parseur textuel historique.
+- estimation de tokens non specifique au tokenizer Qwen ;
+- CONTEXT-001 n'est pas encore branche dans `ask` ou `plan`.
 
-Suite : `CONTEXT-001`, selection de contexte Java selon la tache.
+Suite : `CONTEXT-002`, integration optionnelle A/B dans `ask` et `plan`, puis
+benchmark de qualite avec Qwen avant activation par defaut.
 
 References : [`java-syntax.md`](java-syntax.md), [`java-index.md`](java-index.md),
 [`java-edits.md`](java-edits.md) et
 [`java-edit-worktree.md`](java-edit-worktree.md), ainsi que
-[`java-legacy-rules.md`](java-legacy-rules.md).
+[`java-legacy-rules.md`](java-legacy-rules.md) et
+[`java-context.md`](java-context.md).
 
 ## Phase 5.6 - Profils, memoire et optimisation controlee
 
@@ -458,7 +473,7 @@ Objectif :
 Priorites :
 
 1. Streaming pour confort interactif.
-2. Selection de contexte par tache.
+2. Integration A/B du contexte symbolique dans `ask` et `plan`.
 3. Packs RAG lies aux profils.
 4. Feedback accepted/rejected.
 5. Benchmark Q4/Q5 plus tard.

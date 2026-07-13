@@ -1143,3 +1143,38 @@ Raison :
   sans perte et demandent un contrat plus riche.
 
 Reference : [`java-legacy-rules.md`](java-legacy-rules.md).
+
+### D-062 - Selectionner le contexte Java avant de l'injecter au modele
+
+Statut : valide.
+
+Decision :
+
+- isoler CONTEXT-001 sous `java_context/` et le garder entierement read-only ;
+- reutiliser l'index B1 et ses ranges plutot que reparcourir Java au texte ;
+- classer les symboles avec raisons et scores deterministes ;
+- distinguer les overloads et exposer toute ambiguite de nom simple ;
+- exclure declarations et references issues d'un contexte syntaxique invalide ;
+- suivre uniquement les relations resolues `exact`, a profondeur un en V1 ;
+- utiliser un visited set et signaler relations ignorees, cycles et profondeur ;
+- relire chaque fichier une fois, verifier son hash et borner chaque snippet ;
+- ajouter manifestes et descriptors uniquement si la demande les rend utiles ;
+- imposer des budgets separes pour source, symboles, relations, snippets,
+  octets, caracteres, tokens, diagnostics et avertissements ;
+- distinguer analyse complete et selection complete dans un schema JSON plat ;
+- parser `java-context` separement du derive Clap principal pour eviter la frame
+  debug trop grande sur la pile Windows, sans augmenter cette pile ;
+- comparer au contexte historique avant toute injection dans `ask` ou `plan` ;
+- ne pas annoncer de gain de qualite Qwen sur la seule reduction de tokens.
+
+Raison :
+
+- huit fichiers choisis par priorite ajoutaient du bruit sans tenir compte de la
+  demande ni des symboles reels ;
+- une sortie explicable et bornee peut etre auditee avant de devenir un input LLM ;
+- l'analyse et la selection n'ont pas la meme notion d'exhaustivite ;
+- le benchmark sur cinq demandes reduit 4 140 a 1 206 tokens estimes (-70,87 %)
+  tout en conservant les symboles et roles attendus ;
+- l'activation dans Qwen exige encore une comparaison A/B de qualite et latence.
+
+Reference : [`java-context.md`](java-context.md).

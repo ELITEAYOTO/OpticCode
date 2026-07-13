@@ -335,5 +335,7 @@ Resultat exact du dernier run `-Full` le 2026-07-11 :
 `GIT-002` est maintenant termine ; voir
 [`worktree-verification.md`](worktree-verification.md). Tree-sitter Java et
 l'index inter-fichiers, B2 et le pipeline B3 sont aussi termines. Voir
-[`java-edit-worktree.md`](java-edit-worktree.md). La priorite suivante est
-l'extension mesuree des regles legacy puis `CONTEXT-001`.
+[`java-edit-worktree.md`](java-edit-worktree.md). LEGACY-002 et CONTEXT-001 sont
+egalement termines ; voir [`java-legacy-rules.md`](java-legacy-rules.md) et
+[`java-context.md`](java-context.md). La priorite suivante est `CONTEXT-002`,
+integration A/B du contexte symbolique dans `ask` et `plan`.

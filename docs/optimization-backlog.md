@@ -224,7 +224,7 @@ Ne pas commencer par Rust/C++/JavaScript. Java couvre le besoin produit direct.
 
 ### CONTEXT-001 - Selection selon la tache
 
-Retenu : oui, tres gros gain probable.
+Statut : termine le 2026-07-13.
 
 Pipeline cible :
 
@@ -237,8 +237,14 @@ demande
 -> contexte final mesure
 ```
 
-Metriques : tokens/characters, fichiers candidats, fichiers injectes, temps de
-selection, qualite du plan et du patch.
+Resultat : cinq demandes reproductibles, tous les symboles/roles attendus,
+zero bruit interdit et 4 140 -> 1 206 tokens estimes (-70,87 %) face a
+`legacy_file_priority_v1`. La qualite Qwen reste a mesurer dans CONTEXT-002.
+
+Acquis : JSON plat, scores/reasons, overloads, ambiguite, appelants, configs
+conditionnelles, ranges AST, cache de lecture, visited set et budgets explicites
+pour fichiers, symboles, relations, profondeur, snippets, octets, caracteres,
+tokens, diagnostics et avertissements.
 
 ### LEGACY-002 - Extension mesuree des regles
 
@@ -463,7 +469,7 @@ Tree-sitter/Tantivy.
 7. Integrer CODE-001 Tree-sitter Java et CODE-001B1. Fait.
 8. Construire CODE-001B2, edits cibles read-only. Fait.
 9. Construire CODE-001B3, verification des edits en worktree. Fait.
-10. Construire CONTEXT-001 selection par tache.
+10. Construire CONTEXT-001 selection par tache. Fait.
 11. Migrer vers INDEX-001/002 SQLite + Tantivy.
 12. Construire AGENT-001/002.
 13. Ajouter streaming/provider.
@@ -471,12 +477,13 @@ Tree-sitter/Tantivy.
 
 ## Prochain sprint propose
 
-`CONTEXT-001 - Selection symbolique selon la tache`.
+`CONTEXT-002 - Integration A/B du contexte symbolique dans ask/plan`.
 
-Le parseur, l'index, B2, B3 et LEGACY-002 fournissent maintenant un pipeline
-complet jusqu'au build et au diff sans exposer le projet source. La prochaine
-valeur produit est de reduire le contexte envoye au modele avec l'index
-symbolique.
+Le selecteur read-only est valide separement et reduit fortement la taille du
+prompt sur le corpus controle. La prochaine valeur produit est de verifier que
+ce contexte ameliore ou preserve les reponses de Qwen sans regression de
+latence, avant de remplacer le contexte historique.
 
-Contraintes du prochain sprint : contexte explique, extraits AST bornes,
-budget explicite, comparaison avec le selecteur historique et aucune ecriture.
+Contraintes du prochain sprint : activation optionnelle, memes prompts/modeles,
+mesures de prefill/generation/qualite, fallback explicite et aucune modification
+du workflow apply.

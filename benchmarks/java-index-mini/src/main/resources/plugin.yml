@@ -1,0 +1,9 @@
+name: JavaIndexMini
+main: dev.opticcode.app.Plugin
+version: 1.0
+commands:
+  opticmini:
+    permission: opticmini.use
+permissions:
+  opticmini.use:
+    default: op
