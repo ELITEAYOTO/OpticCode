@@ -52,6 +52,10 @@ Regle : une idee n'entre dans la roadmap active que si elle possede :
 | RAG-SAFE corpus reel | 2,299 s | 1 141 documents, 3 762 chunks, 3 887 exclusions |
 | RAG-SAFE recherche | 317,508 ms median | hash, schema, provenance et secrets revalides |
 | RAG-SAFE debug batche | 403,064 ms median | 10,73x plus rapide que le premier chemin securise |
+| EVAL legacy release | Hit@5 0,814 ; Recall 0,791 ; ~1 050 tokens ; p95 1,94 ms | rapide mais contexte moins pertinent |
+| EVAL symbol release | Hit@5 0,977 ; Recall 0,977 ; ~427 tokens ; p95 6,62 ms | meilleur retrieval, cout CPU encore faible |
+| EVAL exact release | Hit@5 0,953 ; Recall 0,845 ; ~29 tokens ; p95 1,78 ms | excellent outil cible, couverture incomplete |
+| EVAL RAG v2 release | Hit@5 0,000 ; p95 301,83 ms | requetes naturelles trop strictes, a corriger avant embeddings |
 
 Le benchmark snapshot est stocke localement sous :
 
@@ -81,6 +85,8 @@ empreintes.
 | DONE-012 | apply transactionnel, rollback et recovery explicite | termine |
 | DONE-013 | concurrence optimiste before/after et refus de derive | termine pour le refus |
 | DONE-014 | RAG-SAFE-001 fail-closed, provenance et publication atomique | termine |
+| DONE-015 | CONTEXT-001 symbolique, borne et explicable | termine |
+| DONE-016 | EVAL-001, corpus 45 cas et rapports reproductibles | termine |
 
 ## P0 - Securite avant agent
 

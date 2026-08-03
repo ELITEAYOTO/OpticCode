@@ -14,6 +14,10 @@ use opticcode_tools::apply_transaction::{
     recover_apply_transaction, ApplyTransactionErrorKind, ApplyTransactionInspection,
     ApplyTransactionResult,
 };
+use opticcode_tools::eval::{
+    compare_reports, load_eval_report, run_evaluation, write_eval_reports,
+    EvalGenerationConfiguration, EvalLlmMode, EvalRunOptions, EvalStrategy,
+};
 use opticcode_tools::git_state::capture_git_state;
 use opticcode_tools::java_context::{
     build_java_task_context, JavaTaskContextOptions, DEFAULT_JAVA_CONTEXT_BYTES,
@@ -124,6 +128,60 @@ struct JavaContextArgs {
     json: bool,
 }
 
+#[derive(Debug, Parser)]
+#[command(name = "opticcode eval")]
+#[command(about = "Run reproducible read-only context and retrieval evaluation.")]
+struct EvalArgs {
+    #[arg(long, default_value = "benchmarks/eval/context-retrieval-v1.json")]
+    suite: PathBuf,
+    #[arg(
+        long = "strategy",
+        value_delimiter = ',',
+        default_value = "legacy,symbol,exact"
+    )]
+    strategies: Vec<EvalStrategy>,
+    #[arg(long, default_value_t = 1)]
+    repetitions: u32,
+    #[arg(long)]
+    case_limit: Option<usize>,
+    #[arg(long)]
+    baseline: Option<PathBuf>,
+    #[arg(long)]
+    compare: Option<PathBuf>,
+    #[arg(long, requires = "compare")]
+    candidate: Option<PathBuf>,
+    #[arg(long, default_value = "data/index")]
+    rag_index: PathBuf,
+    #[arg(long, default_value_t = 8)]
+    rag_limit: usize,
+    #[arg(long)]
+    no_rag: bool,
+    #[arg(long = "external", value_name = "ID=PATH")]
+    external_fixtures: Vec<String>,
+    #[arg(long)]
+    with_llm: bool,
+    #[arg(long, default_value = "qwen2.5-coder:14b")]
+    model: String,
+    #[arg(long)]
+    temperature: Option<f32>,
+    #[arg(long)]
+    seed: Option<i64>,
+    #[arg(long, default_value_t = 256)]
+    max_generated_tokens: u32,
+    #[arg(long, default_value_t = 120_000)]
+    http_timeout_ms: u64,
+    #[arg(long, default_value_t = 0)]
+    warmup_runs: u32,
+    #[arg(long, default_value = "benchmarks/runs/eval")]
+    reports_dir: PathBuf,
+    #[arg(long)]
+    no_write_reports: bool,
+    #[arg(long)]
+    fail_on_regression: bool,
+    #[arg(long)]
+    json: bool,
+}
+
 #[derive(Debug, Subcommand)]
 enum Command {
     Inspect {
@@ -149,6 +207,8 @@ enum Command {
     },
     /// Select bounded Java context for a concrete coding task.
     JavaContext,
+    /// Run reproducible context and retrieval evaluation.
+    Eval,
     AnalyzeJava {
         #[arg(long, default_value = ".")]
         path: PathBuf,
@@ -425,11 +485,180 @@ fn main() -> Result<()> {
     if let Some(args) = parse_isolated_java_context() {
         return run_java_context(args);
     }
+    if let Some(args) = parse_isolated_eval() {
+        return run_eval(args);
+    }
     let cli = Cli::parse();
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()?;
     runtime.block_on(Box::pin(run_command(cli.command)))
+}
+
+fn parse_isolated_eval() -> Option<EvalArgs> {
+    let mut args = std::env::args_os();
+    args.next()?;
+    let first = args.next()?;
+    let mut parser_args = vec![std::ffi::OsString::from("opticcode eval")];
+    if first == std::ffi::OsStr::new("eval") {
+        parser_args.extend(args);
+    } else if first == std::ffi::OsStr::new("help")
+        && args.next().as_deref() == Some(std::ffi::OsStr::new("eval"))
+    {
+        parser_args.push(std::ffi::OsString::from("--help"));
+        parser_args.extend(args);
+    } else {
+        return None;
+    }
+    Some(EvalArgs::parse_from(parser_args))
+}
+
+fn run_eval(args: EvalArgs) -> Result<()> {
+    if let Some(baseline_path) = args.compare.as_deref() {
+        let candidate_path = args
+            .candidate
+            .as_deref()
+            .context("eval --compare requires --candidate")?;
+        let baseline = load_eval_report(baseline_path)?;
+        let candidate = load_eval_report(candidate_path)?;
+        let comparison = compare_reports(&baseline, &candidate);
+        if args.json {
+            println!("{}", serde_json::to_string_pretty(&comparison)?);
+        } else {
+            println!("Evaluation comparison");
+            println!("- baseline: {}", comparison.baseline_run_id);
+            println!("- candidate: {}", comparison.candidate_run_id);
+            println!("- comparable: {}", comparison.comparable);
+            println!("- regressions: {}", comparison.regressions.len());
+            println!("- improvements: {}", comparison.improvements.len());
+        }
+        io::stdout().flush()?;
+        if !comparison.comparable || (args.fail_on_regression && !comparison.regressions.is_empty())
+        {
+            std::process::exit(2);
+        }
+        return Ok(());
+    }
+
+    let external_fixtures = parse_external_fixtures(&args.external_fixtures)?;
+    let baseline = args.baseline.as_deref().map(load_eval_report).transpose()?;
+    let generation = args.with_llm.then(|| EvalGenerationConfiguration {
+        provider: "ollama".to_string(),
+        model: args.model,
+        temperature: args.temperature,
+        seed: args.seed,
+        max_generated_tokens: args.max_generated_tokens,
+        http_timeout_ms: args.http_timeout_ms,
+        warmup_runs: args.warmup_runs,
+    });
+    let rag_requested = !args.no_rag && args.strategies.contains(&EvalStrategy::Rag);
+    let rag_index_label = if !rag_requested {
+        "disabled".to_string()
+    } else {
+        sanitized_eval_path_label(&args.rag_index)
+    };
+    let report = run_evaluation(
+        &args.suite,
+        EvalRunOptions {
+            strategies: args.strategies,
+            repetitions: args.repetitions,
+            case_limit: args.case_limit,
+            rag_index: rag_requested.then_some(args.rag_index),
+            rag_index_label,
+            rag_limit: args.rag_limit,
+            external_fixtures,
+            llm_mode: if args.with_llm {
+                EvalLlmMode::Enabled
+            } else {
+                EvalLlmMode::Disabled
+            },
+            generation,
+            baseline,
+        },
+    )?;
+    let artifacts = if args.no_write_reports {
+        None
+    } else {
+        Some(write_eval_reports(&report, &args.reports_dir)?)
+    };
+
+    if args.json {
+        println!("{}", serde_json::to_string_pretty(&report)?);
+    } else {
+        println!("Evaluation {}", report.run_id);
+        println!(
+            "- suite: {} v{} ({} cases)",
+            report.suite_id, report.suite_version, report.summary.case_count
+        );
+        println!(
+            "- executions: {} completed, {} skipped, {} failed",
+            report.summary.completed, report.summary.skipped, report.summary.failed
+        );
+        for summary in &report.summary.strategies {
+            println!(
+                "- {}: Hit@5 {}, Recall@k {}, MRR {}, ~{:.0} tokens, p95 {:.2} ms",
+                summary.strategy,
+                format_optional_rate(summary.hit_at_5),
+                format_optional_rate(summary.mean_recall_at_k),
+                format_optional_rate(summary.mean_reciprocal_rank),
+                summary.mean_estimated_tokens,
+                summary.latency_p95_us as f64 / 1_000.0,
+            );
+        }
+        if let Some(baseline) = &report.baseline {
+            println!("- baseline regressions: {}", baseline.regressions.len());
+        }
+        if let Some(artifacts) = &artifacts {
+            println!("- JSON: {}", artifacts.json.display());
+            println!("- Markdown: {}", artifacts.markdown.display());
+        }
+    }
+    io::stdout().flush()?;
+    let has_regressions = report
+        .baseline
+        .as_ref()
+        .is_some_and(|baseline| !baseline.regressions.is_empty());
+    if report.summary.failed > 0 || (args.fail_on_regression && has_regressions) {
+        std::process::exit(2);
+    }
+    Ok(())
+}
+
+fn parse_external_fixtures(
+    values: &[String],
+) -> Result<std::collections::BTreeMap<String, PathBuf>> {
+    let mut fixtures = std::collections::BTreeMap::new();
+    for value in values {
+        let (id, path) = value
+            .split_once('=')
+            .with_context(|| format!("invalid external fixture `{value}`; expected ID=PATH"))?;
+        let id = id.trim();
+        let path = path.trim();
+        if id.is_empty() || path.is_empty() {
+            bail!("invalid external fixture `{value}`; ID and PATH must not be empty");
+        }
+        if fixtures
+            .insert(id.to_string(), PathBuf::from(path))
+            .is_some()
+        {
+            bail!("duplicate external fixture id `{id}`");
+        }
+    }
+    Ok(fixtures)
+}
+
+fn format_optional_rate(value: Option<f64>) -> String {
+    value.map_or_else(|| "n/a".to_string(), |value| format!("{value:.3}"))
+}
+
+fn sanitized_eval_path_label(path: &Path) -> String {
+    if path.is_relative() {
+        return path.to_string_lossy().replace('\\', "/");
+    }
+    path.file_name().map_or_else(
+        || "<absolute>".to_string(),
+        |name| format!("<absolute>/{}", name.to_string_lossy()),
+    )
 }
 
 fn parse_isolated_java_context() -> Option<JavaContextArgs> {
@@ -565,6 +794,7 @@ async fn run_command(command: Command) -> Result<()> {
             println!("{}", context.to_display_string());
         }
         Command::JavaContext => bail!("java-context must be dispatched by its isolated parser"),
+        Command::Eval => bail!("eval must be dispatched by its isolated parser"),
         Command::AnalyzeJava { path } => {
             let analysis = analyze_java_project(&path)?;
             println!("{}", analysis.to_display_string());

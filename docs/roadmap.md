@@ -277,7 +277,9 @@ Etat actuel :
   hashes Git finaux, cleanup et source inchangee ;
 - LEGACY-002 : 26 regles, provenance SHA-256 et compilation Spigot 1.8.8 ;
 - CONTEXT-001 : selection symbolique bornee et benchmark -70,87 % tokens estimes ;
-- prochaine cible : `CONTEXT-002`, integration Qwen A/B.
+- RAG-SAFE-001 : index v2 securise et publication atomique ;
+- EVAL-001 : corpus de 45 cas, metriques testees et rapports reproductibles ;
+- prochaine cible : `CONTEXT-002`, integration Qwen A/B mesuree par EVAL-001.
 
 ## Phase 5.1 - Safe Apply
 
@@ -460,7 +462,29 @@ References : [`java-syntax.md`](java-syntax.md), [`java-index.md`](java-index.md
 [`java-legacy-rules.md`](java-legacy-rules.md) et
 [`java-context.md`](java-context.md).
 
-## Phase 5.6 - Profils, memoire et optimisation controlee
+## Phase 5.6 - Evaluation reproductible
+
+Statut : EVAL-001 termine.
+
+Acquis :
+
+- schemas Serde versionnes pour suite, cas, configuration, observations et baseline ;
+- corpus de 45 cas equilibres en cinq categories Java/Bukkit/legacy ;
+- fixtures versionnees uniquement, PandaSpigot et Kspawners externes optionnels ;
+- strategies `legacy`, `symbol`, `exact` et RAG securise v2 ;
+- Hit@1/3/5, Recall@k, MRR, NDCG@5, doublons, diversite et p50/p95 ;
+- couts contexte separes des vrais tokens provider ;
+- rapports JSON et Markdown, comparaison et regressions ;
+- fingerprint avant/apres garantissant les runs read-only ;
+- latences RAG mesurees requete par requete, sans les masquer par un batch global ;
+- CLI JSON pure et tests espaces/Unicode, corpus invalide, skip et troncature.
+
+Suite : CONTEXT-002 branche les modes explicites dans `ask`/`plan`, puis utilise
+ce corpus pour une comparaison Qwen reelle a variables constantes.
+
+Reference : [`evaluation.md`](evaluation.md).
+
+## Phase 5.7 - Profils, memoire et optimisation controlee
 
 Statut : cadree.
 

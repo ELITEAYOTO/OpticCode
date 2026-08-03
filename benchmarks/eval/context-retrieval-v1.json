@@ -1,0 +1,645 @@
+{
+  "schema_version": 1,
+  "id": "minecraft-java8-context-retrieval",
+  "version": "1.0.0",
+  "description": "Reproducible read-only evaluation of OpticCode context and retrieval strategies for Java 8, Bukkit 1.8.8, legacy APIs, and project configuration.",
+  "fixtures": {
+    "java_index": { "kind": "versioned", "path": "../java-index-mini" },
+    "mini_bukkit": { "kind": "versioned", "path": "../mini-bukkit-plugin" },
+    "legacy_edits": { "kind": "versioned", "path": "../java-edits-legacy" },
+    "legacy_compile": { "kind": "versioned", "path": "../java-legacy-compile" },
+    "gradle_plugin": { "kind": "versioned", "path": "../eval-gradle-plugin" },
+    "pandaspigot_external": {
+      "kind": "external",
+      "external_id": "pandaspigot",
+      "description": "Optional read-only PandaSpigot checkout supplied at runtime"
+    },
+    "kspawners_external": {
+      "kind": "external",
+      "external_id": "kspawners",
+      "description": "Optional read-only Kspawners checkout supplied at runtime"
+    }
+  },
+  "cases": [
+    {
+      "id": "exact-helpers-create-string",
+      "category": "exact_symbol",
+      "prompt": "Inspect dev.opticcode.util.Helpers#create(String).",
+      "fixture": "java_index",
+      "exact_query": "create(String",
+      "expected": {
+        "relevant_files": ["src/main/java/dev/opticcode/util/Helpers.java"],
+        "relevant_symbols": ["dev.opticcode.util.Helpers#create(String)"],
+        "irrelevant_files": ["src/main/java/dev/opticcode/alpha/Duplicate.java"],
+        "facts": ["create returns the supplied value"],
+        "forbidden_claims": ["create always returns READY"]
+      },
+      "tags": ["method", "overload"],
+      "reason": "Measures exact overloaded method selection."
+    },
+    {
+      "id": "exact-helpers-ping",
+      "category": "exact_symbol",
+      "prompt": "Locate dev.opticcode.util.Helpers#ping().",
+      "fixture": "java_index",
+      "exact_query": "ping()",
+      "expected": {
+        "relevant_files": ["src/main/java/dev/opticcode/util/Helpers.java"],
+        "relevant_symbols": ["dev.opticcode.util.Helpers#ping()"],
+        "facts": ["ping has no parameters"]
+      },
+      "tags": ["method"],
+      "reason": "Measures exact static method retrieval."
+    },
+    {
+      "id": "exact-plugin-start",
+      "category": "exact_symbol",
+      "prompt": "Find dev.opticcode.app.Plugin#start().",
+      "fixture": "java_index",
+      "exact_query": "void start()",
+      "expected": {
+        "relevant_files": ["src/main/java/dev/opticcode/app/Plugin.java"],
+        "relevant_symbols": ["dev.opticcode.app.Plugin#start()"],
+        "facts": ["start calls create, ping, and WildService.run"]
+      },
+      "tags": ["method", "entrypoint"],
+      "reason": "Measures direct method declaration selection."
+    },
+    {
+      "id": "exact-inner-run-overloads",
+      "category": "exact_symbol",
+      "prompt": "Inspect both overloads of dev.opticcode.app.Plugin.Inner#run.",
+      "fixture": "java_index",
+      "exact_query": "void run(",
+      "expected": {
+        "relevant_files": ["src/main/java/dev/opticcode/app/Plugin.java"],
+        "relevant_symbols": ["dev.opticcode.app.Plugin.Inner#run()", "dev.opticcode.app.Plugin.Inner#run(String)"],
+        "facts": ["Inner declares two run overloads"]
+      },
+      "tags": ["nested-class", "overload"],
+      "reason": "Exercises nested declarations and overload ambiguity."
+    },
+    {
+      "id": "exact-wild-service",
+      "category": "exact_symbol",
+      "prompt": "Locate dev.opticcode.wild.WildService#run().",
+      "fixture": "java_index",
+      "exact_query": "class WildService",
+      "expected": {
+        "relevant_files": ["src/main/java/dev/opticcode/wild/WildService.java"],
+        "relevant_symbols": ["dev.opticcode.wild.WildService#run()"],
+        "facts": ["WildService is imported through a wildcard"]
+      },
+      "tags": ["wildcard-import"],
+      "reason": "Checks exact selection behind a wildcard import."
+    },
+    {
+      "id": "exact-feature-annotation",
+      "category": "exact_symbol",
+      "prompt": "Find the dev.opticcode.model.Feature annotation declaration.",
+      "fixture": "java_index",
+      "exact_query": "@interface Feature",
+      "expected": {
+        "relevant_files": ["src/main/java/dev/opticcode/model/Feature.java"],
+        "relevant_symbols": ["dev.opticcode.model.Feature"],
+        "facts": ["Feature is an annotation"]
+      },
+      "tags": ["annotation"],
+      "reason": "Checks non-class declaration retrieval."
+    },
+    {
+      "id": "exact-external-bukkit-announce",
+      "category": "exact_symbol",
+      "prompt": "Inspect dev.opticcode.external.ExternalBukkit#announce(String).",
+      "fixture": "java_index",
+      "exact_query": "announce(String",
+      "expected": {
+        "relevant_files": ["src/main/java/dev/opticcode/external/ExternalBukkit.java"],
+        "relevant_symbols": ["dev.opticcode.external.ExternalBukkit#announce(String)"],
+        "facts": ["announce calls broadcastMessage"]
+      },
+      "tags": ["bukkit", "static-import"],
+      "reason": "Checks a Bukkit-facing method with a static import."
+    },
+    {
+      "id": "exact-coins-command",
+      "category": "exact_symbol",
+      "prompt": "Locate CoinsCommand#onCommand and its declaration.",
+      "fixture": "mini_bukkit",
+      "exact_query": "boolean onCommand",
+      "expected": {
+        "relevant_files": ["src/main/java/dev/opticcode/benchmark/command/CoinsCommand.java"],
+        "relevant_symbols": ["dev.opticcode.benchmark.command.CoinsCommand#onCommand(CommandSender,Command,String,String[])"],
+        "facts": ["CoinsCommand implements CommandExecutor"]
+      },
+      "tags": ["bukkit", "command"],
+      "reason": "Measures retrieval of a Bukkit command entrypoint."
+    },
+    {
+      "id": "exact-join-listener",
+      "category": "exact_symbol",
+      "prompt": "Locate JoinListener#onJoin(PlayerJoinEvent).",
+      "fixture": "mini_bukkit",
+      "exact_query": "void onJoin",
+      "expected": {
+        "relevant_files": ["src/main/java/dev/opticcode/benchmark/listener/JoinListener.java"],
+        "relevant_symbols": ["dev.opticcode.benchmark.listener.JoinListener#onJoin(PlayerJoinEvent)"],
+        "facts": ["onJoin is annotated with EventHandler"]
+      },
+      "tags": ["bukkit", "listener"],
+      "reason": "Measures event handler symbol retrieval."
+    },
+
+    {
+      "id": "architecture-plugin-to-helpers",
+      "category": "inter_file_architecture",
+      "prompt": "Explain how Plugin.start uses Helpers.create(String).",
+      "fixture": "java_index",
+      "exact_query": "create(text)",
+      "expected": {
+        "relevant_files": ["src/main/java/dev/opticcode/app/Plugin.java", "src/main/java/dev/opticcode/util/Helpers.java"],
+        "relevant_symbols": ["dev.opticcode.app.Plugin#start()", "dev.opticcode.util.Helpers#create(String)"],
+        "facts": ["Plugin.start calls create(text)"]
+      },
+      "tags": ["cross-file", "call"],
+      "reason": "Requires caller and callee context across files."
+    },
+    {
+      "id": "architecture-plugin-wild-service",
+      "category": "inter_file_architecture",
+      "prompt": "Explain the relation between Plugin.start and WildService.run.",
+      "fixture": "java_index",
+      "exact_query": "service.run()",
+      "expected": {
+        "relevant_files": ["src/main/java/dev/opticcode/app/Plugin.java", "src/main/java/dev/opticcode/wild/WildService.java"],
+        "relevant_symbols": ["dev.opticcode.app.Plugin#start()", "dev.opticcode.wild.WildService#run()"],
+        "facts": ["Plugin owns a WildService field"]
+      },
+      "tags": ["cross-file", "wildcard-import"],
+      "reason": "Measures relation traversal through a field and method call."
+    },
+    {
+      "id": "architecture-mini-command-registration",
+      "category": "inter_file_architecture",
+      "prompt": "Trace registration of the coins command from plugin.yml to CoinsCommand.",
+      "fixture": "mini_bukkit",
+      "exact_query": "coins",
+      "expected": {
+        "relevant_files": ["src/main/resources/plugin.yml", "src/main/java/dev/opticcode/benchmark/MiniBenchmarkPlugin.java", "src/main/java/dev/opticcode/benchmark/command/CoinsCommand.java"],
+        "relevant_symbols": ["dev.opticcode.benchmark.MiniBenchmarkPlugin#onEnable()", "dev.opticcode.benchmark.command.CoinsCommand"],
+        "facts": ["onEnable installs CoinsCommand as executor"]
+      },
+      "tags": ["bukkit", "plugin-yml", "cross-file"],
+      "reason": "Connects descriptor, plugin bootstrap, and executor."
+    },
+    {
+      "id": "architecture-mini-listener-registration",
+      "category": "inter_file_architecture",
+      "prompt": "Trace how JoinListener is registered and invoked.",
+      "fixture": "mini_bukkit",
+      "exact_query": "JoinListener",
+      "expected": {
+        "relevant_files": ["src/main/java/dev/opticcode/benchmark/MiniBenchmarkPlugin.java", "src/main/java/dev/opticcode/benchmark/listener/JoinListener.java"],
+        "relevant_symbols": ["dev.opticcode.benchmark.MiniBenchmarkPlugin#onEnable()", "dev.opticcode.benchmark.listener.JoinListener#onJoin(PlayerJoinEvent)"],
+        "facts": ["onEnable calls registerEvents"]
+      },
+      "tags": ["bukkit", "listener", "cross-file"],
+      "reason": "Requires bootstrap and listener context."
+    },
+    {
+      "id": "architecture-coins-flow",
+      "category": "inter_file_architecture",
+      "prompt": "Explain the CoinsCommand flow from onCommand to handleAdd and getCoins.",
+      "fixture": "mini_bukkit",
+      "exact_query": "handleAdd",
+      "expected": {
+        "relevant_files": ["src/main/java/dev/opticcode/benchmark/command/CoinsCommand.java"],
+        "relevant_symbols": ["dev.opticcode.benchmark.command.CoinsCommand#onCommand(CommandSender,Command,String,String[])", "dev.opticcode.benchmark.command.CoinsCommand#handleAdd(Player,String[],int)", "dev.opticcode.benchmark.command.CoinsCommand#getCoins(Player)"],
+        "facts": ["coins are stored by player UUID"]
+      },
+      "tags": ["control-flow", "methods"],
+      "reason": "Measures related methods in one larger class."
+    },
+    {
+      "id": "architecture-descriptor-main-class",
+      "category": "inter_file_architecture",
+      "prompt": "Verify that plugin.yml main resolves to MiniBenchmarkPlugin.",
+      "fixture": "mini_bukkit",
+      "exact_query": "MiniBenchmarkPlugin",
+      "expected": {
+        "relevant_files": ["src/main/resources/plugin.yml", "src/main/java/dev/opticcode/benchmark/MiniBenchmarkPlugin.java"],
+        "relevant_symbols": ["dev.opticcode.benchmark.MiniBenchmarkPlugin"],
+        "facts": ["plugin.yml main is dev.opticcode.benchmark.MiniBenchmarkPlugin"]
+      },
+      "tags": ["descriptor", "bootstrap"],
+      "reason": "Links Bukkit metadata to its Java class."
+    },
+    {
+      "id": "architecture-material-enum-use",
+      "category": "inter_file_architecture",
+      "prompt": "Trace dev.opticcode.model.Material.GUNPOWDER from declaration to Plugin usage.",
+      "fixture": "java_index",
+      "exact_query": "Material.GUNPOWDER",
+      "expected": {
+        "relevant_files": ["src/main/java/dev/opticcode/model/Material.java", "src/main/java/dev/opticcode/app/Plugin.java"],
+        "irrelevant_files": ["src/main/java/dev/opticcode/external/ExternalBukkit.java"],
+        "facts": ["Plugin imports the project Material enum"]
+      },
+      "tags": ["enum", "owner-resolution"],
+      "reason": "Distinguishes a project enum from org.bukkit.Material."
+    },
+    {
+      "id": "architecture-qualified-duplicate",
+      "category": "inter_file_architecture",
+      "prompt": "Resolve the fully qualified Duplicate created by Plugin.start.",
+      "fixture": "java_index",
+      "exact_query": "dev.opticcode.alpha.Duplicate",
+      "expected": {
+        "relevant_files": ["src/main/java/dev/opticcode/app/Plugin.java", "src/main/java/dev/opticcode/alpha/Duplicate.java"],
+        "irrelevant_files": ["src/main/java/dev/opticcode/beta/Duplicate.java"],
+        "facts": ["Plugin.start creates the alpha Duplicate"]
+      },
+      "tags": ["qualified-name", "ambiguity"],
+      "reason": "Tests qualified-name disambiguation across files."
+    },
+    {
+      "id": "architecture-pandaspigot-config-external",
+      "category": "inter_file_architecture",
+      "prompt": "Locate PandaSpigotConfig and its server bootstrap integration.",
+      "fixture": "pandaspigot_external",
+      "exact_query": "PandaSpigotConfig",
+      "expected": {
+        "relevant_files": ["PandaSpigotConfig.java"],
+        "relevant_symbols": ["PandaSpigotConfig"]
+      },
+      "tags": ["external", "pandaspigot", "read-only"],
+      "reason": "Optional real-codebase architecture case without versioning personal sources."
+    },
+
+    {
+      "id": "impact-helpers-create-callers",
+      "category": "change_impact_callers",
+      "prompt": "Which callers are impacted by changing Helpers#create(String)?",
+      "fixture": "java_index",
+      "exact_query": "create(text)",
+      "expected": {
+        "relevant_files": ["src/main/java/dev/opticcode/util/Helpers.java", "src/main/java/dev/opticcode/app/Plugin.java"],
+        "relevant_symbols": ["dev.opticcode.util.Helpers#create(String)", "dev.opticcode.app.Plugin#start()"],
+        "facts": ["Plugin.start is a caller"]
+      },
+      "tags": ["impact", "caller"],
+      "reason": "Measures caller discovery for an overloaded method."
+    },
+    {
+      "id": "impact-wild-service-run-callers",
+      "category": "change_impact_callers",
+      "prompt": "Find callers affected by changing WildService#run().",
+      "fixture": "java_index",
+      "exact_query": "service.run()",
+      "expected": {
+        "relevant_files": ["src/main/java/dev/opticcode/wild/WildService.java", "src/main/java/dev/opticcode/app/Plugin.java"],
+        "facts": ["Plugin.start calls WildService.run"]
+      },
+      "tags": ["impact", "caller"],
+      "reason": "Measures cross-file impact context."
+    },
+    {
+      "id": "impact-ping-static-import",
+      "category": "change_impact_callers",
+      "prompt": "Find all callers impacted by changing Helpers#ping().",
+      "fixture": "java_index",
+      "exact_query": "ping()",
+      "expected": {
+        "relevant_files": ["src/main/java/dev/opticcode/util/Helpers.java", "src/main/java/dev/opticcode/app/Plugin.java"],
+        "facts": ["ping is called through a static wildcard import"]
+      },
+      "tags": ["impact", "static-import"],
+      "reason": "Tests caller resolution through static imports."
+    },
+    {
+      "id": "impact-join-listener-constructor",
+      "category": "change_impact_callers",
+      "prompt": "What registration code is affected if JoinListener constructor changes?",
+      "fixture": "mini_bukkit",
+      "exact_query": "new JoinListener()",
+      "expected": {
+        "relevant_files": ["src/main/java/dev/opticcode/benchmark/listener/JoinListener.java", "src/main/java/dev/opticcode/benchmark/MiniBenchmarkPlugin.java"],
+        "facts": ["MiniBenchmarkPlugin constructs JoinListener"]
+      },
+      "tags": ["impact", "constructor", "listener"],
+      "reason": "Measures constructor usage impact."
+    },
+    {
+      "id": "impact-coins-command-constructor",
+      "category": "change_impact_callers",
+      "prompt": "What bootstrap code is affected if CoinsCommand constructor changes?",
+      "fixture": "mini_bukkit",
+      "exact_query": "new CoinsCommand()",
+      "expected": {
+        "relevant_files": ["src/main/java/dev/opticcode/benchmark/command/CoinsCommand.java", "src/main/java/dev/opticcode/benchmark/MiniBenchmarkPlugin.java"],
+        "facts": ["MiniBenchmarkPlugin constructs CoinsCommand"]
+      },
+      "tags": ["impact", "constructor", "command"],
+      "reason": "Measures executor construction impact."
+    },
+    {
+      "id": "impact-material-enum-member",
+      "category": "change_impact_callers",
+      "prompt": "Which project files use dev.opticcode.model.Material.GUNPOWDER?",
+      "fixture": "java_index",
+      "exact_query": "Material.GUNPOWDER",
+      "expected": {
+        "relevant_files": ["src/main/java/dev/opticcode/model/Material.java", "src/main/java/dev/opticcode/app/Plugin.java"],
+        "irrelevant_files": ["src/main/java/dev/opticcode/external/ExternalBukkit.java"],
+        "forbidden_claims": ["ExternalBukkit uses dev.opticcode.model.Material"]
+      },
+      "tags": ["impact", "enum", "owner-resolution"],
+      "reason": "Checks owner-aware enum impact without conflating Bukkit."
+    },
+    {
+      "id": "impact-feature-annotation-users",
+      "category": "change_impact_callers",
+      "prompt": "Which class is impacted by changing the Feature annotation?",
+      "fixture": "java_index",
+      "exact_query": "@Feature",
+      "expected": {
+        "relevant_files": ["src/main/java/dev/opticcode/model/Feature.java", "src/main/java/dev/opticcode/app/Plugin.java"],
+        "facts": ["Plugin is annotated with Feature"]
+      },
+      "tags": ["impact", "annotation"],
+      "reason": "Measures annotation usage impact."
+    },
+    {
+      "id": "impact-inner-run-overload",
+      "category": "change_impact_callers",
+      "prompt": "Assess impact of changing only Plugin.Inner#run(String).",
+      "fixture": "java_index",
+      "exact_query": "run(String value)",
+      "expected": {
+        "relevant_files": ["src/main/java/dev/opticcode/app/Plugin.java"],
+        "relevant_symbols": ["dev.opticcode.app.Plugin.Inner#run(String)"],
+        "forbidden_claims": ["run() has a String parameter"]
+      },
+      "tags": ["impact", "overload", "negative"],
+      "reason": "Requires overload-specific impact reasoning."
+    },
+    {
+      "id": "impact-kspawners-main-external",
+      "category": "change_impact_callers",
+      "prompt": "Locate Kspawners plugin entrypoint and spawner service callers.",
+      "fixture": "kspawners_external",
+      "exact_query": "Kspawners",
+      "expected": {
+        "relevant_files": ["Kspawners.java"],
+        "relevant_symbols": ["Kspawners"]
+      },
+      "tags": ["external", "plugin", "read-only"],
+      "reason": "Optional real-plugin impact case without copying user sources."
+    },
+
+    {
+      "id": "config-java-index-maven-java8",
+      "category": "project_configuration",
+      "prompt": "Verify Maven source and target are Java 8 in pom.xml.",
+      "fixture": "java_index",
+      "exact_query": "maven.compiler.source",
+      "expected": {
+        "relevant_files": ["pom.xml"],
+        "facts": ["source is 1.8", "target is 1.8"]
+      },
+      "validation": { "kind": "read_only", "expected_files_unchanged": true },
+      "tags": ["maven", "java8"],
+      "reason": "Measures build manifest selection for compiler level."
+    },
+    {
+      "id": "config-mini-maven-spigot",
+      "category": "project_configuration",
+      "prompt": "Inspect the Spigot API Maven dependency and version.",
+      "fixture": "mini_bukkit",
+      "exact_query": "spigot-api",
+      "expected": {
+        "relevant_files": ["pom.xml"],
+        "facts": ["spigot-api version is 1.8.8-R0.1-SNAPSHOT"]
+      },
+      "tags": ["maven", "spigot"],
+      "reason": "Measures dependency manifest retrieval."
+    },
+    {
+      "id": "config-mini-plugin-command",
+      "category": "project_configuration",
+      "prompt": "Inspect the coins command declaration in plugin.yml.",
+      "fixture": "mini_bukkit",
+      "exact_query": "coins:",
+      "expected": {
+        "relevant_files": ["src/main/resources/plugin.yml"],
+        "irrelevant_files": ["pom.xml"],
+        "facts": ["plugin.yml declares coins"]
+      },
+      "tags": ["plugin-yml", "command"],
+      "reason": "Measures precise Bukkit descriptor selection."
+    },
+    {
+      "id": "config-java-index-plugin-main",
+      "category": "project_configuration",
+      "prompt": "Read the plugin.yml main class and plugin name.",
+      "fixture": "java_index",
+      "exact_query": "main:",
+      "expected": {
+        "relevant_files": ["src/main/resources/plugin.yml"],
+        "facts": ["name is JavaIndexMini", "main is dev.opticcode.app.Plugin"]
+      },
+      "tags": ["plugin-yml", "main"],
+      "reason": "Measures descriptor facts without unrelated Java files."
+    },
+    {
+      "id": "config-java-index-permission",
+      "category": "project_configuration",
+      "prompt": "Find the opticmini permission and its default in plugin.yml.",
+      "fixture": "java_index",
+      "exact_query": "opticmini.use",
+      "expected": {
+        "relevant_files": ["src/main/resources/plugin.yml"],
+        "facts": ["opticmini.use defaults to op"]
+      },
+      "tags": ["plugin-yml", "permission"],
+      "reason": "Measures nested Bukkit permission configuration."
+    },
+    {
+      "id": "config-mini-no-api-version",
+      "category": "project_configuration",
+      "prompt": "Check whether this Bukkit 1.8 plugin.yml contains api-version.",
+      "fixture": "mini_bukkit",
+      "exact_query": "api-version",
+      "expected": {
+        "relevant_files": ["src/main/resources/plugin.yml"],
+        "facts": ["plugin.yml has no api-version"],
+        "forbidden_claims": ["api-version is required for Bukkit 1.8.8"]
+      },
+      "tags": ["plugin-yml", "legacy", "negative"],
+      "reason": "Checks a required absence in legacy Bukkit metadata."
+    },
+    {
+      "id": "config-mini-maven-provided-scope",
+      "category": "project_configuration",
+      "prompt": "Verify the Maven scope used for spigot-api.",
+      "fixture": "mini_bukkit",
+      "exact_query": "<scope>provided</scope>",
+      "expected": {
+        "relevant_files": ["pom.xml"],
+        "facts": ["spigot-api uses provided scope"]
+      },
+      "tags": ["maven", "scope"],
+      "reason": "Measures a concrete dependency configuration fact."
+    },
+    {
+      "id": "config-gradle-java8",
+      "category": "project_configuration",
+      "prompt": "Verify Gradle sourceCompatibility and targetCompatibility are Java 8.",
+      "fixture": "gradle_plugin",
+      "exact_query": "sourceCompatibility",
+      "expected": {
+        "relevant_files": ["build.gradle"],
+        "facts": ["sourceCompatibility is 1.8", "targetCompatibility is 1.8"]
+      },
+      "tags": ["gradle", "java8"],
+      "reason": "Adds an explicit Gradle build configuration case."
+    },
+    {
+      "id": "config-gradle-plugin-wiring",
+      "category": "project_configuration",
+      "prompt": "Trace evalreload from Gradle plugin.yml to ReloadCommand registration.",
+      "fixture": "gradle_plugin",
+      "exact_query": "evalreload",
+      "expected": {
+        "relevant_files": ["src/main/resources/plugin.yml", "src/main/java/dev/opticcode/eval/GradlePlugin.java", "src/main/java/dev/opticcode/eval/ReloadCommand.java"],
+        "facts": ["GradlePlugin registers ReloadCommand"]
+      },
+      "tags": ["gradle", "plugin-yml", "command"],
+      "reason": "Combines Gradle project layout with Bukkit descriptor wiring."
+    },
+
+    {
+      "id": "legacy-material-gunpowder",
+      "category": "legacy_and_negative",
+      "prompt": "Correct org.bukkit.Material.GUNPOWDER for Bukkit 1.8.8.",
+      "fixture": "legacy_edits",
+      "exact_query": "Material.GUNPOWDER",
+      "expected": {
+        "relevant_files": ["src/main/java/dev/opticcode/edits/PositiveMaterial.java", "src/main/java/dev/opticcode/edits/FullyQualified.java"],
+        "irrelevant_files": ["src/main/java/dev/opticcode/edits/negative/CustomMaterial.java"],
+        "facts": ["Material.SULPHUR is the Bukkit 1.8.8 name"],
+        "forbidden_claims": ["rename custom Material.GUNPOWDER"]
+      },
+      "tags": ["legacy", "material", "positive"],
+      "reason": "Measures the canonical gunpowder legacy mapping and owner safety."
+    },
+    {
+      "id": "legacy-material-nether-wart",
+      "category": "legacy_and_negative",
+      "prompt": "Correct org.bukkit.Material.NETHER_WART for Bukkit 1.8.8.",
+      "fixture": "legacy_edits",
+      "exact_query": "Material.NETHER_WART",
+      "expected": {
+        "relevant_files": ["src/main/java/dev/opticcode/edits/PositiveMaterial.java"],
+        "facts": ["Material.NETHER_STALK is the legacy name"]
+      },
+      "tags": ["legacy", "material", "nether-stalk"],
+      "reason": "Measures the NETHER_STALK mapping requested by the project owner."
+    },
+    {
+      "id": "legacy-material-spawner",
+      "category": "legacy_and_negative",
+      "prompt": "Correct org.bukkit.Material.SPAWNER for Bukkit 1.8.8.",
+      "fixture": "legacy_edits",
+      "exact_query": "Material.SPAWNER",
+      "expected": {
+        "relevant_files": ["src/main/java/dev/opticcode/edits/PositiveMaterial.java"],
+        "facts": ["Material.MOB_SPAWNER is the legacy name"]
+      },
+      "tags": ["legacy", "material", "spawner"],
+      "reason": "Measures the block spawner legacy mapping."
+    },
+    {
+      "id": "legacy-material-spawn-egg",
+      "category": "legacy_and_negative",
+      "prompt": "Correct org.bukkit.Material.SPAWN_EGG for Bukkit 1.8.8.",
+      "fixture": "legacy_edits",
+      "exact_query": "Material.SPAWN_EGG",
+      "expected": {
+        "relevant_files": ["src/main/java/dev/opticcode/edits/PositiveMaterial.java"],
+        "facts": ["Material.MONSTER_EGG is the legacy name"]
+      },
+      "tags": ["legacy", "material", "spawn-egg"],
+      "reason": "Measures the spawn egg legacy mapping."
+    },
+    {
+      "id": "legacy-material-spades",
+      "category": "legacy_and_negative",
+      "prompt": "Correct modern shovel Material names for Bukkit 1.8.8 spades.",
+      "fixture": "legacy_edits",
+      "exact_query": "SHOVEL",
+      "expected": {
+        "relevant_files": ["src/main/java/dev/opticcode/edits/PositiveMaterial.java"],
+        "facts": ["legacy shovel names use SPADE", "WOODEN_SHOVEL maps to WOOD_SPADE"]
+      },
+      "tags": ["legacy", "material", "spade"],
+      "reason": "Measures the legacy SPADE naming family."
+    },
+    {
+      "id": "legacy-entity-piglin",
+      "category": "legacy_and_negative",
+      "prompt": "Correct EntityType.ZOMBIFIED_PIGLIN for Bukkit 1.8.8.",
+      "fixture": "legacy_edits",
+      "exact_query": "ZOMBIFIED_PIGLIN",
+      "expected": {
+        "relevant_files": ["src/main/java/dev/opticcode/edits/PositiveEntities.java", "src/main/java/dev/opticcode/edits/FullyQualified.java"],
+        "facts": ["EntityType.PIG_ZOMBIE is the legacy name"]
+      },
+      "tags": ["legacy", "entity", "mob"],
+      "reason": "Measures an entity enum mapping distinct from materials."
+    },
+    {
+      "id": "legacy-already-correct-negative",
+      "category": "legacy_and_negative",
+      "prompt": "Check whether AlreadyLegacy needs Bukkit 1.8 enum renames.",
+      "fixture": "legacy_edits",
+      "exact_query": "Material.SULPHUR",
+      "expected": {
+        "relevant_files": ["src/main/java/dev/opticcode/edits/negative/AlreadyLegacy.java"],
+        "facts": ["the file already uses legacy names"],
+        "forbidden_claims": ["Material.SULPHUR should become Material.GUNPOWDER"]
+      },
+      "tags": ["legacy", "negative", "idempotence"],
+      "reason": "Prevents reversing already-correct legacy identifiers."
+    },
+    {
+      "id": "legacy-comments-strings-negative",
+      "category": "legacy_and_negative",
+      "prompt": "Check TextOnly without treating comments or strings as Java enum references.",
+      "fixture": "legacy_edits",
+      "exact_query": "Material.GUNPOWDER",
+      "expected": {
+        "relevant_files": ["src/main/java/dev/opticcode/edits/negative/TextOnly.java"],
+        "facts": ["occurrences are comments or strings"],
+        "forbidden_claims": ["TextOnly contains a Bukkit enum reference to rewrite"]
+      },
+      "tags": ["legacy", "negative", "comments", "strings"],
+      "reason": "Detects text-search false positives that AST context should reject."
+    },
+    {
+      "id": "legacy-custom-owner-negative",
+      "category": "legacy_and_negative",
+      "prompt": "Check CustomMaterial without rewriting its project-local Material enum.",
+      "fixture": "legacy_edits",
+      "exact_query": "class CustomMaterial",
+      "expected": {
+        "relevant_files": ["src/main/java/dev/opticcode/edits/negative/CustomMaterial.java"],
+        "irrelevant_files": ["src/main/java/dev/opticcode/edits/PositiveMaterial.java"],
+        "facts": ["CustomMaterial owns a local Material enum"],
+        "forbidden_claims": ["the local Material enum is org.bukkit.Material"]
+      },
+      "tags": ["legacy", "negative", "owner-resolution"],
+      "reason": "Requires owner-aware negative reasoning before any legacy suggestion."
+    }
+  ]
+}

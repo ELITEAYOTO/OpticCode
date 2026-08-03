@@ -1,4 +1,5 @@
 pub mod apply_transaction;
+pub mod eval;
 pub mod git_state;
 pub mod java_context;
 pub mod java_edit_worktree;
@@ -10,8 +11,9 @@ pub mod rag;
 pub mod worktree;
 
 pub use rag::{
-    build_rag_index, inspect_rag_source, search_rag_index, search_rag_index_queries,
-    search_rag_index_report, RagIndexReport, RagSearchHit, RagSearchReport, RagSourceReport,
+    build_rag_index, inspect_rag_source, load_active_rag_manifest, search_rag_index,
+    search_rag_index_queries, search_rag_index_report, RagIndexReport, RagSearchHit,
+    RagSearchReport, RagSourceReport,
 };
 
 use std::collections::BTreeMap;
@@ -259,6 +261,7 @@ pub fn inspect_workspace(root: &Path) -> Result<WorkspaceReport> {
     };
 
     for entry in WalkDir::new(&root)
+        .sort_by_file_name()
         .into_iter()
         .filter_entry(should_enter)
         .filter_map(Result::ok)
@@ -297,6 +300,7 @@ pub fn inspect_resource_pack(root: &Path, limit: usize) -> Result<ResourcePackRe
     };
 
     for entry in WalkDir::new(&root)
+        .sort_by_file_name()
         .into_iter()
         .filter_entry(should_enter_resource_pack)
         .filter_map(Result::ok)
@@ -521,6 +525,7 @@ pub fn analyze_java_project(root: &Path) -> Result<JavaProjectAnalysis> {
 
     let mut java_files = Vec::new();
     for entry in WalkDir::new(&root)
+        .sort_by_file_name()
         .into_iter()
         .filter_entry(should_enter)
         .filter_map(Result::ok)
@@ -1865,6 +1870,7 @@ pub fn search_workspace(root: &Path, pattern: &str, limit: usize) -> Result<Vec<
     let mut hits = Vec::new();
 
     for entry in WalkDir::new(&root)
+        .sort_by_file_name()
         .into_iter()
         .filter_entry(should_enter)
         .filter_map(Result::ok)

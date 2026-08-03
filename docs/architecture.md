@@ -211,17 +211,28 @@ Etat contexte CONTEXT-001 implemente :
 - commande `java-context` isolee du grand derive Clap pour la pile Windows ;
 - aucun branchement automatique au runtime LLM avant comparaison A/B.
 
+Etat evaluation EVAL-001 implemente :
+
+- module independant `opticcode-tools/src/eval/` separe par schema, metriques,
+  runner et rapports ;
+- corpus versionne de 45 cas sur fixtures artificielles ;
+- PandaSpigot/Kspawners restent des sources externes optionnelles read-only ;
+- strategies legacy, symbolique, exacte et RAG v2 sans nouveau moteur ;
+- rapports Serde versionnes, configuration hashee et identite RAG validee ;
+- fingerprint complet avant/apres et refus de publication en cas de derive ;
+- sous-parseur CLI isole et sortie JSON pure.
+
 Le cycle GIT-002 accepte maintenant une etape apply injectee, mais conserve une
 seule implementation du worktree, du build, du diff et du cleanup. Les futures
 regles Java ne doivent pas ajouter leur logique dans `worktree.rs`.
 
-LEGACY-002 et CONTEXT-001 sont termines. La prochaine etape est `CONTEXT-002`,
-integration optionnelle dans `ask`/`plan` avec benchmark Qwen. Un index
+LEGACY-002, CONTEXT-001, RAG-SAFE-001 et EVAL-001 sont termines. La prochaine
+etape est `CONTEXT-002`, integration optionnelle dans `ask`/`plan` avec benchmark Qwen. Un index
 incremental/persistant attendra des mesures qui le
 justifient. Voir [`java-syntax.md`](java-syntax.md),
 [`java-index.md`](java-index.md), [`java-edits.md`](java-edits.md) et
 [`java-edit-worktree.md`](java-edit-worktree.md), puis
-[`java-context.md`](java-context.md).
+[`java-context.md`](java-context.md) et [`evaluation.md`](evaluation.md).
 
 ## Runtime LLM
 

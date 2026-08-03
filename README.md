@@ -27,6 +27,8 @@ et controlees jusqu'au hash Git final dans un worktree detache. CONTEXT-001
 selectionne maintenant declarations, appelants et fichiers de configuration
 selon la demande, avec ranges AST, raisons, couts et budgets explicites. Les builds passent aussi par un
 process runner borne avec timeout, sortie limitee et terminaison de l'arbre Windows.
+EVAL-001 compare maintenant ces chemins sur un corpus versionne de 45 cas,
+avec metriques de retrieval/contexte, rapports JSON/Markdown et controle read-only.
 
 - Phase 0 : audit environnement Windows 10 termine.
 - Phase 1 : documentation de cadrage terminee.
@@ -35,8 +37,9 @@ process runner borne avec timeout, sortie limitee et terminaison de l'arbre Wind
 - Phase 3 : recherche depots externes et analyse Qwen Code terminees.
 - Phase 4 : MVP Rust fonctionnel.
 - Phase 5 : tools Java en cours ; apply/worktree, Tree-sitter, index B1, edits B2, pipeline B3, LEGACY-002 et CONTEXT-001 termines.
-- Qualite courante : 172 tests workspace, Clippy strict, build release et gates Java valides.
+- Qualite courante : 184 tests workspace, Clippy strict, build release et gates Java valides.
 - Phase 6 : RAG-SAFE-001 termine ; index incremental/scalable a mesurer puis construire.
+- EVAL-001 : infrastructure et corpus reproductible termines ; benchmark Qwen A/B dans CONTEXT-002.
 - Phase 7 : agent iteratif non commence.
 
 ## Documentation
@@ -52,6 +55,7 @@ process runner borne avec timeout, sortie limitee et terminaison de l'arbre Wind
 - [Propositions d'edits Java ciblees](docs/java-edits.md)
 - [Verification des edits Java en worktree](docs/java-edit-worktree.md)
 - [Contexte Java guide par les symboles](docs/java-context.md)
+- [Evaluation reproductible du contexte et du retrieval](docs/evaluation.md)
 - [Backlog canonique d'optimisation](docs/optimization-backlog.md)
 - [Etat environnement](docs/environment-audit.md)
 - [Roadmap](docs/roadmap.md)
@@ -105,6 +109,8 @@ cargo run -q -- analyze-java --path benchmarks/mini-bukkit-plugin
 cargo run -q -- java-syntax --path benchmarks/mini-bukkit-plugin --json
 cargo run -q -- java-index --path benchmarks/java-index-mini --json
 cargo run -q -- java-context "dev.opticcode.util.Helpers#create(String)" --path benchmarks/java-index-mini --compare-baseline --json
+cargo run -q -- eval --suite benchmarks/eval/context-retrieval-v1.json --strategy legacy,symbol,exact --no-rag
+cargo run -q -- eval --suite benchmarks/eval/context-retrieval-v1.json --strategy legacy,symbol,exact,rag --rag-index data/index --json
 cargo run -q -- java-legacy-rules --json
 cargo run -q -- java-edits --path benchmarks/java-edits-legacy --json
 cargo run -q -- java-edits-verify --path C:\path\to\clean-git-project --json
@@ -158,6 +164,8 @@ cargo run -q -- inspect --path benchmarks/mini-bukkit-plugin
 .\scripts\run-java-edit-worktree-quality.ps1 -Full
 .\scripts\run-java-context-quality.ps1
 .\scripts\run-java-context-quality.ps1 -Full
+.\scripts\run-eval-quality.ps1
+.\scripts\run-eval-quality.ps1 -IncludeRag
 ```
 
 ## Prochaine etape
@@ -166,8 +174,9 @@ RAG-SAFE-001 est termine : l'ingestion est fail-closed, les secrets et reparse
 sont refuses, et l'index v2 est publie atomiquement par generations. CONTEXT-001
 est egalement termine : sur cinq demandes reproductibles, il reduit le
 contexte de 4 140 a 1 206 tokens estimes (-70,87 %) face au selecteur historique,
-sans manquer les symboles/roles attendus. La prochaine etape est CONTEXT-002 :
-integration optionnelle A/B dans `ask` et `plan`, avec mesure de la qualite Qwen
-avant activation par defaut.
+sans manquer les symboles/roles attendus. EVAL-001 fournit maintenant 45 cas,
+des metriques testees et des baselines comparables. La prochaine etape est
+CONTEXT-002 : integration optionnelle A/B dans `ask` et `plan`, puis mesure de la
+qualite Qwen avant toute activation par defaut.
 Les resolutions incertaines restent read-only et la promotion d'un resultat
 vers le projet source demeure un sprint distinct avec approbation explicite.

@@ -1,0 +1,9 @@
+name: EvalGradlePlugin
+version: 1.0.0
+main: dev.opticcode.eval.GradlePlugin
+commands:
+  evalreload:
+    permission: eval.reload
+permissions:
+  eval.reload:
+    default: op

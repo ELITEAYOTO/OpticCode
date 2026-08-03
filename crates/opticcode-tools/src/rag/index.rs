@@ -354,6 +354,13 @@ pub fn search_rag_index(index_dir: &Path, query: &str, limit: usize) -> Result<V
     Ok(search_rag_index_report(index_dir, query, limit)?.hits)
 }
 
+pub fn load_active_rag_manifest(index_dir: &Path) -> Result<RagIndexManifest> {
+    let index_root = resolve_existing_index_root(index_dir)?;
+    let active = resolve_active_generation(&index_root)?;
+    validate_generation(&active.generation_dir, &active.manifest)?;
+    Ok(active.manifest)
+}
+
 pub fn search_rag_index_report(
     index_dir: &Path,
     query: &str,
