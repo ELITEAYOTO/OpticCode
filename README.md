@@ -18,7 +18,7 @@ Le projet ne vise pas a entrainer un modele IA depuis zero. Il construit une cou
 ## Etat actuel
 
 Le projet a maintenant un MVP Rust fonctionnel : inspection, analyse Java/Bukkit,
-Ollama/Qwen, RAG JSONL, patch legacy, apply transactionnel, rollback/recovery,
+Ollama/Qwen, RAG JSONL securise et versionne, patch legacy, apply transactionnel, rollback/recovery,
 controle Git avant/apres build, verification dans un worktree jetable et analyse
 syntaxique Java avec Tree-sitter, puis index symbolique inter-fichiers avec
 resolution conservatrice et propositions d'edits AST legacy. Ces propositions
@@ -35,8 +35,8 @@ process runner borne avec timeout, sortie limitee et terminaison de l'arbre Wind
 - Phase 3 : recherche depots externes et analyse Qwen Code terminees.
 - Phase 4 : MVP Rust fonctionnel.
 - Phase 5 : tools Java en cours ; apply/worktree, Tree-sitter, index B1, edits B2, pipeline B3, LEGACY-002 et CONTEXT-001 termines.
-- Qualite courante : 162 tests workspace, Clippy strict, build release et gates Java valides.
-- Phase 6 : prototype RAG JSONL fonctionnel, index scalable a faire.
+- Qualite courante : 172 tests workspace, Clippy strict, build release et gates Java valides.
+- Phase 6 : RAG-SAFE-001 termine ; index incremental/scalable a mesurer puis construire.
 - Phase 7 : agent iteratif non commence.
 
 ## Documentation
@@ -71,6 +71,7 @@ process runner borne avec timeout, sortie limitee et terminaison de l'arbre Wind
 - [Scan resource packs](docs/resource-pack-scan.md)
 - [Inventaire sources RAG](docs/rag-source-inventory.md)
 - [Index RAG JSONL](docs/rag-index.md)
+- [Index RAG securise et atomique](docs/rag-safe-index.md)
 
 ## Arborescence prevue
 
@@ -126,10 +127,10 @@ cargo run -q -- profile --path benchmarks/mini-bukkit-plugin --profile minecraft
 cargo run -q -- memory --path benchmarks/mini-bukkit-plugin --profile minecraft-java-1.8
 cargo run -q -- pack-scan --path "C:\Users\timot\Desktop\RAG-1.8-Minecraft\1.8-JavaDoc\resource-pack-1.8\LegacyPack" --limit 25
 cargo run -q -- pack-scan --path "C:\Users\timot\Desktop\minecraft\Volkaria\Pack-Volkaria" --limit 25
-cargo run -q -- rag-scan --limit 8 --path "C:\Users\timot\Desktop\minecraft\SparrowMCALL\Kspawners" --path "C:\Users\timot\Desktop\KhopeSpigot\PandaSpigot-Fork\PandaSpigot"
-cargo run -q -- rag-index --output data/index --path . --path "C:\Users\timot\Desktop\minecraft\SparrowMCALL\Kspawners"
-cargo run -q -- rag-search "nether wart" --index data/index --limit 5
-cargo run -q -- rag-debug "Quels risques legacy verifier pour des pelles et spawners ?" --index data/index --limit 3
+cargo run -q -- rag-scan --limit 8 --json --path "C:\Users\timot\Desktop\minecraft\SparrowMCALL\Kspawners" --path "C:\Users\timot\Desktop\KhopeSpigot\PandaSpigot-Fork\PandaSpigot"
+cargo run -q -- rag-index --output data/index --path . --path "C:\Users\timot\Desktop\minecraft\SparrowMCALL\Kspawners" --json
+cargo run -q -- rag-search "nether wart" --index data/index --limit 5 --json
+cargo run -q -- rag-debug "Quels risques legacy verifier pour des pelles et spawners ?" --index data/index --limit 3 --json
 cargo run -q -- search Material.SULPHUR --path . --limit 5
 cargo run -q -- ask "Reponds en une phrase : quelle regle Bukkit 1.8.8 dois-tu respecter pour gunpowder ?" --path .
 cargo run -q -- plan "Ajouter une commande /coins dans un plugin Bukkit 1.8.8" --path . --metrics --rag-limit 4
@@ -139,6 +140,7 @@ cargo run -q -- plan "Verifier ce plugin Bukkit 1.8.8 et proposer les risques av
 cargo run -q -- plan "Verifier ce plugin Bukkit 1.8.8 et proposer les risques avant compilation" --path benchmarks/mini-bukkit-plugin --brief --metrics-json
 cargo run -q -- inspect --path benchmarks/mini-bukkit-plugin
 .\scripts\run-rag-comparison.ps1
+.\scripts\run-rag-safe-quality.ps1
 .\scripts\run-build-git-guard-quality.ps1
 .\scripts\run-git-snapshot-benchmark.ps1 -Iterations 5
 .\scripts\run-apply-transaction-quality.ps1
@@ -160,7 +162,9 @@ cargo run -q -- inspect --path benchmarks/mini-bukkit-plugin
 
 ## Prochaine etape
 
-CONTEXT-001 est termine : sur cinq demandes reproductibles, il reduit le
+RAG-SAFE-001 est termine : l'ingestion est fail-closed, les secrets et reparse
+sont refuses, et l'index v2 est publie atomiquement par generations. CONTEXT-001
+est egalement termine : sur cinq demandes reproductibles, il reduit le
 contexte de 4 140 a 1 206 tokens estimes (-70,87 %) face au selecteur historique,
 sans manquer les symboles/roles attendus. La prochaine etape est CONTEXT-002 :
 integration optionnelle A/B dans `ask` et `plan`, avec mesure de la qualite Qwen

@@ -7,5 +7,6 @@ repository.workspace = true
 
 [dependencies]
 anyhow.workspace = true
+serde.workspace = true
 opticcode-llm.workspace = true
 opticcode-tools.workspace = true

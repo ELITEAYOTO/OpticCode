@@ -793,6 +793,7 @@ dependencies = [
  "anyhow",
  "opticcode-llm",
  "opticcode-tools",
+ "serde",
 ]
 
 [[package]]
@@ -810,6 +811,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "blake3",
+ "regex",
  "roxmltree",
  "serde",
  "serde_json",

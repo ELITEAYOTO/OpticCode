@@ -6,12 +6,18 @@ pub mod java_edits;
 pub mod java_index;
 pub mod java_syntax;
 pub mod process_runner;
+pub mod rag;
 pub mod worktree;
+
+pub use rag::{
+    build_rag_index, inspect_rag_source, search_rag_index, search_rag_index_queries,
+    search_rag_index_report, RagIndexReport, RagSearchHit, RagSearchReport, RagSourceReport,
+};
 
 use std::collections::BTreeMap;
 use std::ffi::OsString;
-use std::fs::{self, File};
-use std::io::{BufRead, BufReader, BufWriter, Write};
+use std::fs;
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -239,57 +245,6 @@ pub struct ResourcePackReport {
     pub legacy_matches: Vec<PathBuf>,
 }
 
-#[derive(Debug, Clone)]
-pub struct RagSourceReport {
-    pub root: PathBuf,
-    pub total_files: usize,
-    pub indexable_files: usize,
-    pub skipped_large_files: usize,
-    pub indexable_bytes: u64,
-    pub extensions: BTreeMap<String, usize>,
-    pub important_files: Vec<PathBuf>,
-}
-
-#[derive(Debug, Clone)]
-pub struct RagIndexReport {
-    pub output_dir: PathBuf,
-    pub sources: usize,
-    pub documents: usize,
-    pub chunks: usize,
-    pub indexed_bytes: u64,
-}
-
-#[derive(Debug, Clone)]
-pub struct RagSearchHit {
-    pub document_path: String,
-    pub chunk_id: String,
-    pub score: usize,
-    pub preview: String,
-}
-
-#[derive(Debug, Clone, Serialize)]
-struct RagDocumentRecord {
-    id: String,
-    source_root: String,
-    source_kind: String,
-    relative_path: String,
-    extension: String,
-    bytes: u64,
-    chars: usize,
-    content_hash: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct RagChunkRecord {
-    id: String,
-    document_id: String,
-    source_kind: String,
-    source_root: String,
-    relative_path: String,
-    chunk_index: usize,
-    text: String,
-}
-
 pub fn inspect_workspace(root: &Path) -> Result<WorkspaceReport> {
     let root = fs::canonicalize(root)
         .with_context(|| format!("failed to resolve workspace path: {}", root.display()))?;
@@ -362,223 +317,6 @@ pub fn inspect_resource_pack(root: &Path, limit: usize) -> Result<ResourcePackRe
     }
 
     Ok(report)
-}
-
-pub fn inspect_rag_source(root: &Path, limit: usize) -> Result<RagSourceReport> {
-    let root = fs::canonicalize(root)
-        .with_context(|| format!("failed to resolve RAG source path: {}", root.display()))?;
-    let mut report = RagSourceReport {
-        root: root.clone(),
-        total_files: 0,
-        indexable_files: 0,
-        skipped_large_files: 0,
-        indexable_bytes: 0,
-        extensions: BTreeMap::new(),
-        important_files: Vec::new(),
-    };
-
-    for entry in WalkDir::new(&root)
-        .into_iter()
-        .filter_entry(should_enter_rag_source)
-        .filter_map(Result::ok)
-    {
-        if !entry.file_type().is_file() {
-            continue;
-        }
-
-        report.total_files += 1;
-        let relative = to_relative(&root, entry.path());
-
-        let extension = entry
-            .path()
-            .extension()
-            .and_then(|value| value.to_str())
-            .map(|value| value.to_ascii_lowercase())
-            .unwrap_or_else(|| "<none>".to_string());
-        *report.extensions.entry(extension).or_insert(0) += 1;
-
-        if is_important_rag_file(&relative) && report.important_files.len() < limit {
-            report.important_files.push(relative.clone());
-        }
-
-        if !is_rag_indexable_text(entry.path()) {
-            continue;
-        }
-
-        let metadata = match entry.metadata() {
-            Ok(value) => value,
-            Err(_) => continue,
-        };
-
-        if metadata.len() > MAX_READ_BYTES {
-            report.skipped_large_files += 1;
-            continue;
-        }
-
-        report.indexable_files += 1;
-        report.indexable_bytes += metadata.len();
-    }
-
-    Ok(report)
-}
-
-pub fn build_rag_index(
-    roots: &[PathBuf],
-    output_dir: &Path,
-    chunk_chars: usize,
-) -> Result<RagIndexReport> {
-    let output_dir = fs::canonicalize(output_dir).unwrap_or_else(|_| output_dir.to_path_buf());
-    fs::create_dir_all(&output_dir)
-        .with_context(|| format!("failed to create index directory: {}", output_dir.display()))?;
-
-    let documents_path = output_dir.join("documents.jsonl");
-    let chunks_path = output_dir.join("chunks.jsonl");
-    let mut documents = BufWriter::new(
-        File::create(&documents_path)
-            .with_context(|| format!("failed to create {}", documents_path.display()))?,
-    );
-    let mut chunks = BufWriter::new(
-        File::create(&chunks_path)
-            .with_context(|| format!("failed to create {}", chunks_path.display()))?,
-    );
-
-    let mut report = RagIndexReport {
-        output_dir: output_dir.clone(),
-        sources: roots.len(),
-        documents: 0,
-        chunks: 0,
-        indexed_bytes: 0,
-    };
-
-    for root in roots {
-        let root = fs::canonicalize(root)
-            .with_context(|| format!("failed to resolve RAG source path: {}", root.display()))?;
-        let source_kind = detect_rag_source_kind(&root);
-
-        for entry in WalkDir::new(&root)
-            .into_iter()
-            .filter_entry(should_enter_rag_source)
-            .filter_map(Result::ok)
-        {
-            if !entry.file_type().is_file() || !is_rag_indexable_text(entry.path()) {
-                continue;
-            }
-
-            let metadata = match entry.metadata() {
-                Ok(value) => value,
-                Err(_) => continue,
-            };
-            if metadata.len() > MAX_READ_BYTES {
-                continue;
-            }
-
-            let content = match fs::read_to_string(entry.path()) {
-                Ok(value) => value,
-                Err(_) => continue,
-            };
-            let relative = to_relative(&root, entry.path());
-            let relative_path = relative.to_string_lossy().replace('\\', "/");
-            let source_root = root.to_string_lossy().to_string();
-            let content_hash = stable_hash_hex(&content);
-            let document_id =
-                stable_hash_hex(&format!("{source_root}:{relative_path}:{content_hash}"));
-            let extension = entry
-                .path()
-                .extension()
-                .and_then(|value| value.to_str())
-                .map(|value| value.to_ascii_lowercase())
-                .unwrap_or_else(|| "<none>".to_string());
-
-            let document = RagDocumentRecord {
-                id: document_id.clone(),
-                source_root: source_root.clone(),
-                source_kind: source_kind.clone(),
-                relative_path: relative_path.clone(),
-                extension,
-                bytes: metadata.len(),
-                chars: content.chars().count(),
-                content_hash,
-            };
-            serde_json::to_writer(&mut documents, &document)?;
-            documents.write_all(b"\n")?;
-
-            for (chunk_index, text) in chunk_text(&content, chunk_chars).into_iter().enumerate() {
-                let chunk = RagChunkRecord {
-                    id: format!("{document_id}:{chunk_index}"),
-                    document_id: document_id.clone(),
-                    source_kind: source_kind.clone(),
-                    source_root: source_root.clone(),
-                    relative_path: relative_path.clone(),
-                    chunk_index,
-                    text,
-                };
-                serde_json::to_writer(&mut chunks, &chunk)?;
-                chunks.write_all(b"\n")?;
-                report.chunks += 1;
-            }
-
-            report.documents += 1;
-            report.indexed_bytes += metadata.len();
-        }
-    }
-
-    documents.flush()?;
-    chunks.flush()?;
-    Ok(report)
-}
-
-pub fn search_rag_index(index_dir: &Path, query: &str, limit: usize) -> Result<Vec<RagSearchHit>> {
-    let chunks_path = index_dir.join("chunks.jsonl");
-    let file = File::open(&chunks_path)
-        .with_context(|| format!("failed to open {}", chunks_path.display()))?;
-    let reader = BufReader::new(file);
-    let query_lower = query.to_ascii_lowercase();
-    let terms = query_lower
-        .split_whitespace()
-        .filter(|term| !term.is_empty())
-        .collect::<Vec<_>>();
-    let mut hits = Vec::new();
-
-    for line in reader.lines() {
-        let line = line?;
-        if line.trim().is_empty() {
-            continue;
-        }
-        let chunk: RagChunkRecord = serde_json::from_str(&line)?;
-        let text_lower = chunk.text.to_ascii_lowercase();
-        if terms.len() > 1 && terms.iter().any(|term| !text_lower.contains(term)) {
-            continue;
-        }
-        let term_score = terms
-            .iter()
-            .map(|term| text_lower.matches(term).count())
-            .sum::<usize>();
-        let phrase_score = if terms.len() > 1 {
-            text_lower.matches(&query_lower).count() * terms.len() * 8
-        } else {
-            0
-        };
-        let score = term_score + phrase_score;
-        if score == 0 {
-            continue;
-        }
-
-        hits.push(RagSearchHit {
-            document_path: format!("{}:{}", chunk.source_kind, chunk.relative_path),
-            chunk_id: chunk.id,
-            score,
-            preview: make_preview(&chunk.text, &terms, 240),
-        });
-    }
-
-    hits.sort_by(|left, right| {
-        right
-            .score
-            .cmp(&left.score)
-            .then_with(|| left.document_path.cmp(&right.document_path))
-    });
-    hits.truncate(limit);
-    Ok(hits)
 }
 
 pub fn build_project_context(root: &Path) -> Result<ProjectContext> {
@@ -1910,60 +1648,6 @@ impl ResourcePackReport {
     }
 }
 
-impl RagSourceReport {
-    pub fn to_display_string(&self) -> String {
-        let mut out = String::new();
-        out.push_str(&format!("RAG source: {}\n", self.root.display()));
-        out.push_str(&format!("Files: {}\n", self.total_files));
-        out.push_str(&format!("Indexable text files: {}\n", self.indexable_files));
-        out.push_str(&format!("Indexable text bytes: {}\n", self.indexable_bytes));
-        out.push_str(&format!(
-            "Skipped large text files: {}\n",
-            self.skipped_large_files
-        ));
-
-        out.push_str("\nTop extensions:\n");
-        for (extension, count) in top_named_counts(&self.extensions, 14) {
-            out.push_str(&format!("- {}: {}\n", extension, count));
-        }
-
-        out.push_str("\nImportant files:\n");
-        if self.important_files.is_empty() {
-            out.push_str("- none\n");
-        } else {
-            for path in &self.important_files {
-                out.push_str(&format!("- {}\n", path.display()));
-            }
-        }
-
-        out
-    }
-}
-
-impl RagIndexReport {
-    pub fn to_display_string(&self) -> String {
-        let mut out = String::new();
-        out.push_str(&format!("Index: {}\n", self.output_dir.display()));
-        out.push_str(&format!("Sources: {}\n", self.sources));
-        out.push_str(&format!("Documents: {}\n", self.documents));
-        out.push_str(&format!("Chunks: {}\n", self.chunks));
-        out.push_str(&format!("Indexed bytes: {}\n", self.indexed_bytes));
-        out.push_str("\nFiles:\n");
-        out.push_str("- documents.jsonl\n");
-        out.push_str("- chunks.jsonl\n");
-        out
-    }
-}
-
-impl RagSearchHit {
-    pub fn to_display_string(&self) -> String {
-        format!(
-            "{}\nscore: {}\nchunk: {}\n{}\n",
-            self.document_path, self.score, self.chunk_id, self.preview
-        )
-    }
-}
-
 fn parse_pom(content: &str) -> Result<MavenAnalysis> {
     let doc = roxmltree::Document::parse(content).context("failed to parse pom.xml")?;
     let root = doc.root_element();
@@ -2372,126 +2056,6 @@ fn is_legacy_resource_match(path: &str) -> bool {
     .any(|term| lower.contains(term))
 }
 
-fn is_rag_indexable_text(path: &Path) -> bool {
-    let Some(extension) = path.extension().and_then(|value| value.to_str()) else {
-        return true;
-    };
-
-    matches!(
-        extension.to_ascii_lowercase().as_str(),
-        "java"
-            | "kt"
-            | "kts"
-            | "groovy"
-            | "xml"
-            | "yml"
-            | "yaml"
-            | "properties"
-            | "json"
-            | "mcmeta"
-            | "lang"
-            | "md"
-            | "txt"
-            | "patch"
-            | "gradle"
-            | "toml"
-            | "rs"
-    )
-}
-
-fn is_important_rag_file(path: &Path) -> bool {
-    let normalized = path
-        .to_string_lossy()
-        .replace('\\', "/")
-        .to_ascii_lowercase();
-    let file_name = path
-        .file_name()
-        .and_then(|value| value.to_str())
-        .map(|value| value.to_ascii_lowercase())
-        .unwrap_or_default();
-
-    matches!(
-        file_name.as_str(),
-        "pom.xml"
-            | "plugin.yml"
-            | "paper-plugin.yml"
-            | "bukkit.yml"
-            | "build.gradle"
-            | "build.gradle.kts"
-            | "gradle.properties"
-            | "settings.gradle"
-            | "settings.gradle.kts"
-            | "README.md"
-            | "readme.md"
-    ) || normalized.starts_with("patches/")
-        || normalized.contains("/patches/")
-        || normalized.starts_with("src/main/resources/")
-}
-
-fn detect_rag_source_kind(root: &Path) -> String {
-    let normalized = root
-        .to_string_lossy()
-        .replace('\\', "/")
-        .to_ascii_lowercase();
-    if root.join("pack.mcmeta").exists() {
-        "resource-pack".to_string()
-    } else if normalized.contains("pandaspigot") {
-        "pandaspigot".to_string()
-    } else if root.join("src/main/resources/plugin.yml").exists() {
-        "plugin".to_string()
-    } else if root.join("Cargo.toml").exists() && root.join("docs").exists() {
-        "opticcode".to_string()
-    } else {
-        "external".to_string()
-    }
-}
-
-fn stable_hash_hex(value: &str) -> String {
-    let mut hash = 0xcbf29ce484222325u64;
-    for byte in value.as_bytes() {
-        hash ^= u64::from(*byte);
-        hash = hash.wrapping_mul(0x100000001b3);
-    }
-    format!("{hash:016x}")
-}
-
-fn chunk_text(content: &str, chunk_chars: usize) -> Vec<String> {
-    let chunk_chars = chunk_chars.max(512);
-    let mut chunks = Vec::new();
-    let mut current = String::new();
-
-    for character in content.chars() {
-        current.push(character);
-        if current.chars().count() >= chunk_chars {
-            chunks.push(current);
-            current = String::new();
-        }
-    }
-
-    if !current.is_empty() {
-        chunks.push(current);
-    }
-
-    chunks
-}
-
-fn make_preview(text: &str, terms: &[&str], max_chars: usize) -> String {
-    let lower = text.to_ascii_lowercase();
-    let phrase = terms.join(" ");
-    let first_match = lower
-        .find(&phrase)
-        .or_else(|| terms.iter().filter_map(|term| lower.find(term)).min())
-        .unwrap_or(0);
-    let start = first_match.saturating_sub(80);
-    text.chars()
-        .skip(start)
-        .take(max_chars)
-        .collect::<String>()
-        .replace('\n', " ")
-        .trim()
-        .to_string()
-}
-
 fn build_unified_diff(path: &Path, original: &str, proposed: &str, reason: &str) -> String {
     let original_lines = original.lines().collect::<Vec<_>>();
     let proposed_lines = proposed.lines().collect::<Vec<_>>();
@@ -2890,27 +2454,6 @@ fn should_enter_resource_pack(entry: &DirEntry) -> bool {
     )
 }
 
-fn should_enter_rag_source(entry: &DirEntry) -> bool {
-    let name = entry.file_name().to_string_lossy().to_ascii_lowercase();
-    !matches!(
-        name.as_str(),
-        ".git"
-            | ".opticcode"
-            | ".gradle"
-            | ".idea"
-            | ".settings"
-            | ".vscode"
-            | "target"
-            | "build"
-            | "bin"
-            | "classes"
-            | "out"
-            | "lib"
-            | "libs"
-            | "node_modules"
-    )
-}
-
 fn is_probably_text(path: &Path) -> bool {
     let Some(extension) = path.extension().and_then(|value| value.to_str()) else {
         return true;
@@ -2970,12 +2513,11 @@ fn top_named_counts(values: &BTreeMap<String, usize>, limit: usize) -> Vec<(&str
 mod tests {
     use super::{
         apply_java_legacy_patch_in_place, apply_java_legacy_patch_to_copy,
-        apply_legacy_replacements, build_unified_diff, check_patch_with_git, chunk_text,
-        collect_project_risks, context_priority, is_important_rag_file, is_legacy_resource_match,
-        is_probably_text, is_rag_indexable_text, parse_java_file, parse_plugin_yml, parse_pom,
-        propose_java_legacy_patch, resource_pack_category, summarize_build_output, tail_lines,
-        truncate_chars, undo_apply_run, ApplyLogEntry, ApplyPlan, BuildTool, LineEndingStyle,
-        PatchCheckResult, PatchFileChange, PatchProposal,
+        apply_legacy_replacements, build_unified_diff, check_patch_with_git, collect_project_risks,
+        context_priority, is_legacy_resource_match, is_probably_text, parse_java_file,
+        parse_plugin_yml, parse_pom, propose_java_legacy_patch, resource_pack_category,
+        summarize_build_output, tail_lines, truncate_chars, undo_apply_run, ApplyLogEntry,
+        ApplyPlan, BuildTool, LineEndingStyle, PatchCheckResult, PatchFileChange, PatchProposal,
     };
     use std::fs;
     use std::path::{Path, PathBuf};
@@ -3051,29 +2593,6 @@ mod tests {
         assert!(is_legacy_resource_match(
             "assets/minecraft/models/item/mob_spawner.json"
         ));
-    }
-
-    #[test]
-    fn detects_rag_indexable_and_important_files() {
-        assert!(is_rag_indexable_text(Path::new("src/main/java/Main.java")));
-        assert!(is_rag_indexable_text(Path::new(
-            "patches/server/0001.patch"
-        )));
-        assert!(!is_rag_indexable_text(Path::new("target/plugin.jar")));
-        assert!(is_important_rag_file(Path::new("plugin.yml")));
-        assert!(is_important_rag_file(Path::new(
-            "src/main/resources/config.yml"
-        )));
-        assert!(is_important_rag_file(Path::new(
-            "patches/server/0001.patch"
-        )));
-    }
-
-    #[test]
-    fn chunks_text_with_minimum_size() {
-        let chunks = chunk_text(&"a".repeat(1200), 200);
-        assert_eq!(chunks.len(), 3);
-        assert!(chunks.iter().all(|chunk| chunk.chars().count() <= 512));
     }
 
     #[test]

@@ -493,7 +493,23 @@ Livrable :
 
 ## Phase 6 - RAG local et donnees metier
 
-Statut : prototype JSONL deja fonctionnel ; migration scalable apres les verrous tools/code.
+Statut : RAG-SAFE-001 termine ; migration scalable apres CONTEXT-002 et mesures agent.
+
+Acquis RAG-SAFE-001 :
+
+- ingestion fail-closed par racines explicitement autorisees ;
+- allowlist de formats et denylist globale de secrets/caches/donnees privees ;
+- detection bornee de cles, tokens, credentials et URI sans journaliser les valeurs ;
+- refus des fichiers sans extension, symlinks, jonctions et reparse points ;
+- verification de coherence avant/apres lecture et hashes BLAKE3 ;
+- provenance portable sans racine absolue dans les records ;
+- manifeste schema v2, generations immuables et pointeur `CURRENT` atomique ;
+- recovery des staging tronques sans toucher l'ancienne generation active ;
+- erreurs explicites pour les index legacy ;
+- sorties JSON pour `rag-scan`, `rag-index`, `rag-search` et `rag-debug` ;
+- recherche multi-requetes en une passe pour eviter de revalider chaque expansion ;
+- tests de panne, integration CLI et benchmark `run-rag-safe-quality.ps1` ;
+- validation globale : 172 tests workspace, Clippy strict et build release OK.
 
 Objectif :
 
@@ -515,6 +531,11 @@ Approche recommandee :
 6. Ajouter Tantivy pour recherche full-text.
 7. Ajouter Tree-sitter pour symboles/classes/methodes.
 8. Ajouter Qdrant seulement quand les embeddings sont valides.
+
+Suite mesuree : CONTEXT-002 avec Qwen reel. RAG-002 ajoutera seulement ensuite
+un manifest incremental, un cache et une comparaison Tantivy/JSONL sur des
+traces representatives. SQLite, embeddings et Qdrant ne sont pas encore des
+dependances justifiees.
 
 ## Phase 7 - Agent iteratif
 

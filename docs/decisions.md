@@ -451,7 +451,7 @@ Raison :
 
 ### D-031 - Index JSONL avant Tantivy/Qdrant
 
-Statut : valide provisoirement.
+Statut : valide pour le moteur lexical ; format de publication V1 remplace par D-063.
 
 Decision :
 
@@ -465,6 +465,11 @@ Raison :
 - JSONL est simple, inspectable et suffisant pour valider les sources ;
 - l'index doit d'abord prouver son utilite sur des requetes Minecraft legacy ;
 - cela evite d'installer une brique lourde avant de connaitre le volume et les besoins reels.
+
+Note historique : les fichiers JSONL restent le stockage lexical interne, mais
+ils ne sont plus publies directement a la racine de `data/index`. D-063 impose
+des generations versionnees, un manifeste valide et un pointeur `CURRENT`
+remplace atomiquement.
 
 ### D-032 - RAG injecte sous limite stricte
 
@@ -1178,3 +1183,36 @@ Raison :
 - l'activation dans Qwen exige encore une comparaison A/B de qualite et latence.
 
 Reference : [`java-context.md`](java-context.md).
+
+### D-063 - Publier les index RAG par generations fail-closed
+
+Statut : valide.
+
+Decision :
+
+- autoriser uniquement les racines explicites, non liees et non imbriquees ;
+- refuser par defaut tout format absent de l'allowlist et tout fichier sans extension ;
+- appliquer une denylist globale non contournable aux credentials, cles, caches,
+  builds, modeles, donnees generees et notes privees ;
+- detecter les secrets manifestes sous une limite de 512 Kio sans conserver leur valeur ;
+- verifier canonicalisation, composants reparse et coherence de metadata avant/apres lecture ;
+- remplacer les chemins absolus par collection, profil, source logique et chemin relatif ;
+- utiliser BLAKE3 pour documents, chunks, configuration et fichiers JSONL ;
+- construire dans un staging distinct et valider schema, comptes, provenance,
+  references et contenu avant publication ;
+- finaliser une generation immuable puis remplacer atomiquement `CURRENT` ;
+- conserver l'ancienne generation active durant toute panne injectee ;
+- refuser explicitement le format V1 sans manifeste ;
+- garder JSONL lexical pour isoler RAG-SAFE-001 de RAG-002.
+
+Raison :
+
+- le prototype acceptait `.env`, credentials, fichiers sans extension et YAML
+  avec mot de passe ;
+- reecrire directement les deux JSONL pouvait detruire l'index actif lors d'une coupure ;
+- un pointeur atomique permet de publier trois fichiers coherents sans fenetre
+  d'index partiel sous Windows ;
+- Tantivy, SQLite ou embeddings auraient masque le changement de securite et ne
+  sont pas necessaires pour le corpus actuel.
+
+Reference : [`rag-safe-index.md`](rag-safe-index.md).

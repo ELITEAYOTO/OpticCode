@@ -6,7 +6,8 @@ use anyhow::{Context, Result};
 use opticcode_llm::GenerateOptions;
 use opticcode_llm::OllamaClient;
 pub use opticcode_llm::{parse_keep_alive, GenerateMetrics};
-use opticcode_tools::{build_project_context, search_rag_index};
+use opticcode_tools::{build_project_context, search_rag_index_queries};
+use serde::Serialize;
 
 pub struct OpticCode {
     llm: OllamaClient,
@@ -61,14 +62,14 @@ pub struct MemoryEntry {
     pub content: String,
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, Serialize)]
 pub struct RagContext {
     pub index: Option<PathBuf>,
     pub queries: Vec<String>,
     pub hits: Vec<RagContextHit>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct RagContextHit {
     pub source: String,
     pub chunk_id: String,
@@ -79,7 +80,7 @@ pub struct RagContextHit {
     pub preview: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct RagQueryScore {
     pub query: String,
     pub score: usize,
@@ -278,7 +279,8 @@ pub fn load_memory_for_workspace(
 
 pub fn load_rag_context(index_dir: &Path, query: &str, limit: usize) -> Result<RagContext> {
     let chunks_path = index_dir.join("chunks.jsonl");
-    if !chunks_path.exists() {
+    let current_path = index_dir.join("CURRENT");
+    if !current_path.exists() && !chunks_path.exists() {
         return Ok(RagContext {
             index: Some(index_dir.to_path_buf()),
             queries: expand_rag_queries(query),
@@ -290,8 +292,9 @@ pub fn load_rag_context(index_dir: &Path, query: &str, limit: usize) -> Result<R
     let mut hits = Vec::new();
     let queries = expand_rag_queries(query);
 
-    for expanded_query in &queries {
-        for hit in search_rag_index(index_dir, expanded_query, limit)? {
+    let search_reports = search_rag_index_queries(index_dir, &queries, limit)?;
+    for (expanded_query, report) in queries.iter().zip(search_reports) {
+        for hit in report.hits {
             if let Some(existing) = hits.iter_mut().find(|existing: &&mut RagContextHit| {
                 existing.source == hit.document_path && existing.chunk_id == hit.chunk_id
             }) {

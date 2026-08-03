@@ -7,7 +7,7 @@ use anyhow::{bail, Context, Result};
 use clap::{Parser, Subcommand};
 use opticcode_core::{
     load_memory_for_workspace, load_profile_for_workspace, load_rag_context, parse_keep_alive,
-    AskOptions, GenerateMetrics, OpticCode, PlanOptions, DEFAULT_PROFILE,
+    AskOptions, GenerateMetrics, OpticCode, PlanOptions, RagContext, DEFAULT_PROFILE,
 };
 use opticcode_tools::apply_transaction::{
     apply_transaction_error_kind, inspect_apply_transaction, list_apply_transactions,
@@ -54,9 +54,9 @@ use opticcode_tools::{
     analyze_java_project, apply_java_legacy_patch_in_place_with_options,
     apply_java_legacy_patch_to_copy, build_java_project_with_cancellation, build_project_context,
     build_rag_index, check_patch_with_git, inspect_rag_source, inspect_resource_pack,
-    inspect_workspace, prepare_java_legacy_apply_plan, propose_java_legacy_patch, search_rag_index,
-    search_workspace, undo_apply_run, ApplyLogEntry, ApplyPlan, ApplyUndoResult, BuildOptions,
-    BuildResult, PatchCheckResult,
+    inspect_workspace, prepare_java_legacy_apply_plan, propose_java_legacy_patch,
+    search_rag_index_report, search_workspace, undo_apply_run, ApplyLogEntry, ApplyPlan,
+    ApplyUndoResult, BuildOptions, BuildResult, PatchCheckResult, RagSourceReport,
 };
 use serde::Serialize;
 use std::io::{self, Write};
@@ -268,6 +268,8 @@ enum Command {
         paths: Vec<PathBuf>,
         #[arg(long, default_value_t = 20)]
         limit: usize,
+        #[arg(long)]
+        json: bool,
     },
     RagIndex {
         #[arg(long = "path", required = true)]
@@ -276,6 +278,8 @@ enum Command {
         output: PathBuf,
         #[arg(long, default_value_t = 4000)]
         chunk_chars: usize,
+        #[arg(long)]
+        json: bool,
     },
     RagSearch {
         query: String,
@@ -283,6 +287,8 @@ enum Command {
         index: PathBuf,
         #[arg(long, default_value_t = 8)]
         limit: usize,
+        #[arg(long)]
+        json: bool,
     },
     RagDebug {
         query: String,
@@ -290,6 +296,8 @@ enum Command {
         index: PathBuf,
         #[arg(long, default_value_t = 4)]
         limit: usize,
+        #[arg(long)]
+        json: bool,
     },
     Patch {
         #[arg(long, default_value = ".")]
@@ -785,33 +793,54 @@ async fn run_command(command: Command) -> Result<()> {
             let report = inspect_resource_pack(&path, limit)?;
             println!("{}", report.to_display_string());
         }
-        Command::RagScan { paths, limit } => {
-            for (index, path) in paths.iter().enumerate() {
-                if index > 0 {
-                    println!("\n---\n");
+        Command::RagScan { paths, limit, json } => {
+            let reports = paths
+                .iter()
+                .map(|path| inspect_rag_source(path, limit))
+                .collect::<Result<Vec<_>>>()?;
+            if json {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&RagScanJson {
+                        schema_version: 1,
+                        sources: &reports,
+                    })?
+                );
+            } else {
+                for (index, report) in reports.iter().enumerate() {
+                    if index > 0 {
+                        println!("\n---\n");
+                    }
+                    println!("{}", report.to_display_string());
                 }
-                let report = inspect_rag_source(path, limit)?;
-                println!("{}", report.to_display_string());
             }
         }
         Command::RagIndex {
             paths,
             output,
             chunk_chars,
+            json,
         } => {
             let report = build_rag_index(&paths, &output, chunk_chars)?;
-            println!("{}", report.to_display_string());
+            if json {
+                println!("{}", serde_json::to_string_pretty(&report)?);
+            } else {
+                println!("{}", report.to_display_string());
+            }
         }
         Command::RagSearch {
             query,
             index,
             limit,
+            json,
         } => {
-            let hits = search_rag_index(&index, &query, limit)?;
-            if hits.is_empty() {
+            let report = search_rag_index_report(&index, &query, limit)?;
+            if json {
+                println!("{}", serde_json::to_string_pretty(&report)?);
+            } else if report.hits.is_empty() {
                 println!("No matches found.");
             } else {
-                for hit in hits {
+                for hit in report.hits {
                     println!("{}\n", hit.to_display_string());
                 }
             }
@@ -820,9 +849,20 @@ async fn run_command(command: Command) -> Result<()> {
             query,
             index,
             limit,
+            json,
         } => {
             let rag = load_rag_context(&index, &query, limit)?;
-            println!("{}", rag.to_display_string());
+            if json {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&RagDebugJson {
+                        schema_version: 1,
+                        context: &rag,
+                    })?
+                );
+            } else {
+                println!("{}", rag.to_display_string());
+            }
         }
         Command::Patch { path, check } => {
             let proposal = propose_java_legacy_patch(&path)?;
@@ -1621,6 +1661,18 @@ impl<'a> From<&'a BuildResult> for BuildJson<'a> {
             git_guard: &result.git_report,
         }
     }
+}
+
+#[derive(Serialize)]
+struct RagScanJson<'a> {
+    schema_version: u32,
+    sources: &'a [RagSourceReport],
+}
+
+#[derive(Serialize)]
+struct RagDebugJson<'a> {
+    schema_version: u32,
+    context: &'a RagContext,
 }
 
 #[derive(Serialize)]

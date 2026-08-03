@@ -1,6 +1,6 @@
 # OpticCode - Backlog canonique d'optimisation
 
-Derniere mise a jour : 2026-07-11
+Derniere mise a jour : 2026-08-03
 
 Statut : source de verite pour les optimisations et idees futures.
 
@@ -49,6 +49,9 @@ Regle : une idee n'entre dans la roadmap active que si elle possede :
 | Snapshot petite fixture | 49,668 ms moyen, 5 runs | cout Git fixe dominant |
 | Snapshot Kspawners | 63,462 ms moyen, 5 runs | 61 fichiers, 896 222 octets hashes |
 | Snapshot PandaSpigot | 166,312 ms moyen, 5 runs | 10 fichiers, 186 384 octets hashes |
+| RAG-SAFE corpus reel | 2,299 s | 1 141 documents, 3 762 chunks, 3 887 exclusions |
+| RAG-SAFE recherche | 317,508 ms median | hash, schema, provenance et secrets revalides |
+| RAG-SAFE debug batche | 403,064 ms median | 10,73x plus rapide que le premier chemin securise |
 
 Le benchmark snapshot est stocke localement sous :
 
@@ -77,6 +80,7 @@ empreintes.
 | DONE-011 | process runner borne, timeout/cancellation et Job Object Windows | termine |
 | DONE-012 | apply transactionnel, rollback et recovery explicite | termine |
 | DONE-013 | concurrence optimiste before/after et refus de derive | termine pour le refus |
+| DONE-014 | RAG-SAFE-001 fail-closed, provenance et publication atomique | termine |
 
 ## P0 - Securite avant agent
 
@@ -470,10 +474,12 @@ Tree-sitter/Tantivy.
 8. Construire CODE-001B2, edits cibles read-only. Fait.
 9. Construire CODE-001B3, verification des edits en worktree. Fait.
 10. Construire CONTEXT-001 selection par tache. Fait.
-11. Migrer vers INDEX-001/002 SQLite + Tantivy.
-12. Construire AGENT-001/002.
-13. Ajouter streaming/provider.
-14. Evaluer llama.cpp, Q5 et IDE seulement sur preuves.
+11. Securiser l'ingestion et la publication RAG avec RAG-SAFE-001. Fait.
+12. Mesurer CONTEXT-002 avant toute activation par defaut.
+13. Migrer vers INDEX-001/002 SQLite + Tantivy seulement si les mesures le justifient.
+14. Construire AGENT-001/002.
+15. Ajouter streaming/provider.
+16. Evaluer llama.cpp, Q5 et IDE seulement sur preuves.
 
 ## Prochain sprint propose
 

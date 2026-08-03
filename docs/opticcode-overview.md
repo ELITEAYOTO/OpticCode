@@ -71,7 +71,7 @@ toucher la source.
 
 - index symbolique incremental et persistant pour les tres grands depots ;
 - extension des domaines legacy au-dela des enums deja prouves ;
-- RAG scalable avec provenance ;
+- index RAG incremental et scalable avec cache de generations ;
 - boucle agent bornee plan -> tools -> build -> correction ;
 - approbation finale et promotion controlee ;
 - evaluation qualite, vitesse et consommation de tokens sur des projets reels.

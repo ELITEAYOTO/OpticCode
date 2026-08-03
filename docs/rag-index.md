@@ -1,6 +1,12 @@
-# OpticCode - Index RAG JSONL
+# OpticCode - Index RAG JSONL historique
 
 Derniere mise a jour : 2026-07-06
+
+> Ce document conserve les mesures et decisions du prototype V1. Depuis
+> RAG-SAFE-001, le format actif est le schema v2 par generations documente dans
+> [`rag-safe-index.md`](rag-safe-index.md). Un dossier contenant seulement les
+> anciens `documents.jsonl` et `chunks.jsonl` doit etre reconstruit; OpticCode le
+> refuse explicitement au lieu de le lire comme un index v2.
 
 ## Objectif
 
@@ -34,7 +40,7 @@ Comparer sans RAG :
 cargo run -q -- plan "Verifier nether wart et spawner dans un plugin Bukkit 1.8.8" --path benchmarks/mini-bukkit-plugin --brief --no-rag
 ```
 
-## Fichiers generes
+## Fichiers generes depuis RAG-SAFE-001
 
 Les artefacts sont ecrits dans :
 
@@ -42,14 +48,16 @@ Les artefacts sont ecrits dans :
 data/index/
 ```
 
-Fichiers :
+Disposition :
 
 ```text
-documents.jsonl
-chunks.jsonl
+CURRENT
+generations/<generation>/manifest.json
+generations/<generation>/documents.jsonl
+generations/<generation>/chunks.jsonl
 ```
 
-Le dossier `data/` est ignore par Git. L'index peut donc etre reconstruit localement sans polluer le depot.
+Le dossier `data/` est ignore par Git. L'index peut donc etre reconstruit localement sans polluer le depot. Les resultats ci-dessous restent les mesures historiques du format V1.
 
 ## Index test effectue
 
