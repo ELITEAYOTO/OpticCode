@@ -172,6 +172,8 @@ pub enum EvalLlmMode {
 pub struct EvalConfiguration {
     pub strategies: Vec<EvalStrategy>,
     pub repetitions: u32,
+    #[serde(default)]
+    pub case_ids: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub case_limit: Option<usize>,
     pub suite_truncated: bool,
@@ -203,7 +205,11 @@ pub struct EvalRagConfiguration {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct EvalGenerationConfiguration {
     pub provider: String,
+    #[serde(default)]
+    pub endpoint: String,
     pub model: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub keep_alive: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub temperature: Option<f32>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -351,6 +357,45 @@ pub struct EvalCaseMetrics {
     pub retrieval: EvalRetrievalMetrics,
     pub context: EvalContextMetrics,
     pub response: EvalResponseMetrics,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub generation: Option<EvalLlmGenerationMetrics>,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum EvalLlmGenerationStatus {
+    Generated,
+    Skipped,
+    Failed,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct EvalLlmGenerationMetrics {
+    pub status: EvalLlmGenerationStatus,
+    pub cold_candidate: bool,
+    pub context_mode: EvalStrategy,
+    pub estimated_prompt_tokens: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub actual_prompt_tokens: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub generated_tokens: Option<u64>,
+    pub context_build_us: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub client_total_us: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub provider_total_us: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub load_us: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub prompt_eval_us: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub generation_us: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub generated_tokens_per_second: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub skip_reason: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -393,6 +438,22 @@ pub struct EvalStrategySummary {
     pub latency_p50_us: u64,
     pub latency_p95_us: u64,
     pub analysis_complete_rate: f64,
+    #[serde(default)]
+    pub generated_responses: usize,
+    #[serde(default)]
+    pub generation_skipped: usize,
+    #[serde(default)]
+    pub generation_failed: usize,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mean_actual_prompt_tokens: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mean_generated_tokens: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mean_deterministic_quality: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub generation_latency_p50_us: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub generation_latency_p95_us: Option<u64>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]

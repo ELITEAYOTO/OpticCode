@@ -6,7 +6,7 @@ Etat audite et roadmap consolidee au 2026-07-11 :
 Ce document conserve l'historique detaille des phases. L'audit consolide fait
 foi pour les priorites et les criteres de sortie actuels.
 
-Derniere mise a jour : 2026-07-13
+Derniere mise a jour : 2026-08-03
 
 ## Vision courte
 
@@ -279,7 +279,7 @@ Etat actuel :
 - CONTEXT-001 : selection symbolique bornee et benchmark -70,87 % tokens estimes ;
 - RAG-SAFE-001 : index v2 securise et publication atomique ;
 - EVAL-001 : corpus de 45 cas, metriques testees et rapports reproductibles ;
-- prochaine cible : `CONTEXT-002`, integration Qwen A/B mesuree par EVAL-001.
+- CONTEXT-002 : modes ask/plan explicites, fail-closed et A/B Qwen reel termine.
 
 ## Phase 5.1 - Safe Apply
 
@@ -451,10 +451,10 @@ Limites :
 - pas de cache incremental ou persistant ;
 - `analyze-java` conserve temporairement son parseur textuel historique.
 - estimation de tokens non specifique au tokenizer Qwen ;
-- CONTEXT-001 n'est pas encore branche dans `ask` ou `plan`.
+- le mode symbolique reste volontairement optionnel dans `ask` et `plan`.
 
-Suite : `CONTEXT-002`, integration optionnelle A/B dans `ask` et `plan`, puis
-benchmark de qualite avec Qwen avant activation par defaut.
+Suite : enrichir le protocole LLM et la politique avant toute boucle agent ; ne
+promouvoir `symbol` qu'apres davantage de repetitions et de revues humaines.
 
 References : [`java-syntax.md`](java-syntax.md), [`java-index.md`](java-index.md),
 [`java-edits.md`](java-edits.md) et
@@ -464,7 +464,7 @@ References : [`java-syntax.md`](java-syntax.md), [`java-index.md`](java-index.md
 
 ## Phase 5.6 - Evaluation reproductible
 
-Statut : EVAL-001 termine.
+Statut : EVAL-001 et son integration CONTEXT-002 termines.
 
 Acquis :
 
@@ -479,8 +479,17 @@ Acquis :
 - latences RAG mesurees requete par requete, sans les masquer par un batch global ;
 - CLI JSON pure et tests espaces/Unicode, corpus invalide, skip et troncature.
 
-Suite : CONTEXT-002 branche les modes explicites dans `ask`/`plan`, puis utilise
-ce corpus pour une comparaison Qwen reelle a variables constantes.
+Acquis CONTEXT-002 :
+
+- modes `legacy`, `symbol`, `compare` dans `ask` et `plan` ;
+- fallback/refus explicite et comparaison sans double generation implicite ;
+- vrais tokens, timings et debit Ollama dans les rapports ;
+- A/B chaud sur trois cas : 1 902 -> 1 188 tokens prompt (-37,5 %) ;
+- Recall@k 0,833 -> 1,000, mais qualite 0,556 -> 0,333 ;
+- decision conservee : `legacy` reste le defaut.
+
+Suite : `LLM/PROTOCOL-001`, puis `POLICY-001`. RAG-002/Tantivy reste un
+prototype mesure distinct, sans embeddings dans sa premiere iteration.
 
 Reference : [`evaluation.md`](evaluation.md).
 
@@ -497,8 +506,9 @@ Objectif :
 Priorites :
 
 1. Streaming pour confort interactif.
-2. Integration A/B du contexte symbolique dans `ask` et `plan`.
-3. Packs RAG lies aux profils.
+2. Protocole d'outils structure et annulation LLM.
+3. Politique deny-by-default avant agent ecrivant.
+4. Packs RAG lies aux profils.
 4. Feedback accepted/rejected.
 5. Benchmark Q4/Q5 plus tard.
 
@@ -517,7 +527,7 @@ Livrable :
 
 ## Phase 6 - RAG local et donnees metier
 
-Statut : RAG-SAFE-001 termine ; migration scalable apres CONTEXT-002 et mesures agent.
+Statut : RAG-SAFE-001 termine ; migration scalable soumise au benchmark Tantivy.
 
 Acquis RAG-SAFE-001 :
 
@@ -556,10 +566,10 @@ Approche recommandee :
 7. Ajouter Tree-sitter pour symboles/classes/methodes.
 8. Ajouter Qdrant seulement quand les embeddings sont valides.
 
-Suite mesuree : CONTEXT-002 avec Qwen reel. RAG-002 ajoutera seulement ensuite
-un manifest incremental, un cache et une comparaison Tantivy/JSONL sur des
-traces representatives. SQLite, embeddings et Qdrant ne sont pas encore des
-dependances justifiees.
+EVAL-001 a mesure Hit@5 0,000 et une p95 proche de 302 ms pour les requetes
+naturelles du RAG lexical v2. RAG-002 doit donc prototyper Tantivy face au JSONL
+sur les memes cas, avec manifest incremental et cache. SQLite, embeddings et
+Qdrant ne sont pas encore des dependances justifiees.
 
 ## Phase 7 - Agent iteratif
 

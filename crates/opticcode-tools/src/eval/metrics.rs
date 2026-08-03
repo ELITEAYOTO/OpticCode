@@ -1,9 +1,9 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use super::{
-    EvalBaselineComparison, EvalCaseResult, EvalCaseStatus, EvalExpected, EvalRegression,
-    EvalRegressionSeverity, EvalRetrievalMetrics, EvalRunReport, EvalStrategy, EvalStrategySummary,
-    EvalSummary,
+    EvalBaselineComparison, EvalCaseResult, EvalCaseStatus, EvalExpected, EvalLlmGenerationStatus,
+    EvalRegression, EvalRegressionSeverity, EvalRetrievalMetrics, EvalRunReport, EvalStrategy,
+    EvalStrategySummary, EvalSummary,
 };
 
 pub fn calculate_retrieval_metrics(
@@ -269,6 +269,23 @@ fn summarize_strategy(strategy: EvalStrategy, results: &[&EvalCaseResult]) -> Ev
         .collect::<Vec<_>>();
     let latency_p50_us = percentile(&mut latencies, 0.50);
     let latency_p95_us = percentile(&mut latencies, 0.95);
+    let generations = completed
+        .iter()
+        .filter_map(|result| result.metrics.generation.as_ref())
+        .collect::<Vec<_>>();
+    let generated = generations
+        .iter()
+        .filter(|generation| generation.status == EvalLlmGenerationStatus::Generated)
+        .copied()
+        .collect::<Vec<_>>();
+    let mut generation_latencies = generated
+        .iter()
+        .filter_map(|generation| generation.client_total_us)
+        .collect::<Vec<_>>();
+    let generation_latency_p50_us =
+        (!generation_latencies.is_empty()).then(|| percentile(&mut generation_latencies, 0.50));
+    let generation_latency_p95_us =
+        (!generation_latencies.is_empty()).then(|| percentile(&mut generation_latencies, 0.95));
 
     EvalStrategySummary {
         strategy,
@@ -323,6 +340,32 @@ fn summarize_strategy(strategy: EvalStrategy, results: &[&EvalCaseResult]) -> Ev
                 .iter()
                 .map(|result| f64::from(result.metrics.context.analysis_complete)),
         ),
+        generated_responses: generated.len(),
+        generation_skipped: generations
+            .iter()
+            .filter(|generation| generation.status == EvalLlmGenerationStatus::Skipped)
+            .count(),
+        generation_failed: generations
+            .iter()
+            .filter(|generation| generation.status == EvalLlmGenerationStatus::Failed)
+            .count(),
+        mean_actual_prompt_tokens: mean(
+            generated.iter().filter_map(|generation| {
+                generation.actual_prompt_tokens.map(|tokens| tokens as f64)
+            }),
+        ),
+        mean_generated_tokens: mean(
+            generated
+                .iter()
+                .filter_map(|generation| generation.generated_tokens.map(|tokens| tokens as f64)),
+        ),
+        mean_deterministic_quality: mean(
+            completed
+                .iter()
+                .filter_map(|result| result.metrics.response.deterministic_quality_score),
+        ),
+        generation_latency_p50_us,
+        generation_latency_p95_us,
     }
 }
 

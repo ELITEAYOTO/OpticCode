@@ -89,6 +89,23 @@ Inclure le RAG v2 actif :
   --rag-index data/index
 ```
 
+Sous-ensemble Qwen reproductible :
+
+```powershell
+.\target\release\opticcode.exe eval `
+  --strategy legacy,symbol `
+  --case impact-ping-static-import,config-java-index-permission,legacy-material-gunpowder `
+  --with-llm --no-rag `
+  --model qwen2.5-coder:14b `
+  --temperature 0 --seed 42 `
+  --max-generated-tokens 128 --warmup-runs 1
+```
+
+`--with-llm` enrichit chaque resultat `legacy` ou `symbol` avec les vrais
+`prompt_eval_count`, `eval_count`, temps provider, temps client et debit Ollama.
+Un contexte symbolique incomplet est marque `generation.status=skipped`. Le
+mode sans LLM reste la gate rapide et complete du corpus.
+
 Fixtures externes, toujours read-only :
 
 ```powershell
@@ -122,6 +139,9 @@ Gate reproductible :
   separement afin que p50/p95 representent une vraie latence de requete, pas le
   debit artificiel d'un lot de prompts independants.
 - Les faits et affirmations interdites sont evalues seulement lorsqu'une reponse
-  existe. Qwen ne sera jamais son unique juge.
-- `--with-llm` enregistre deja la configuration, mais la generation reelle est
-  branchee dans CONTEXT-002 afin de garder les deux commits separes.
+  existe. Le score est deterministe et Qwen n'est jamais son propre juge.
+- Le matcher lexical accepte des formulations proches, mais ne remplace ni une
+  compilation ni une revue humaine. Chaque reponse reste
+  `pending_human_review` tant qu'elle n'a pas ete acceptee ou rejetee.
+- Un run sans warmup marque le premier appel comme candidat froid. Un run avec
+  warmup mesure les appels chauds, sans promettre un determinisme absolu Ollama.

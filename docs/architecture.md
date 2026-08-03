@@ -1,6 +1,6 @@
 # OpticCode - Architecture cible
 
-Derniere mise a jour : 2026-07-13
+Derniere mise a jour : 2026-08-03
 
 ## Principe
 
@@ -222,17 +222,33 @@ Etat evaluation EVAL-001 implemente :
 - fingerprint complet avant/apres et refus de publication en cas de derive ;
 - sous-parseur CLI isole et sortie JSON pure.
 
+Etat integration CONTEXT-002 implemente :
+
+- `ask` et `plan` partagent un runtime versionne sans supprimer les anciennes sorties ;
+- modes explicites `legacy`, `symbol` et `compare`, legacy restant le defaut ;
+- comparaison des contextes sans generation par defaut et double appel uniquement
+  avec autorisation explicite ;
+- refus ou fallback visible si analyse incomplete, limite critique, ambiguite,
+  derive source ou projet non supporte ;
+- prompt stable compose systeme, politique, outils, profil, historique, demande,
+  puis contexte dynamique ;
+- RAG v2 uniquement, valide via `CURRENT`, sans lecture permissive d'un index legacy ;
+- URL Ollama locale verifiee, timeout, seed, temperature et limite explicites ;
+- rapport JSON pur sans contenu source dans les metadata de contexte ;
+- enrichissement EVAL avec vrais tokens et temps Ollama.
+
 Le cycle GIT-002 accepte maintenant une etape apply injectee, mais conserve une
 seule implementation du worktree, du build, du diff et du cleanup. Les futures
 regles Java ne doivent pas ajouter leur logique dans `worktree.rs`.
 
-LEGACY-002, CONTEXT-001, RAG-SAFE-001 et EVAL-001 sont termines. La prochaine
-etape est `CONTEXT-002`, integration optionnelle dans `ask`/`plan` avec benchmark Qwen. Un index
-incremental/persistant attendra des mesures qui le
-justifient. Voir [`java-syntax.md`](java-syntax.md),
+LEGACY-002, CONTEXT-001, RAG-SAFE-001, EVAL-001 et CONTEXT-002 sont termines.
+Le contexte symbolique reste optionnel : il reduit le prefill mais n'a pas encore
+depasse la qualite legacy sur l'echantillon Qwen. Un index incremental/persistant
+attendra un prototype Tantivy mesure. Voir [`java-syntax.md`](java-syntax.md),
 [`java-index.md`](java-index.md), [`java-edits.md`](java-edits.md) et
 [`java-edit-worktree.md`](java-edit-worktree.md), puis
-[`java-context.md`](java-context.md) et [`evaluation.md`](evaluation.md).
+[`java-context.md`](java-context.md), [`evaluation.md`](evaluation.md) et
+[`context-integration.md`](context-integration.md).
 
 ## Runtime LLM
 

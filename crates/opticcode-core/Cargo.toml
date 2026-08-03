@@ -7,6 +7,10 @@ repository.workspace = true
 
 [dependencies]
 anyhow.workspace = true
+blake3.workspace = true
 serde.workspace = true
 opticcode-llm.workspace = true
 opticcode-tools.workspace = true
+
+[dev-dependencies]
+tokio.workspace = true

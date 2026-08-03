@@ -29,6 +29,8 @@ selon la demande, avec ranges AST, raisons, couts et budgets explicites. Les bui
 process runner borne avec timeout, sortie limitee et terminaison de l'arbre Windows.
 EVAL-001 compare maintenant ces chemins sur un corpus versionne de 45 cas,
 avec metriques de retrieval/contexte, rapports JSON/Markdown et controle read-only.
+CONTEXT-002 branche ce contexte dans `ask` et `plan` avec des modes explicites
+`legacy`, `symbol` et `compare`, un fallback visible et des mesures Ollama reelles.
 
 - Phase 0 : audit environnement Windows 10 termine.
 - Phase 1 : documentation de cadrage terminee.
@@ -36,10 +38,10 @@ avec metriques de retrieval/contexte, rapports JSON/Markdown et controle read-on
 - Phase 2 : benchmark Ollama / Qwen2.5-Coder 14B termine.
 - Phase 3 : recherche depots externes et analyse Qwen Code terminees.
 - Phase 4 : MVP Rust fonctionnel.
-- Phase 5 : tools Java en cours ; apply/worktree, Tree-sitter, index B1, edits B2, pipeline B3, LEGACY-002 et CONTEXT-001 termines.
-- Qualite courante : 184 tests workspace, Clippy strict, build release et gates Java valides.
-- Phase 6 : RAG-SAFE-001 termine ; index incremental/scalable a mesurer puis construire.
-- EVAL-001 : infrastructure et corpus reproductible termines ; benchmark Qwen A/B dans CONTEXT-002.
+- Phase 5 : apply/worktree, Tree-sitter, index B1, edits B2/B3, LEGACY-002, CONTEXT-001, EVAL-001 et CONTEXT-002 termines.
+- Qualite courante : 209 tests workspace, Clippy strict, build release et gates specialisees valides.
+- Phase 6 : RAG-SAFE-001 termine ; le passage a Tantivy reste conditionne par un prototype mesure.
+- Qwen A/B : `symbol` reduit le prompt reel, mais reste optionnel car la qualite n'est pas encore superieure.
 - Phase 7 : agent iteratif non commence.
 
 ## Documentation
@@ -56,6 +58,7 @@ avec metriques de retrieval/contexte, rapports JSON/Markdown et controle read-on
 - [Verification des edits Java en worktree](docs/java-edit-worktree.md)
 - [Contexte Java guide par les symboles](docs/java-context.md)
 - [Evaluation reproductible du contexte et du retrieval](docs/evaluation.md)
+- [Integration du contexte dans ask et plan](docs/context-integration.md)
 - [Backlog canonique d'optimisation](docs/optimization-backlog.md)
 - [Etat environnement](docs/environment-audit.md)
 - [Roadmap](docs/roadmap.md)
@@ -139,6 +142,8 @@ cargo run -q -- rag-search "nether wart" --index data/index --limit 5 --json
 cargo run -q -- rag-debug "Quels risques legacy verifier pour des pelles et spawners ?" --index data/index --limit 3 --json
 cargo run -q -- search Material.SULPHUR --path . --limit 5
 cargo run -q -- ask "Reponds en une phrase : quelle regle Bukkit 1.8.8 dois-tu respecter pour gunpowder ?" --path .
+cargo run -q -- ask "Locate dev.opticcode.util.Helpers#ping()." --path benchmarks/java-index-mini --profile none --no-memory --no-rag --context-mode compare --json
+cargo run -q -- plan "Locate dev.opticcode.util.Helpers#ping()." --path benchmarks/java-index-mini --profile none --no-memory --no-rag --context-mode symbol --strict-context --json
 cargo run -q -- plan "Ajouter une commande /coins dans un plugin Bukkit 1.8.8" --path . --metrics --rag-limit 4
 cargo run -q -- plan "Ajouter une commande /coins dans un plugin Bukkit 1.8.8" --path . --metrics --rag-debug
 cargo run -q -- plan "Ajouter une commande /coins dans un plugin Bukkit 1.8.8" --path . --metrics --no-rag
@@ -166,17 +171,19 @@ cargo run -q -- inspect --path benchmarks/mini-bukkit-plugin
 .\scripts\run-java-context-quality.ps1 -Full
 .\scripts\run-eval-quality.ps1
 .\scripts\run-eval-quality.ps1 -IncludeRag
+.\scripts\run-context-integration-quality.ps1
+.\scripts\run-context-integration-quality.ps1 -WithLlm
 ```
 
 ## Prochaine etape
 
-RAG-SAFE-001 est termine : l'ingestion est fail-closed, les secrets et reparse
-sont refuses, et l'index v2 est publie atomiquement par generations. CONTEXT-001
-est egalement termine : sur cinq demandes reproductibles, il reduit le
-contexte de 4 140 a 1 206 tokens estimes (-70,87 %) face au selecteur historique,
-sans manquer les symboles/roles attendus. EVAL-001 fournit maintenant 45 cas,
-des metriques testees et des baselines comparables. La prochaine etape est
-CONTEXT-002 : integration optionnelle A/B dans `ask` et `plan`, puis mesure de la
-qualite Qwen avant toute activation par defaut.
-Les resolutions incertaines restent read-only et la promotion d'un resultat
-vers le projet source demeure un sprint distinct avec approbation explicite.
+CONTEXT-002 est termine. Sur trois cas chauds comparables, `symbol` reduit le
+prompt Ollama moyen de 1 902 a 1 188 tokens (-37,5 %) et porte Recall@k de
+0,833 a 1,000, mais le petit score qualite deterministe descend de 0,556 a
+0,333. `legacy` reste donc le mode par defaut ; `symbol` est opt-in et refuse ou
+fallback explicitement lorsqu'il n'est pas fiable.
+
+Le prochain chantier recommande est `LLM/PROTOCOL-001` pour le streaming,
+l'annulation et un protocole structure borne. `POLICY-001` doit suivre avant
+toute boucle agent capable d'ecrire. Un prototype `RAG-002` Tantivy arrive
+ensuite, car EVAL-001 a mesure les limites des requetes naturelles du JSONL.

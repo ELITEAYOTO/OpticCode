@@ -1,13 +1,33 @@
+mod assistant_runtime;
+mod context_runtime;
+mod eval_runtime;
+
+pub use assistant_runtime::{
+    AssistantCommandKind, AssistantCommandReport, AssistantGenerationConfiguration,
+    AssistantGenerationMetrics, AssistantPromptReport, AssistantRagHitReport, AssistantRagReport,
+    AssistantRunReport, AssistantStructuredError, ASSISTANT_PROMPT_VERSION,
+    ASSISTANT_RUN_SCHEMA_VERSION,
+};
+pub use context_runtime::{
+    prepare_assistant_context, AssistantContextFile, AssistantContextSnippet,
+    AssistantContextTimings, ContextComparison, ContextFallback, ContextFallbackPolicy,
+    ContextMode, ContextPreparation, ContextRejectionReason, ContextVariantReport,
+    PreparedContextVariant, ASSISTANT_CONTEXT_SCHEMA_VERSION,
+};
+pub use eval_runtime::{enrich_evaluation_with_llm, EvalLlmRuntimeOptions};
+
 use std::collections::BTreeSet;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 
-use anyhow::{Context, Result};
-use opticcode_llm::GenerateOptions;
+use anyhow::{bail, Context, Result};
 use opticcode_llm::OllamaClient;
 pub use opticcode_llm::{parse_keep_alive, GenerateMetrics};
-use opticcode_tools::{build_project_context, search_rag_index_queries};
+use opticcode_tools::search_rag_index_queries;
 use serde::Serialize;
+
+use assistant_runtime::{execute_assistant, AssistantExecutionOptions, AssistantExecutionOutput};
 
 pub struct OpticCode {
     llm: OllamaClient,
@@ -24,6 +44,12 @@ pub struct AskOptions {
     pub rag_limit: usize,
     pub brief: bool,
     pub max_tokens: Option<u32>,
+    pub temperature: Option<f32>,
+    pub seed: Option<i64>,
+    pub context_mode: ContextMode,
+    pub fallback_policy: ContextFallbackPolicy,
+    pub compare_generate: bool,
+    pub verify_model: bool,
 }
 
 pub struct PlanOptions {
@@ -36,11 +62,18 @@ pub struct PlanOptions {
     pub rag_limit: usize,
     pub brief: bool,
     pub max_tokens: Option<u32>,
+    pub temperature: Option<f32>,
+    pub seed: Option<i64>,
+    pub context_mode: ContextMode,
+    pub fallback_policy: ContextFallbackPolicy,
+    pub compare_generate: bool,
+    pub verify_model: bool,
 }
 
 pub struct AssistantOutput {
     pub text: String,
     pub metrics: GenerateMetrics,
+    pub report: AssistantCommandReport,
 }
 
 #[derive(Debug, Clone)]
@@ -100,9 +133,35 @@ impl OpticCode {
         }
     }
 
+    pub fn try_new(ollama_url: impl AsRef<str>, model: impl Into<String>) -> Result<Self> {
+        let model = model.into();
+        if model.trim().is_empty() {
+            bail!("Ollama model name must not be empty");
+        }
+        Ok(Self {
+            llm: OllamaClient::try_new(ollama_url)?,
+            model,
+        })
+    }
+
     pub fn with_keep_alive(mut self, keep_alive: Option<String>) -> Self {
         self.llm = self.llm.with_keep_alive(keep_alive);
         self
+    }
+
+    pub fn with_http_timeout(mut self, timeout: Duration) -> Result<Self> {
+        self.llm = self.llm.with_timeout(timeout)?;
+        Ok(self)
+    }
+
+    pub async fn ensure_model_available(&self) -> Result<()> {
+        if !self.llm.model_available(&self.model).await? {
+            bail!(
+                "configured model `{}` is not present in the local Ollama inventory",
+                self.model
+            );
+        }
+        Ok(())
     }
 
     pub async fn ask_with_project_context(&self, options: AskOptions) -> Result<String> {
@@ -110,40 +169,11 @@ impl OpticCode {
     }
 
     pub async fn ask_with_metrics(&self, options: AskOptions) -> Result<AssistantOutput> {
-        let context = build_project_context(&options.workspace)?;
-        let profile = load_profile_for_workspace(&options.workspace, options.profile.as_deref())?;
-        let memory = if options.include_memory {
-            load_memory_for_workspace(&options.workspace, options.profile.as_deref())?
-        } else {
-            MemoryContext::default()
-        };
-        let rag = if options.include_rag {
-            load_rag_context(&options.rag_index, &options.prompt, options.rag_limit)?
-        } else {
-            RagContext::default()
-        };
-        let prompt = build_prompt(
-            &options.prompt,
-            &context.to_prompt_context(),
-            profile.as_ref(),
-            &memory,
-            &rag,
-            options.brief,
-        );
-        let response = self
-            .llm
-            .generate_timed_with_options(
-                &self.model,
-                &prompt,
-                GenerateOptions {
-                    num_predict: options.max_tokens.or_else(|| options.brief.then_some(240)),
-                },
-            )
-            .await?;
-        Ok(AssistantOutput {
-            text: response.response,
-            metrics: response.metrics,
-        })
+        execution_to_output(self.execute_ask(options).await?)
+    }
+
+    pub async fn ask_with_report(&self, options: AskOptions) -> Result<AssistantCommandReport> {
+        Ok(self.execute_ask(options).await?.report)
     }
 
     pub async fn plan_with_project_context(&self, options: PlanOptions) -> Result<String> {
@@ -151,41 +181,100 @@ impl OpticCode {
     }
 
     pub async fn plan_with_metrics(&self, options: PlanOptions) -> Result<AssistantOutput> {
-        let context = build_project_context(&options.workspace)?;
-        let profile = load_profile_for_workspace(&options.workspace, options.profile.as_deref())?;
-        let memory = if options.include_memory {
-            load_memory_for_workspace(&options.workspace, options.profile.as_deref())?
-        } else {
-            MemoryContext::default()
-        };
-        let rag = if options.include_rag {
-            load_rag_context(&options.rag_index, &options.goal, options.rag_limit)?
-        } else {
-            RagContext::default()
-        };
-        let prompt = build_plan_prompt(
-            &options.goal,
-            &context.to_prompt_context(),
-            profile.as_ref(),
-            &memory,
-            &rag,
-            options.brief,
-        );
-        let response = self
-            .llm
-            .generate_timed_with_options(
-                &self.model,
-                &prompt,
-                GenerateOptions {
-                    num_predict: options.max_tokens.or_else(|| options.brief.then_some(320)),
-                },
-            )
-            .await?;
-        Ok(AssistantOutput {
-            text: response.response,
-            metrics: response.metrics,
-        })
+        execution_to_output(self.execute_plan(options).await?)
     }
+
+    pub async fn plan_with_report(&self, options: PlanOptions) -> Result<AssistantCommandReport> {
+        Ok(self.execute_plan(options).await?.report)
+    }
+
+    async fn execute_ask(&self, options: AskOptions) -> Result<AssistantExecutionOutput> {
+        execute_assistant(
+            &self.llm,
+            &self.model,
+            AssistantExecutionOptions {
+                command: AssistantCommandKind::Ask,
+                workspace: &options.workspace,
+                request: &options.prompt,
+                profile: options.profile.as_deref(),
+                include_memory: options.include_memory,
+                include_rag: options.include_rag,
+                rag_index: &options.rag_index,
+                rag_limit: options.rag_limit,
+                brief: options.brief,
+                max_tokens: options.max_tokens,
+                temperature: options.temperature,
+                seed: options.seed,
+                context_mode: options.context_mode,
+                fallback_policy: options.fallback_policy,
+                compare_generate: options.compare_generate,
+                verify_model: options.verify_model,
+            },
+        )
+        .await
+    }
+
+    async fn execute_plan(&self, options: PlanOptions) -> Result<AssistantExecutionOutput> {
+        execute_assistant(
+            &self.llm,
+            &self.model,
+            AssistantExecutionOptions {
+                command: AssistantCommandKind::Plan,
+                workspace: &options.workspace,
+                request: &options.goal,
+                profile: options.profile.as_deref(),
+                include_memory: options.include_memory,
+                include_rag: options.include_rag,
+                rag_index: &options.rag_index,
+                rag_limit: options.rag_limit,
+                brief: options.brief,
+                max_tokens: options.max_tokens,
+                temperature: options.temperature,
+                seed: options.seed,
+                context_mode: options.context_mode,
+                fallback_policy: options.fallback_policy,
+                compare_generate: options.compare_generate,
+                verify_model: options.verify_model,
+            },
+        )
+        .await
+    }
+}
+
+fn execution_to_output(execution: AssistantExecutionOutput) -> Result<AssistantOutput> {
+    if !execution.report.success {
+        let details = execution
+            .report
+            .errors
+            .iter()
+            .map(|error| format!("{}: {}", error.code, error.message))
+            .collect::<Vec<_>>()
+            .join("; ");
+        bail!("assistant generation did not complete: {details}");
+    }
+    let (mode, text) = {
+        let run = execution
+            .report
+            .generated_run()
+            .context("assistant report contains no generated response")?;
+        (
+            run.context_mode,
+            run.response
+                .clone()
+                .context("assistant generated run contains no response")?,
+        )
+    };
+    let metrics = execution
+        .raw_metrics
+        .into_iter()
+        .find(|(candidate, _)| *candidate == mode)
+        .map(|(_, metrics)| metrics)
+        .context("assistant generated run contains no raw metrics")?;
+    Ok(AssistantOutput {
+        text,
+        metrics,
+        report: execution.report,
+    })
 }
 
 pub fn load_profile_for_workspace(
@@ -280,12 +369,13 @@ pub fn load_memory_for_workspace(
 pub fn load_rag_context(index_dir: &Path, query: &str, limit: usize) -> Result<RagContext> {
     let chunks_path = index_dir.join("chunks.jsonl");
     let current_path = index_dir.join("CURRENT");
-    if !current_path.exists() && !chunks_path.exists() {
-        return Ok(RagContext {
-            index: Some(index_dir.to_path_buf()),
-            queries: expand_rag_queries(query),
-            hits: Vec::new(),
-        });
+    if !current_path.is_file() {
+        if chunks_path.exists() {
+            bail!(
+                "refusing legacy RAG index without CURRENT; publish a validated schema v2 generation"
+            );
+        }
+        bail!("RAG is enabled but no published schema v2 generation exists (missing CURRENT)");
     }
 
     let limit = limit.clamp(1, MAX_RAG_HITS);
@@ -430,17 +520,19 @@ fn build_prompt(
     brief: bool,
 ) -> String {
     let style = if brief {
-        "\nMode court : reponds en 6 lignes maximum, sans introduction longue.\n"
+        "Mode court : reponds en 6 lignes maximum, sans introduction longue."
     } else {
-        ""
+        "Mode normal : reste precis, verifiable et proportionne a la demande."
     };
     let profile_context = format_profile_context(profile);
     let memory_context = format_memory_context(memory);
     let rag_context = format_rag_context(rag);
 
     format!(
-        r#"Tu es OpticCode, un assistant code local specialise Java Minecraft legacy.
+        r#"[SYSTEM {prompt_version} ask]
+Tu es OpticCode, un assistant code local specialise Java Minecraft legacy.
 
+[POLICY minecraft-java8-v1]
 Contraintes obligatoires :
 - cible Java 8 stricte ;
 - cible Bukkit/Spigot/PandaSpigot 1.8.8 / 1.8.9 ;
@@ -451,21 +543,27 @@ Contraintes obligatoires :
 - si une information legacy est incertaine, le dire clairement.
 {style}
 
-Profil actif :
+[TOOLS readonly-context-v1]
+- aucun outil d'ecriture ou d'execution n'est disponible pendant cette reponse ;
+- ne pretends jamais avoir modifie, compile ou teste un fichier.
+
+[PROFILE]
 {profile_context}
 
-Memoire active :
+[HISTORY]
 {memory_context}
 
-Connaissances RAG pertinentes :
-{rag_context}
+[REQUEST]
+{user_prompt}
 
-Contexte projet detecte :
+[DYNAMIC_CONTEXT]
+Contexte projet :
 {project_context}
 
-Demande utilisateur :
-{user_prompt}
-"#
+Connaissances RAG :
+{rag_context}
+"#,
+        prompt_version = ASSISTANT_PROMPT_VERSION
     )
 }
 
@@ -487,10 +585,10 @@ fn build_plan_prompt(
     let rag_context = format_rag_context(rag);
 
     format!(
-        r#"Tu es OpticCode en mode plan.
+        r#"[SYSTEM {prompt_version} plan]
+Tu es OpticCode en mode plan. Tu dois produire uniquement un plan d'action. Tu ne dois pas ecrire un patch complet et tu ne dois pas pretendre avoir modifie des fichiers.
 
-Tu dois produire uniquement un plan d'action. Tu ne dois pas ecrire un patch complet et tu ne dois pas pretendre avoir modifie des fichiers.
-
+[POLICY minecraft-java8-plan-v1]
 Contraintes obligatoires :
 - cible Java 8 stricte ;
 - cible Bukkit/Spigot/PandaSpigot 1.8.8 / 1.8.9 ;
@@ -509,35 +607,34 @@ Interdictions en mode plan :
 
 {format_instruction}
 
-Profil actif :
+[TOOLS readonly-context-v1]
+- aucun outil d'ecriture ou d'execution n'est disponible pendant cette reponse ;
+- ne pretends jamais avoir modifie, compile ou teste un fichier.
+
+[PROFILE]
 {profile_context}
 
-Memoire active :
+[HISTORY]
 {memory_context}
 
-Connaissances RAG pertinentes :
-{rag_context}
+[REQUEST]
+{goal}
 
-Contexte projet detecte :
+[DYNAMIC_CONTEXT]
+Contexte projet :
 {project_context}
 
-Objectif utilisateur :
-{goal}
-"#
+Connaissances RAG :
+{rag_context}
+"#,
+        prompt_version = ASSISTANT_PROMPT_VERSION
     )
 }
 
 fn format_profile_context(profile: Option<&ProfileContext>) -> String {
     profile.map_or_else(
         || "none".to_string(),
-        |profile| {
-            format!(
-                "id: {}\nsource: {}\n{}",
-                profile.id,
-                profile.source.display(),
-                profile.content
-            )
-        },
+        |profile| format!("id: {}\n{}", profile.id, profile.content),
     )
 }
 
@@ -549,31 +646,17 @@ fn format_memory_context(memory: &MemoryContext) -> String {
     memory
         .entries
         .iter()
-        .map(|entry| {
-            format!(
-                "scope: {}\nsource: {}\n{}",
-                entry.scope,
-                entry.source.display(),
-                entry.content
-            )
-        })
+        .map(|entry| format!("scope: {}\n{}", entry.scope, entry.content))
         .collect::<Vec<_>>()
         .join("\n\n")
 }
 
 fn format_rag_context(rag: &RagContext) -> String {
     if rag.hits.is_empty() {
-        return match &rag.index {
-            Some(index) => format!("none\nindex: {}", index.display()),
-            None => "none".to_string(),
-        };
+        return "none".to_string();
     }
 
     let mut out = String::new();
-    if let Some(index) = &rag.index {
-        out.push_str(&format!("index: {}\n", index.display()));
-    }
-
     let mut total_chars = 0usize;
     for hit in &rag.hits {
         let mut preview = hit.preview.clone();
@@ -970,8 +1053,43 @@ mod tests {
             false,
         );
 
-        assert!(prompt.contains("Connaissances RAG pertinentes"));
+        assert!(prompt.contains("Connaissances RAG"));
         assert!(prompt.contains("tile.netherStalk.name=Nether Wart"));
+    }
+
+    #[test]
+    fn prompt_sections_have_a_stable_cache_friendly_order() {
+        let profile = test_profile();
+        let memory = test_memory();
+        let prompt = build_prompt(
+            "CURRENT_REQUEST_MARKER",
+            "DYNAMIC_PROJECT_MARKER",
+            Some(&profile),
+            &memory,
+            &RagContext::default(),
+            false,
+        );
+        let markers = [
+            "[SYSTEM",
+            "[POLICY",
+            "[TOOLS",
+            "[PROFILE]",
+            "[HISTORY]",
+            "[REQUEST]",
+            "[DYNAMIC_CONTEXT]",
+        ];
+        let positions = markers
+            .iter()
+            .map(|marker| prompt.find(marker).unwrap())
+            .collect::<Vec<_>>();
+
+        assert!(positions.windows(2).all(|window| window[0] < window[1]));
+        assert!(
+            prompt.find("CURRENT_REQUEST_MARKER").unwrap()
+                < prompt.find("DYNAMIC_PROJECT_MARKER").unwrap()
+        );
+        assert!(!prompt.contains("skills/profiles/"));
+        assert!(!prompt.contains("skills/memory/"));
     }
 
     #[test]

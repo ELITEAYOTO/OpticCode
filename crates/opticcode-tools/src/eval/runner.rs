@@ -35,6 +35,7 @@ const MAX_FINGERPRINT_BYTES: u64 = 2 * 1024 * 1024 * 1024;
 pub struct EvalRunOptions {
     pub strategies: Vec<EvalStrategy>,
     pub repetitions: u32,
+    pub case_ids: Vec<String>,
     pub case_limit: Option<usize>,
     pub rag_index: Option<PathBuf>,
     pub rag_index_label: String,
@@ -54,6 +55,7 @@ impl Default for EvalRunOptions {
                 EvalStrategy::Exact,
             ],
             repetitions: 1,
+            case_ids: Vec::new(),
             case_limit: None,
             rag_index: None,
             rag_index_label: "not_configured".to_string(),
@@ -172,11 +174,21 @@ pub fn run_evaluation(suite_path: &Path, mut options: EvalRunOptions) -> Result<
     let suite_dir = suite_path
         .parent()
         .context("evaluation suite path has no parent directory")?;
-    let case_count = options
-        .case_limit
-        .unwrap_or(suite.cases.len())
-        .min(suite.cases.len());
-    let selected_cases = &suite.cases[..case_count];
+    let requested_case_ids = options.case_ids.iter().cloned().collect::<BTreeSet<_>>();
+    for case_id in &requested_case_ids {
+        if !suite.cases.iter().any(|case| &case.id == case_id) {
+            bail!("requested evaluation case `{case_id}` does not exist in the suite");
+        }
+    }
+    let mut selected_cases = suite
+        .cases
+        .iter()
+        .filter(|case| requested_case_ids.is_empty() || requested_case_ids.contains(&case.id))
+        .collect::<Vec<_>>();
+    if let Some(limit) = options.case_limit {
+        selected_cases.truncate(limit.min(selected_cases.len()));
+    }
+    let case_count = selected_cases.len();
     let suite_truncated = case_count < suite.cases.len();
     let started_at_unix_ms = unix_time_ms()?;
     let started = Instant::now();
@@ -187,6 +199,7 @@ pub fn run_evaluation(suite_path: &Path, mut options: EvalRunOptions) -> Result<
     let configuration = EvalConfiguration {
         strategies: options.strategies.clone(),
         repetitions: options.repetitions,
+        case_ids: options.case_ids.clone(),
         case_limit: options.case_limit,
         suite_truncated,
         llm_mode: options.llm_mode,
@@ -598,6 +611,7 @@ fn completed_result(
             retrieval,
             context: execution.context,
             response: response_metrics(&case.expected, false),
+            generation: None,
         },
         response: None,
     }
@@ -660,6 +674,7 @@ fn empty_result(
                 ..EvalContextMetrics::default()
             },
             response: response_metrics(&case.expected, false),
+            generation: None,
         },
         response: None,
     }
@@ -790,6 +805,10 @@ fn fixture_fingerprint(root: &Path) -> Result<String> {
     Ok(hasher.finalize().to_hex().to_string())
 }
 
+pub fn evaluation_fixture_fingerprint(root: &Path) -> Result<String> {
+    fixture_fingerprint(root)
+}
+
 fn should_fingerprint_entry(entry: &DirEntry) -> bool {
     if entry.depth() == 0 {
         return true;
@@ -840,6 +859,16 @@ fn validate_run_options(options: &EvalRunOptions) -> Result<()> {
     }
     if options.case_limit == Some(0) {
         bail!("evaluation case limit must be greater than zero");
+    }
+    if options
+        .case_ids
+        .iter()
+        .any(|case_id| case_id.trim().is_empty())
+    {
+        bail!("evaluation case ids must not be empty");
+    }
+    if options.case_ids.iter().collect::<BTreeSet<_>>().len() != options.case_ids.len() {
+        bail!("evaluation case ids must not contain duplicates");
     }
     if options.rag_limit == 0 || options.rag_limit > 1_000 {
         bail!("evaluation RAG limit must be between 1 and 1000");

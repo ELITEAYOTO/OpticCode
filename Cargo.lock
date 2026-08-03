@@ -791,9 +791,11 @@ name = "opticcode-core"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "blake3",
  "opticcode-llm",
  "opticcode-tools",
  "serde",
+ "tokio",
 ]
 
 [[package]]
@@ -803,6 +805,7 @@ dependencies = [
  "anyhow",
  "reqwest",
  "serde",
+ "tokio",
 ]
 
 [[package]]

@@ -1216,3 +1216,31 @@ Raison :
   sont pas necessaires pour le corpus actuel.
 
 Reference : [`rag-safe-index.md`](rag-safe-index.md).
+
+### D-064 - Garder legacy par defaut apres le premier A/B Qwen
+
+Statut : valide.
+
+Decision :
+
+- integrer CONTEXT-001 dans `ask` et `plan` sous les modes explicites `legacy`,
+  `symbol` et `compare` ;
+- conserver `legacy` par defaut et rendre tout fallback symbolique visible ;
+- ne jamais doubler les appels modele en mode compare sans option explicite ;
+- refuser les contextes symboliques incomplets, ambigus, derives ou tronques
+  sous une limite critique ;
+- n'envoyer du code qu'a une URL Ollama locale validee ;
+- enregistrer separement tokens estimes, tokens provider et tokens generes ;
+- garder les rapports de comparaison sous un dossier ignore par Git.
+
+Raison :
+
+- sur trois cas chauds, `symbol` reduit le prompt reel de 1 902 a 1 188 tokens
+  et porte Recall@k de 0,833 a 1,000 ;
+- le score qualite deterministe baisse toutefois de 0,556 a 0,333 ;
+- quatre sorties sur six atteignent la limite de 128 tokens et l'echantillon
+  reste trop petit pour conclure a une superiorite produit ;
+- une reduction de tokens sans qualite au moins equivalente ne justifie pas un
+  changement silencieux de comportement.
+
+Reference : [`context-integration.md`](context-integration.md).

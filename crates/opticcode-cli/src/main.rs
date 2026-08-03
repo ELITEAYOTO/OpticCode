@@ -4,10 +4,12 @@ use std::process::Command as ProcessCommand;
 use std::time::{Duration, Instant};
 
 use anyhow::{bail, Context, Result};
-use clap::{Parser, Subcommand};
+use clap::{Args, Parser, Subcommand};
 use opticcode_core::{
-    load_memory_for_workspace, load_profile_for_workspace, load_rag_context, parse_keep_alive,
-    AskOptions, GenerateMetrics, OpticCode, PlanOptions, RagContext, DEFAULT_PROFILE,
+    enrich_evaluation_with_llm, load_memory_for_workspace, load_profile_for_workspace,
+    load_rag_context, parse_keep_alive, AskOptions, AssistantCommandKind, AssistantCommandReport,
+    AssistantStructuredError, ContextFallbackPolicy, ContextMode, EvalLlmRuntimeOptions,
+    GenerateMetrics, OpticCode, PlanOptions, RagContext, DEFAULT_PROFILE,
 };
 use opticcode_tools::apply_transaction::{
     apply_transaction_error_kind, inspect_apply_transaction, list_apply_transactions,
@@ -144,6 +146,8 @@ struct EvalArgs {
     repetitions: u32,
     #[arg(long)]
     case_limit: Option<usize>,
+    #[arg(long = "case", value_delimiter = ',')]
+    case_ids: Vec<String>,
     #[arg(long)]
     baseline: Option<PathBuf>,
     #[arg(long)]
@@ -162,6 +166,10 @@ struct EvalArgs {
     with_llm: bool,
     #[arg(long, default_value = "qwen2.5-coder:14b")]
     model: String,
+    #[arg(long, default_value = "http://localhost:11434")]
+    ollama_url: String,
+    #[arg(long, default_value = "15m")]
+    keep_alive: String,
     #[arg(long)]
     temperature: Option<f32>,
     #[arg(long)]
@@ -180,6 +188,76 @@ struct EvalArgs {
     fail_on_regression: bool,
     #[arg(long)]
     json: bool,
+}
+
+#[derive(Debug, Args)]
+struct AssistantSharedArgs {
+    #[arg(long, default_value = ".")]
+    path: PathBuf,
+    #[arg(long, default_value = "qwen2.5-coder:14b")]
+    model: String,
+    #[arg(long, default_value = "http://localhost:11434")]
+    ollama_url: String,
+    #[arg(long, default_value = "15m")]
+    keep_alive: String,
+    #[arg(long, default_value = DEFAULT_PROFILE)]
+    profile: String,
+    #[arg(long)]
+    no_memory: bool,
+    #[arg(long)]
+    no_rag: bool,
+    #[arg(long, default_value = "data/index")]
+    rag_index: PathBuf,
+    #[arg(long, default_value_t = 4)]
+    rag_limit: usize,
+    #[arg(long)]
+    rag_debug: bool,
+    #[arg(long)]
+    brief: bool,
+    #[arg(long)]
+    max_tokens: Option<u32>,
+    #[arg(long)]
+    temperature: Option<f32>,
+    #[arg(long)]
+    seed: Option<i64>,
+    #[arg(long, default_value_t = 120_000)]
+    http_timeout_ms: u64,
+    #[arg(long, default_value = "legacy")]
+    context_mode: ContextMode,
+    #[arg(long)]
+    strict_context: bool,
+    #[arg(long)]
+    compare_generate: bool,
+    #[arg(long, conflicts_with = "metrics_json")]
+    json: bool,
+    #[arg(long)]
+    metrics: bool,
+    #[arg(long, conflicts_with = "json")]
+    metrics_json: bool,
+}
+
+#[derive(Debug, Parser)]
+#[command(name = "opticcode ask")]
+#[command(about = "Ask the local model with bounded project context.")]
+struct AskArgs {
+    prompt: String,
+    #[command(flatten)]
+    shared: AssistantSharedArgs,
+}
+
+#[derive(Debug, Parser)]
+#[command(name = "opticcode plan")]
+#[command(about = "Request a read-only implementation plan from the local model.")]
+struct PlanArgs {
+    goal: String,
+    #[command(flatten)]
+    shared: AssistantSharedArgs,
+}
+
+#[derive(Debug)]
+enum IsolatedAssistantCommand {
+    Ask(AskArgs),
+    Plan(PlanArgs),
 }
 
 #[derive(Debug, Subcommand)]
@@ -417,71 +495,19 @@ enum Command {
         #[arg(long)]
         json: bool,
     },
-    Ask {
-        prompt: String,
-        #[arg(long, default_value = ".")]
-        path: PathBuf,
-        #[arg(long, default_value = "qwen2.5-coder:14b")]
-        model: String,
-        #[arg(long, default_value = "http://localhost:11434")]
-        ollama_url: String,
-        #[arg(long, default_value = "15m")]
-        keep_alive: String,
-        #[arg(long, default_value = DEFAULT_PROFILE)]
-        profile: String,
-        #[arg(long)]
-        no_memory: bool,
-        #[arg(long)]
-        no_rag: bool,
-        #[arg(long, default_value = "data/index")]
-        rag_index: PathBuf,
-        #[arg(long, default_value_t = 4)]
-        rag_limit: usize,
-        #[arg(long)]
-        rag_debug: bool,
-        #[arg(long)]
-        brief: bool,
-        #[arg(long)]
-        max_tokens: Option<u32>,
-        #[arg(long)]
-        metrics: bool,
-        #[arg(long)]
-        metrics_json: bool,
-    },
-    Plan {
-        goal: String,
-        #[arg(long, default_value = ".")]
-        path: PathBuf,
-        #[arg(long, default_value = "qwen2.5-coder:14b")]
-        model: String,
-        #[arg(long, default_value = "http://localhost:11434")]
-        ollama_url: String,
-        #[arg(long, default_value = "15m")]
-        keep_alive: String,
-        #[arg(long, default_value = DEFAULT_PROFILE)]
-        profile: String,
-        #[arg(long)]
-        no_memory: bool,
-        #[arg(long)]
-        no_rag: bool,
-        #[arg(long, default_value = "data/index")]
-        rag_index: PathBuf,
-        #[arg(long, default_value_t = 4)]
-        rag_limit: usize,
-        #[arg(long)]
-        rag_debug: bool,
-        #[arg(long)]
-        brief: bool,
-        #[arg(long)]
-        max_tokens: Option<u32>,
-        #[arg(long)]
-        metrics: bool,
-        #[arg(long)]
-        metrics_json: bool,
-    },
+    /// Ask the local model with bounded project context.
+    Ask,
+    /// Request a read-only implementation plan from the local model.
+    Plan,
 }
 
 fn main() -> Result<()> {
+    if let Some(command) = parse_isolated_assistant() {
+        let runtime = tokio::runtime::Builder::new_multi_thread()
+            .enable_all()
+            .build()?;
+        return runtime.block_on(Box::pin(run_assistant_command(command)));
+    }
     if let Some(args) = parse_isolated_java_context() {
         return run_java_context(args);
     }
@@ -493,6 +519,47 @@ fn main() -> Result<()> {
         .enable_all()
         .build()?;
     runtime.block_on(Box::pin(run_command(cli.command)))
+}
+
+fn parse_isolated_assistant() -> Option<IsolatedAssistantCommand> {
+    let mut args = std::env::args_os();
+    args.next()?;
+    let first = args.next()?;
+    if first == std::ffi::OsStr::new("ask") {
+        let mut parser_args = vec![std::ffi::OsString::from("opticcode ask")];
+        parser_args.extend(args);
+        return Some(IsolatedAssistantCommand::Ask(AskArgs::parse_from(
+            parser_args,
+        )));
+    }
+    if first == std::ffi::OsStr::new("plan") {
+        let mut parser_args = vec![std::ffi::OsString::from("opticcode plan")];
+        parser_args.extend(args);
+        return Some(IsolatedAssistantCommand::Plan(PlanArgs::parse_from(
+            parser_args,
+        )));
+    }
+    if first == std::ffi::OsStr::new("help") {
+        let second = args.next()?;
+        let mut parser_args = Vec::new();
+        if second == std::ffi::OsStr::new("ask") {
+            parser_args.push(std::ffi::OsString::from("opticcode ask"));
+            parser_args.push(std::ffi::OsString::from("--help"));
+            parser_args.extend(args);
+            return Some(IsolatedAssistantCommand::Ask(AskArgs::parse_from(
+                parser_args,
+            )));
+        }
+        if second == std::ffi::OsStr::new("plan") {
+            parser_args.push(std::ffi::OsString::from("opticcode plan"));
+            parser_args.push(std::ffi::OsString::from("--help"));
+            parser_args.extend(args);
+            return Some(IsolatedAssistantCommand::Plan(PlanArgs::parse_from(
+                parser_args,
+            )));
+        }
+    }
+    None
 }
 
 fn parse_isolated_eval() -> Option<EvalArgs> {
@@ -544,7 +611,9 @@ fn run_eval(args: EvalArgs) -> Result<()> {
     let baseline = args.baseline.as_deref().map(load_eval_report).transpose()?;
     let generation = args.with_llm.then(|| EvalGenerationConfiguration {
         provider: "ollama".to_string(),
+        endpoint: args.ollama_url,
         model: args.model,
+        keep_alive: parse_keep_alive(&args.keep_alive),
         temperature: args.temperature,
         seed: args.seed,
         max_generated_tokens: args.max_generated_tokens,
@@ -557,16 +626,18 @@ fn run_eval(args: EvalArgs) -> Result<()> {
     } else {
         sanitized_eval_path_label(&args.rag_index)
     };
-    let report = run_evaluation(
+    let rag_index = rag_requested.then_some(args.rag_index);
+    let mut report = run_evaluation(
         &args.suite,
         EvalRunOptions {
             strategies: args.strategies,
             repetitions: args.repetitions,
+            case_ids: args.case_ids,
             case_limit: args.case_limit,
-            rag_index: rag_requested.then_some(args.rag_index),
+            rag_index: rag_index.clone(),
             rag_index_label,
             rag_limit: args.rag_limit,
-            external_fixtures,
+            external_fixtures: external_fixtures.clone(),
             llm_mode: if args.with_llm {
                 EvalLlmMode::Enabled
             } else {
@@ -576,6 +647,19 @@ fn run_eval(args: EvalArgs) -> Result<()> {
             baseline,
         },
     )?;
+    if args.with_llm {
+        let runtime = tokio::runtime::Builder::new_multi_thread()
+            .enable_all()
+            .build()?;
+        runtime.block_on(enrich_evaluation_with_llm(
+            &mut report,
+            &args.suite,
+            EvalLlmRuntimeOptions {
+                external_fixtures,
+                rag_index,
+            },
+        ))?;
+    }
     let artifacts = if args.no_write_reports {
         None
     } else {
@@ -604,6 +688,20 @@ fn run_eval(args: EvalArgs) -> Result<()> {
                 summary.mean_estimated_tokens,
                 summary.latency_p95_us as f64 / 1_000.0,
             );
+            if summary.generated_responses > 0
+                || summary.generation_skipped > 0
+                || summary.generation_failed > 0
+            {
+                println!(
+                    "  LLM: {} generated, {} skipped, {} failed, prompt {}, output {}, quality {}",
+                    summary.generated_responses,
+                    summary.generation_skipped,
+                    summary.generation_failed,
+                    format_optional_number(summary.mean_actual_prompt_tokens),
+                    format_optional_number(summary.mean_generated_tokens),
+                    format_optional_rate(summary.mean_deterministic_quality),
+                );
+            }
         }
         if let Some(baseline) = &report.baseline {
             println!("- baseline regressions: {}", baseline.regressions.len());
@@ -651,6 +749,10 @@ fn format_optional_rate(value: Option<f64>) -> String {
     value.map_or_else(|| "n/a".to_string(), |value| format!("{value:.3}"))
 }
 
+fn format_optional_number(value: Option<f64>) -> String {
+    value.map_or_else(|| "n/a".to_string(), |value| format!("{value:.1}"))
+}
+
 fn sanitized_eval_path_label(path: &Path) -> String {
     if path.is_relative() {
         return path.to_string_lossy().replace('\\', "/");
@@ -659,6 +761,184 @@ fn sanitized_eval_path_label(path: &Path) -> String {
         || "<absolute>".to_string(),
         |name| format!("<absolute>/{}", name.to_string_lossy()),
     )
+}
+
+async fn run_assistant_command(command: IsolatedAssistantCommand) -> Result<()> {
+    match command {
+        IsolatedAssistantCommand::Ask(args) => run_isolated_ask(args).await,
+        IsolatedAssistantCommand::Plan(args) => run_isolated_plan(args).await,
+    }
+}
+
+async fn run_isolated_ask(args: AskArgs) -> Result<()> {
+    let AskArgs { prompt, shared } = args;
+    let app = match create_opticcode(
+        &shared.ollama_url,
+        &shared.model,
+        &shared.keep_alive,
+        shared.http_timeout_ms,
+    ) {
+        Ok(app) => app,
+        Err(error) if shared.json => {
+            print_assistant_command_error(
+                AssistantCommandKind::Ask,
+                &prompt,
+                &shared.model,
+                shared.context_mode,
+                &shared.path,
+                &error,
+            )?;
+            std::process::exit(2);
+        }
+        Err(error) => return Err(error),
+    };
+    if shared.rag_debug && !shared.no_rag && !shared.json {
+        print_rag_debug(&shared.rag_index, &prompt, shared.rag_limit)?;
+    }
+    let options = AskOptions {
+        workspace: shared.path.clone(),
+        prompt: prompt.clone(),
+        profile: Some(shared.profile),
+        include_memory: !shared.no_memory,
+        include_rag: !shared.no_rag,
+        rag_index: shared.rag_index,
+        rag_limit: shared.rag_limit,
+        brief: shared.brief,
+        max_tokens: shared.max_tokens,
+        temperature: shared.temperature,
+        seed: shared.seed,
+        context_mode: shared.context_mode,
+        fallback_policy: fallback_policy(shared.strict_context),
+        compare_generate: shared.compare_generate,
+        verify_model: true,
+    };
+    if shared.json || shared.context_mode == ContextMode::Compare {
+        match app.ask_with_report(options).await {
+            Ok(report) => {
+                finish_assistant_report(&report, shared.json, shared.metrics, shared.metrics_json)
+            }
+            Err(error) if shared.json => {
+                print_assistant_command_error(
+                    AssistantCommandKind::Ask,
+                    &prompt,
+                    &shared.model,
+                    shared.context_mode,
+                    &shared.path,
+                    &error,
+                )?;
+                std::process::exit(2);
+            }
+            Err(error) => Err(error),
+        }
+    } else {
+        let output = app.ask_with_metrics(options).await?;
+        print_assistant_warnings(&output.report);
+        println!("{}", output.text);
+        io::stdout().flush()?;
+        if shared.metrics {
+            print_metrics(&output.metrics);
+        }
+        if shared.metrics_json {
+            print_metrics_json("ask", &output.metrics)?;
+        }
+        Ok(())
+    }
+}
+
+async fn run_isolated_plan(args: PlanArgs) -> Result<()> {
+    let PlanArgs { goal, shared } = args;
+    let app = match create_opticcode(
+        &shared.ollama_url,
+        &shared.model,
+        &shared.keep_alive,
+        shared.http_timeout_ms,
+    ) {
+        Ok(app) => app,
+        Err(error) if shared.json => {
+            print_assistant_command_error(
+                AssistantCommandKind::Plan,
+                &goal,
+                &shared.model,
+                shared.context_mode,
+                &shared.path,
+                &error,
+            )?;
+            std::process::exit(2);
+        }
+        Err(error) => return Err(error),
+    };
+    if shared.rag_debug && !shared.no_rag && !shared.json {
+        print_rag_debug(&shared.rag_index, &goal, shared.rag_limit)?;
+    }
+    let options = PlanOptions {
+        workspace: shared.path.clone(),
+        goal: goal.clone(),
+        profile: Some(shared.profile),
+        include_memory: !shared.no_memory,
+        include_rag: !shared.no_rag,
+        rag_index: shared.rag_index,
+        rag_limit: shared.rag_limit,
+        brief: shared.brief,
+        max_tokens: shared.max_tokens,
+        temperature: shared.temperature,
+        seed: shared.seed,
+        context_mode: shared.context_mode,
+        fallback_policy: fallback_policy(shared.strict_context),
+        compare_generate: shared.compare_generate,
+        verify_model: true,
+    };
+    if shared.json || shared.context_mode == ContextMode::Compare {
+        match app.plan_with_report(options).await {
+            Ok(report) => {
+                finish_assistant_report(&report, shared.json, shared.metrics, shared.metrics_json)
+            }
+            Err(error) if shared.json => {
+                print_assistant_command_error(
+                    AssistantCommandKind::Plan,
+                    &goal,
+                    &shared.model,
+                    shared.context_mode,
+                    &shared.path,
+                    &error,
+                )?;
+                std::process::exit(2);
+            }
+            Err(error) => Err(error),
+        }
+    } else {
+        let output = app.plan_with_metrics(options).await?;
+        print_assistant_warnings(&output.report);
+        println!("{}", output.text);
+        io::stdout().flush()?;
+        if shared.metrics {
+            print_metrics(&output.metrics);
+        }
+        if shared.metrics_json {
+            print_metrics_json("plan", &output.metrics)?;
+        }
+        Ok(())
+    }
+}
+
+fn fallback_policy(strict: bool) -> ContextFallbackPolicy {
+    if strict {
+        ContextFallbackPolicy::Refuse
+    } else {
+        ContextFallbackPolicy::Legacy
+    }
+}
+
+fn finish_assistant_report(
+    report: &AssistantCommandReport,
+    json: bool,
+    metrics: bool,
+    metrics_json: bool,
+) -> Result<()> {
+    print_assistant_report(report, json, metrics, metrics_json)?;
+    if !report.success {
+        std::process::exit(2);
+    }
+    Ok(())
 }
 
 fn parse_isolated_java_context() -> Option<JavaContextArgs> {
@@ -1241,97 +1521,187 @@ async fn run_command(command: Command) -> Result<()> {
                 }
             }
         }
-        Command::Ask {
-            prompt,
-            path,
-            model,
-            ollama_url,
-            keep_alive,
-            profile,
-            no_memory,
-            no_rag,
-            rag_index,
-            rag_limit,
-            rag_debug,
-            brief,
-            max_tokens,
-            metrics,
-            metrics_json,
-        } => {
-            let app =
-                OpticCode::new(ollama_url, model).with_keep_alive(parse_keep_alive(&keep_alive));
-            if rag_debug && !no_rag {
-                print_rag_debug(&rag_index, &prompt, rag_limit)?;
-            }
-            let output = app
-                .ask_with_metrics(AskOptions {
-                    workspace: path,
-                    prompt,
-                    profile: Some(profile),
-                    include_memory: !no_memory,
-                    include_rag: !no_rag,
-                    rag_index,
-                    rag_limit,
-                    brief,
-                    max_tokens,
-                })
-                .await?;
-            println!("{}", output.text);
-            io::stdout().flush()?;
-            if metrics {
-                print_metrics(&output.metrics);
-            }
-            if metrics_json {
-                print_metrics_json("ask", &output.metrics)?;
-            }
-        }
-        Command::Plan {
-            goal,
-            path,
-            model,
-            ollama_url,
-            keep_alive,
-            profile,
-            no_memory,
-            no_rag,
-            rag_index,
-            rag_limit,
-            rag_debug,
-            brief,
-            max_tokens,
-            metrics,
-            metrics_json,
-        } => {
-            let app =
-                OpticCode::new(ollama_url, model).with_keep_alive(parse_keep_alive(&keep_alive));
-            if rag_debug && !no_rag {
-                print_rag_debug(&rag_index, &goal, rag_limit)?;
-            }
-            let output = app
-                .plan_with_metrics(PlanOptions {
-                    workspace: path,
-                    goal,
-                    profile: Some(profile),
-                    include_memory: !no_memory,
-                    include_rag: !no_rag,
-                    rag_index,
-                    rag_limit,
-                    brief,
-                    max_tokens,
-                })
-                .await?;
-            println!("{}", output.text);
-            io::stdout().flush()?;
-            if metrics {
-                print_metrics(&output.metrics);
-            }
-            if metrics_json {
-                print_metrics_json("plan", &output.metrics)?;
-            }
+        Command::Ask | Command::Plan => {
+            bail!("ask and plan must be parsed by the isolated assistant command parser")
         }
     }
 
     Ok(())
+}
+
+fn create_opticcode(
+    ollama_url: &str,
+    model: &str,
+    keep_alive: &str,
+    http_timeout_ms: u64,
+) -> Result<OpticCode> {
+    OpticCode::try_new(ollama_url, model.to_string())?
+        .with_keep_alive(parse_keep_alive(keep_alive))
+        .with_http_timeout(Duration::from_millis(http_timeout_ms))
+}
+
+fn print_assistant_warnings(report: &AssistantCommandReport) {
+    for warning in &report.warnings {
+        eprintln!("Warning: {warning}");
+    }
+}
+
+fn print_assistant_report(
+    report: &AssistantCommandReport,
+    json: bool,
+    metrics: bool,
+    metrics_json: bool,
+) -> Result<()> {
+    if json {
+        println!("{}", serde_json::to_string_pretty(report)?);
+        io::stdout().flush()?;
+        return Ok(());
+    }
+
+    print_assistant_warnings(report);
+    if let Some(comparison) = &report.context.comparison {
+        println!("Context comparison (no generation by default)");
+        println!(
+            "- legacy: {} files, ~{} tokens",
+            comparison.legacy_files, comparison.legacy_estimated_tokens
+        );
+        println!(
+            "- symbol: {} files, ~{} tokens, usable={}",
+            comparison.symbol_files,
+            comparison.symbol_estimated_tokens,
+            comparison.symbol_usable_for_generation
+        );
+        println!(
+            "- estimated token delta: {:+} ({:+.2}%)",
+            comparison.estimated_token_delta,
+            comparison.estimated_token_reduction_basis_points as f64 / 100.0
+        );
+    }
+
+    let generated = report
+        .runs
+        .iter()
+        .filter(|run| run.generated)
+        .collect::<Vec<_>>();
+    if generated.len() == 1 && report.requested_context_mode != ContextMode::Compare {
+        if let Some(response) = generated[0].response.as_deref() {
+            println!("{response}");
+        }
+    } else {
+        for run in generated {
+            println!("\n=== {} response ===", run.context_mode);
+            if let Some(response) = run.response.as_deref() {
+                println!("{response}");
+            }
+        }
+    }
+    for error in &report.errors {
+        eprintln!(
+            "Error [{} / {}]: {}",
+            error.stage, error.code, error.message
+        );
+    }
+    io::stdout().flush()?;
+
+    if metrics {
+        for run in &report.runs {
+            eprintln!();
+            eprintln!("=== metrics ({}) ===", run.context_mode);
+            eprintln!("prompt_chars={}", run.prompt.chars);
+            eprintln!("estimated_prompt_tokens={}", run.prompt.estimated_tokens);
+            if let Some(metrics) = &run.metrics {
+                eprintln!("client_seconds={:.3}", metrics.client_ms as f64 / 1_000.0);
+                if let Some(tokens) = metrics.prompt_eval_count {
+                    eprintln!("prompt_eval_count={tokens}");
+                }
+                if let Some(tokens) = metrics.generated_tokens {
+                    eprintln!("eval_count={tokens}");
+                }
+                if let Some(rate) = metrics.generated_tokens_per_second {
+                    eprintln!("eval_tokens_per_second={rate:.2}");
+                }
+            } else {
+                eprintln!("generation=not_run");
+            }
+        }
+    }
+    if metrics_json {
+        eprintln!();
+        eprintln!("=== metrics_json ===");
+        let metrics = report
+            .runs
+            .iter()
+            .map(|run| (&run.context_mode, &run.prompt, &run.metrics))
+            .collect::<Vec<_>>();
+        eprintln!("{}", serde_json::to_string_pretty(&metrics)?);
+    }
+    Ok(())
+}
+
+#[derive(Serialize)]
+struct AssistantCommandErrorJson<'a> {
+    schema_version: u32,
+    command: AssistantCommandKind,
+    request: &'a str,
+    success: bool,
+    provider: &'static str,
+    model: &'a str,
+    requested_context_mode: ContextMode,
+    used_context_mode: Option<ContextMode>,
+    errors: Vec<AssistantStructuredError>,
+}
+
+fn print_assistant_command_error(
+    command: AssistantCommandKind,
+    request: &str,
+    model: &str,
+    context_mode: ContextMode,
+    workspace: &Path,
+    error: &anyhow::Error,
+) -> Result<()> {
+    let message = sanitize_assistant_error(&format!("{error:#}"), workspace);
+    let payload = AssistantCommandErrorJson {
+        schema_version: 1,
+        command,
+        request,
+        success: false,
+        provider: "ollama",
+        model,
+        requested_context_mode: context_mode,
+        used_context_mode: None,
+        errors: vec![AssistantStructuredError {
+            code: "command_rejected".to_string(),
+            stage: "command_setup".to_string(),
+            message,
+            context_mode: None,
+        }],
+    };
+    println!("{}", serde_json::to_string_pretty(&payload)?);
+    io::stdout().flush()?;
+    Ok(())
+}
+
+fn sanitize_assistant_error(message: &str, workspace: &Path) -> String {
+    let mut sanitized = message.to_string();
+    let mut paths = vec![workspace.to_path_buf()];
+    if let Ok(canonical) = fs::canonicalize(workspace) {
+        paths.push(canonical);
+    }
+    if let Ok(current) = std::env::current_dir() {
+        paths.push(current.clone());
+        if let Ok(canonical) = fs::canonicalize(current) {
+            paths.push(canonical);
+        }
+    }
+    paths.sort();
+    paths.dedup();
+    paths.sort_by_key(|path| std::cmp::Reverse(path.as_os_str().len()));
+    for path in paths {
+        let path = path.to_string_lossy();
+        sanitized = sanitized.replace(path.as_ref(), "<workspace>");
+        sanitized = sanitized.replace(&path.replace("\\\\?\\", ""), "<workspace>");
+    }
+    sanitized
 }
 
 const APPLY_EXIT_ROLLED_BACK: i32 = 2;

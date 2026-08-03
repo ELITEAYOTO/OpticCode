@@ -235,6 +235,44 @@ fn case_limit_is_explicitly_reported_as_suite_truncation() {
 }
 
 #[test]
+fn explicit_case_selection_is_stable_and_rejects_unknown_ids() {
+    let temp = TempDirectory::new("eval selected cases");
+    let fixture = temp.path.join("fixture");
+    fs::create_dir_all(&fixture).unwrap();
+    fs::write(fixture.join("A.java"), "class A {}\n").unwrap();
+    let mut suite = tiny_suite("fixture");
+    let mut second = suite.cases[0].clone();
+    second.id = "tiny-2".to_string();
+    suite.cases.push(second);
+    let suite_path = temp.path.join("suite.json");
+    write_suite(&suite_path, &suite);
+
+    let report = run_evaluation(
+        &suite_path,
+        EvalRunOptions {
+            strategies: vec![EvalStrategy::Exact],
+            case_ids: vec!["tiny-2".to_string()],
+            ..EvalRunOptions::default()
+        },
+    )
+    .unwrap();
+    assert_eq!(report.results.len(), 1);
+    assert_eq!(report.results[0].case_id, "tiny-2");
+    assert_eq!(report.configuration.case_ids, vec!["tiny-2"]);
+
+    let error = run_evaluation(
+        &suite_path,
+        EvalRunOptions {
+            strategies: vec![EvalStrategy::Exact],
+            case_ids: vec!["missing".to_string()],
+            ..EvalRunOptions::default()
+        },
+    )
+    .unwrap_err();
+    assert!(error.to_string().contains("does not exist"));
+}
+
+#[test]
 fn baseline_comparison_detects_quality_regression() {
     let mut baseline = empty_report("base");
     baseline.summary.strategies = vec![strategy_summary(0.9, 100.0, 1_000)];
@@ -331,6 +369,7 @@ fn empty_report(run_id: &str) -> EvalRunReport {
         configuration: EvalConfiguration {
             strategies: vec![EvalStrategy::Symbol],
             repetitions: 1,
+            case_ids: Vec::new(),
             case_limit: None,
             suite_truncated: false,
             llm_mode: EvalLlmMode::Disabled,
@@ -383,6 +422,14 @@ fn strategy_summary(hit_at_5: f64, tokens: f64, latency: u64) -> EvalStrategySum
         latency_p50_us: latency,
         latency_p95_us: latency,
         analysis_complete_rate: 1.0,
+        generated_responses: 0,
+        generation_skipped: 0,
+        generation_failed: 0,
+        mean_actual_prompt_tokens: None,
+        mean_generated_tokens: None,
+        mean_deterministic_quality: None,
+        generation_latency_p50_us: None,
+        generation_latency_p95_us: None,
     }
 }
 

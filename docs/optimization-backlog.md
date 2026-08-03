@@ -87,6 +87,7 @@ empreintes.
 | DONE-014 | RAG-SAFE-001 fail-closed, provenance et publication atomique | termine |
 | DONE-015 | CONTEXT-001 symbolique, borne et explicable | termine |
 | DONE-016 | EVAL-001, corpus 45 cas et rapports reproductibles | termine |
+| DONE-017 | CONTEXT-002, integration ask/plan et A/B Qwen reel | termine |
 
 ## P0 - Securite avant agent
 
@@ -249,7 +250,8 @@ demande
 
 Resultat : cinq demandes reproductibles, tous les symboles/roles attendus,
 zero bruit interdit et 4 140 -> 1 206 tokens estimes (-70,87 %) face a
-`legacy_file_priority_v1`. La qualite Qwen reste a mesurer dans CONTEXT-002.
+`legacy_file_priority_v1`. CONTEXT-002 confirme le gain de prompt reel, sans
+encore prouver une qualite superieure a legacy.
 
 Acquis : JSON plat, scores/reasons, overloads, ambiguite, appelants, configs
 conditionnelles, ranges AST, cache de lecture, visited set et budgets explicites
@@ -481,21 +483,23 @@ Tree-sitter/Tantivy.
 9. Construire CODE-001B3, verification des edits en worktree. Fait.
 10. Construire CONTEXT-001 selection par tache. Fait.
 11. Securiser l'ingestion et la publication RAG avec RAG-SAFE-001. Fait.
-12. Mesurer CONTEXT-002 avant toute activation par defaut.
-13. Migrer vers INDEX-001/002 SQLite + Tantivy seulement si les mesures le justifient.
-14. Construire AGENT-001/002.
-15. Ajouter streaming/provider.
-16. Evaluer llama.cpp, Q5 et IDE seulement sur preuves.
+12. Mesurer CONTEXT-002 avant toute activation par defaut. Fait ; legacy conserve.
+13. Ajouter streaming, annulation et protocole LLM structure borne.
+14. Ajouter POLICY-001 avant toute boucle agent ecrivant.
+15. Prototyper Tantivy contre JSONL sur EVAL-001, sans embeddings.
+16. Construire AGENT-001/002 seulement apres protocole et politique.
+17. Evaluer llama.cpp, Q5 et IDE seulement sur preuves.
 
 ## Prochain sprint propose
 
-`CONTEXT-002 - Integration A/B du contexte symbolique dans ask/plan`.
+`LLM/PROTOCOL-001 - Streaming, annulation et protocole structure borne`.
 
-Le selecteur read-only est valide separement et reduit fortement la taille du
-prompt sur le corpus controle. La prochaine valeur produit est de verifier que
-ce contexte ameliore ou preserve les reponses de Qwen sans regression de
-latence, avant de remplacer le contexte historique.
+CONTEXT-002 a montre que le contexte symbolique reduit les tokens reels, mais ne
+justifie pas encore un changement de defaut. La prochaine valeur produit est un
+runtime interactif mesurable : streaming pour le temps au premier token,
+annulation propre et messages structures pour preparer les tools sans exposer un
+shell arbitraire ni lancer une boucle autonome.
 
-Contraintes du prochain sprint : activation optionnelle, memes prompts/modeles,
-mesures de prefill/generation/qualite, fallback explicite et aucune modification
-du workflow apply.
+Contraintes : conserver Ollama local, garder `stream=false` dans EVAL, versionner
+les evenements, borner tailles/temps et ne commencer ni provider complet,
+PolicyEngine, agent, IDE, llama.cpp ni RAG-002 dans ce sprint.

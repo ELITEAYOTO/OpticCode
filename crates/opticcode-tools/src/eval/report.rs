@@ -72,6 +72,31 @@ pub fn render_markdown_report(report: &EvalRunReport) -> String {
         ));
     }
 
+    if report
+        .summary
+        .strategies
+        .iter()
+        .any(|summary| summary.generated_responses > 0)
+    {
+        output.push_str("\n## LLM comparison\n\n");
+        output.push_str("| Strategy | Generated | LLM skip | LLM fail | Actual prompt tokens | Generated tokens | Quality | Gen p50 ms | Gen p95 ms |\n");
+        output.push_str("|---|---:|---:|---:|---:|---:|---:|---:|---:|\n");
+        for summary in &report.summary.strategies {
+            output.push_str(&format!(
+                "| {} | {} | {} | {} | {} | {} | {} | {} | {} |\n",
+                summary.strategy,
+                summary.generated_responses,
+                summary.generation_skipped,
+                summary.generation_failed,
+                format_optional_number(summary.mean_actual_prompt_tokens),
+                format_optional_number(summary.mean_generated_tokens),
+                format_rate(summary.mean_deterministic_quality),
+                format_optional_duration(summary.generation_latency_p50_us),
+                format_optional_duration(summary.generation_latency_p95_us),
+            ));
+        }
+    }
+
     if let Some(comparison) = &report.baseline {
         render_baseline(&mut output, comparison);
     }
@@ -177,6 +202,17 @@ fn write_atomic(path: &Path, content: &[u8]) -> Result<()> {
 
 fn format_rate(value: Option<f64>) -> String {
     value.map_or_else(|| "n/a".to_string(), |value| format!("{:.3}", value))
+}
+
+fn format_optional_number(value: Option<f64>) -> String {
+    value.map_or_else(|| "n/a".to_string(), |value| format!("{value:.1}"))
+}
+
+fn format_optional_duration(value: Option<u64>) -> String {
+    value.map_or_else(
+        || "n/a".to_string(),
+        |value| format!("{:.3}", value as f64 / 1_000.0),
+    )
 }
 
 fn escape_table(value: &str) -> String {
