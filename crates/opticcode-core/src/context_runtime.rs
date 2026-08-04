@@ -7,11 +7,11 @@ use opticcode_tools::java_context::{
     build_java_task_context, JavaTaskContextOptions, JavaTaskContextReport,
 };
 use opticcode_tools::{build_project_context, FileSnippet, ProjectContext};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 pub const ASSISTANT_CONTEXT_SCHEMA_VERSION: u32 = 1;
 
-#[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
 #[serde(rename_all = "snake_case")]
 pub enum ContextMode {
     Legacy,

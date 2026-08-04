@@ -1,6 +1,7 @@
 mod assistant_runtime;
 mod context_runtime;
 mod eval_runtime;
+mod protocol;
 
 pub use assistant_runtime::{
     AssistantCommandKind, AssistantCommandReport, AssistantGenerationConfiguration,
@@ -15,23 +16,36 @@ pub use context_runtime::{
     PreparedContextVariant, ASSISTANT_CONTEXT_SCHEMA_VERSION,
 };
 pub use eval_runtime::{enrich_evaluation_with_llm, EvalLlmRuntimeOptions};
+pub use protocol::{
+    assistant_event_channel, generated_request_id, validate_assistant_request_id,
+    AssistantEventReceiver, AssistantEventSink, AssistantProtocolEvent,
+    AssistantProtocolEventPayload, AssistantProtocolSession, ASSISTANT_PROTOCOL_ID,
+    ASSISTANT_PROTOCOL_SCHEMA_VERSION, DEFAULT_ASSISTANT_EVENT_CAPACITY,
+    MAX_ASSISTANT_REQUEST_ID_BYTES,
+};
 
 use std::collections::BTreeSet;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::{bail, Context, Result};
-use opticcode_llm::OllamaClient;
-pub use opticcode_llm::{parse_keep_alive, GenerateMetrics};
+use opticcode_llm::{
+    default_ollama_keep_alive, HealthRequest, LlmProvider, OllamaProvider,
+    DEFAULT_PROVIDER_TIMEOUT_MS, MAX_PROVIDER_TIMEOUT_MS,
+};
+pub use opticcode_llm::{parse_keep_alive, CancellationToken, GenerateMetrics, ProviderId};
 use opticcode_tools::search_rag_index_queries;
 use serde::Serialize;
 
 use assistant_runtime::{execute_assistant, AssistantExecutionOptions, AssistantExecutionOutput};
 
 pub struct OpticCode {
-    llm: OllamaClient,
+    llm: Arc<dyn LlmProvider>,
     model: String,
+    keep_alive: Option<String>,
+    http_timeout: Duration,
 }
 
 pub struct AskOptions {
@@ -125,11 +139,22 @@ const MAX_MEMORY_TOTAL_CHARS: usize = 7_000;
 const MAX_RAG_HITS: usize = 6;
 const MAX_RAG_TOTAL_CHARS: usize = 4_500;
 
+fn duration_ms(duration: Duration) -> u64 {
+    let nanos = duration.as_nanos();
+    nanos
+        .saturating_add(999_999)
+        .checked_div(1_000_000)
+        .unwrap_or(u128::from(u64::MAX))
+        .min(u128::from(u64::MAX)) as u64
+}
+
 impl OpticCode {
     pub fn new(ollama_url: impl Into<String>, model: impl Into<String>) -> Self {
         Self {
-            llm: OllamaClient::new(ollama_url),
+            llm: Arc::new(OllamaProvider::new(ollama_url)),
             model: model.into(),
+            keep_alive: default_ollama_keep_alive(),
+            http_timeout: Duration::from_millis(DEFAULT_PROVIDER_TIMEOUT_MS),
         }
     }
 
@@ -139,25 +164,62 @@ impl OpticCode {
             bail!("Ollama model name must not be empty");
         }
         Ok(Self {
-            llm: OllamaClient::try_new(ollama_url)?,
+            llm: Arc::new(OllamaProvider::try_new(ollama_url)?),
             model,
+            keep_alive: default_ollama_keep_alive(),
+            http_timeout: Duration::from_millis(DEFAULT_PROVIDER_TIMEOUT_MS),
+        })
+    }
+
+    pub fn with_provider(provider: Arc<dyn LlmProvider>, model: impl Into<String>) -> Result<Self> {
+        let model = model.into();
+        if model.trim().is_empty() {
+            bail!("LLM model name must not be empty");
+        }
+        Ok(Self {
+            llm: provider,
+            model,
+            keep_alive: None,
+            http_timeout: Duration::from_millis(DEFAULT_PROVIDER_TIMEOUT_MS),
         })
     }
 
     pub fn with_keep_alive(mut self, keep_alive: Option<String>) -> Self {
-        self.llm = self.llm.with_keep_alive(keep_alive);
+        self.keep_alive = keep_alive;
         self
     }
 
     pub fn with_http_timeout(mut self, timeout: Duration) -> Result<Self> {
-        self.llm = self.llm.with_timeout(timeout)?;
+        if timeout.is_zero() || timeout > Duration::from_millis(MAX_PROVIDER_TIMEOUT_MS) {
+            bail!(
+                "LLM provider timeout must be between 1 ns and {} milliseconds",
+                MAX_PROVIDER_TIMEOUT_MS
+            );
+        }
+        self.http_timeout = timeout;
         Ok(self)
     }
 
+    pub fn provider_id(&self) -> ProviderId {
+        self.llm.id()
+    }
+
+    pub fn provider_capabilities(&self) -> opticcode_llm::ProviderCapabilities {
+        self.llm.capabilities()
+    }
+
     pub async fn ensure_model_available(&self) -> Result<()> {
-        if !self.llm.model_available(&self.model).await? {
+        let health = self
+            .llm
+            .health(HealthRequest {
+                model: Some(self.model.clone()),
+                timeout_ms: duration_ms(self.http_timeout),
+                ..HealthRequest::default()
+            })
+            .await?;
+        if health.model_available != Some(true) {
             bail!(
-                "configured model `{}` is not present in the local Ollama inventory",
+                "configured model `{}` is not present in the provider inventory",
                 self.model
             );
         }
@@ -176,6 +238,14 @@ impl OpticCode {
         Ok(self.execute_ask(options).await?.report)
     }
 
+    pub async fn ask_with_protocol(
+        &self,
+        options: AskOptions,
+        session: AssistantProtocolSession,
+    ) -> Result<AssistantCommandReport> {
+        Ok(self.execute_ask_inner(options, Some(session)).await?.report)
+    }
+
     pub async fn plan_with_project_context(&self, options: PlanOptions) -> Result<String> {
         Ok(self.plan_with_metrics(options).await?.text)
     }
@@ -188,9 +258,28 @@ impl OpticCode {
         Ok(self.execute_plan(options).await?.report)
     }
 
+    pub async fn plan_with_protocol(
+        &self,
+        options: PlanOptions,
+        session: AssistantProtocolSession,
+    ) -> Result<AssistantCommandReport> {
+        Ok(self
+            .execute_plan_inner(options, Some(session))
+            .await?
+            .report)
+    }
+
     async fn execute_ask(&self, options: AskOptions) -> Result<AssistantExecutionOutput> {
+        self.execute_ask_inner(options, None).await
+    }
+
+    async fn execute_ask_inner(
+        &self,
+        options: AskOptions,
+        protocol: Option<AssistantProtocolSession>,
+    ) -> Result<AssistantExecutionOutput> {
         execute_assistant(
-            &self.llm,
+            self.llm.as_ref(),
             &self.model,
             AssistantExecutionOptions {
                 command: AssistantCommandKind::Ask,
@@ -209,14 +298,25 @@ impl OpticCode {
                 fallback_policy: options.fallback_policy,
                 compare_generate: options.compare_generate,
                 verify_model: options.verify_model,
+                keep_alive: self.keep_alive.clone(),
+                http_timeout: self.http_timeout,
+                protocol,
             },
         )
         .await
     }
 
     async fn execute_plan(&self, options: PlanOptions) -> Result<AssistantExecutionOutput> {
+        self.execute_plan_inner(options, None).await
+    }
+
+    async fn execute_plan_inner(
+        &self,
+        options: PlanOptions,
+        protocol: Option<AssistantProtocolSession>,
+    ) -> Result<AssistantExecutionOutput> {
         execute_assistant(
-            &self.llm,
+            self.llm.as_ref(),
             &self.model,
             AssistantExecutionOptions {
                 command: AssistantCommandKind::Plan,
@@ -235,6 +335,9 @@ impl OpticCode {
                 fallback_policy: options.fallback_policy,
                 compare_generate: options.compare_generate,
                 verify_model: options.verify_model,
+                keep_alive: self.keep_alive.clone(),
+                http_timeout: self.http_timeout,
+                protocol,
             },
         )
         .await

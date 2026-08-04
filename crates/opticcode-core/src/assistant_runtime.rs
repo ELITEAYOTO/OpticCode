@@ -1,20 +1,26 @@
 use std::path::Path;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use anyhow::{bail, Result};
-use opticcode_llm::{GenerateMetrics, GenerateOptions, OllamaClient};
-use serde::Serialize;
+use opticcode_llm::{
+    event_channel, CancellationToken, GenerateMetrics, GenerationRequest, GenerationResult,
+    HealthRequest, LlmProtocolEvent, LlmProvider, ProviderError, ProviderErrorKind,
+    ProviderGenerationOptions, MAX_REQUEST_ID_BYTES,
+};
+use serde::{Deserialize, Serialize};
 
+use crate::protocol::AssistantEventEmitter;
 use crate::{
     build_plan_prompt, build_prompt, load_memory_for_workspace, load_profile_for_workspace,
-    load_rag_context, prepare_assistant_context, ContextFallbackPolicy, ContextMode,
-    ContextPreparation, MemoryContext, ProfileContext, RagContext,
+    load_rag_context, prepare_assistant_context, AssistantProtocolEventPayload,
+    AssistantProtocolSession, ContextFallbackPolicy, ContextMode, ContextPreparation,
+    MemoryContext, ProfileContext, RagContext,
 };
 
 pub const ASSISTANT_RUN_SCHEMA_VERSION: u32 = 1;
 pub const ASSISTANT_PROMPT_VERSION: &str = "opticcode-assistant-prompt-v2";
 
-#[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum AssistantCommandKind {
     Ask,
@@ -88,7 +94,7 @@ pub struct AssistantRagReport {
     pub hits: Vec<AssistantRagHitReport>,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AssistantStructuredError {
     pub code: String,
     pub stage: String,
@@ -158,14 +164,106 @@ pub(crate) struct AssistantExecutionOptions<'a> {
     pub fallback_policy: ContextFallbackPolicy,
     pub compare_generate: bool,
     pub verify_model: bool,
+    pub keep_alive: Option<String>,
+    pub http_timeout: Duration,
+    pub protocol: Option<AssistantProtocolSession>,
 }
 
 pub(crate) async fn execute_assistant(
-    llm: &OllamaClient,
+    llm: &dyn LlmProvider,
     model: &str,
     options: AssistantExecutionOptions<'_>,
 ) -> Result<AssistantExecutionOutput> {
-    validate_execution_options(model, &options)?;
+    let emitter = options
+        .protocol
+        .as_ref()
+        .map(AssistantEventEmitter::new)
+        .transpose()?;
+    if let Some(emitter) = &emitter {
+        emitter
+            .send(AssistantProtocolEventPayload::Started {
+                command: options.command,
+                provider: llm.id(),
+                model: model.to_string(),
+                requested_context_mode: options.context_mode,
+            })
+            .await?;
+    }
+
+    let output = execute_assistant_inner(llm, model, &options, emitter.as_ref()).await;
+    match output {
+        Ok(output) => {
+            if let Some(emitter) = &emitter {
+                let payload = if output.report.success {
+                    AssistantProtocolEventPayload::Completed {
+                        report_schema_version: output.report.schema_version,
+                        generated_runs: output
+                            .report
+                            .runs
+                            .iter()
+                            .filter(|run| run.generated)
+                            .count(),
+                    }
+                } else if report_was_cancelled(&output.report) {
+                    AssistantProtocolEventPayload::Cancelled {
+                        errors: output.report.errors.clone(),
+                    }
+                } else {
+                    AssistantProtocolEventPayload::Failed {
+                        errors: output.report.errors.clone(),
+                    }
+                };
+                emitter.send(payload).await?;
+            }
+            Ok(output)
+        }
+        Err(error) => {
+            if let Some(emitter) = &emitter {
+                let structured = AssistantStructuredError {
+                    code: if options
+                        .protocol
+                        .as_ref()
+                        .is_some_and(|session| session.cancellation.is_cancelled())
+                    {
+                        "request_cancelled".to_string()
+                    } else {
+                        "command_failed".to_string()
+                    },
+                    stage: "assistant_runtime".to_string(),
+                    message: format!("{error:#}"),
+                    context_mode: None,
+                };
+                let payload = if structured.code == "request_cancelled" {
+                    AssistantProtocolEventPayload::Cancelled {
+                        errors: vec![structured],
+                    }
+                } else {
+                    AssistantProtocolEventPayload::Failed {
+                        errors: vec![structured],
+                    }
+                };
+                emitter.send(payload).await?;
+            }
+            Err(error)
+        }
+    }
+}
+
+async fn execute_assistant_inner(
+    llm: &dyn LlmProvider,
+    model: &str,
+    options: &AssistantExecutionOptions<'_>,
+    emitter: Option<&AssistantEventEmitter>,
+) -> Result<AssistantExecutionOutput> {
+    validate_execution_options(model, options)?;
+    let cancellation = options
+        .protocol
+        .as_ref()
+        .map(|session| session.cancellation.clone())
+        .unwrap_or_default();
+    if cancellation.is_cancelled() {
+        bail!("assistant request was cancelled before context preparation");
+    }
     let preparation_started = Instant::now();
     let context = prepare_assistant_context(
         options.workspace,
@@ -208,13 +306,13 @@ pub(crate) async fn execute_assistant(
     }
 
     let generation = AssistantGenerationConfiguration {
-        provider: "ollama",
-        endpoint: llm.base_url().to_string(),
+        provider: llm.id().as_str(),
+        endpoint: llm.endpoint().to_string(),
         model: model.to_string(),
         temperature: options.temperature,
         seed: options.seed,
         max_generated_tokens,
-        http_timeout_ms: duration_ms(llm.timeout()),
+        http_timeout_ms: duration_ms_ceil(options.http_timeout),
         absolute_determinism_guaranteed: false,
     };
     let modes = requested_run_modes(&context, options.context_mode);
@@ -264,7 +362,7 @@ pub(crate) async fn execute_assistant(
         command: options.command,
         request: options.request.to_string(),
         success: false,
-        provider: "ollama",
+        provider: llm.id().as_str(),
         model: model.to_string(),
         requested_context_mode: options.context_mode,
         used_context_mode: context.used_mode,
@@ -278,6 +376,34 @@ pub(crate) async fn execute_assistant(
         warnings,
         errors: Vec::new(),
     };
+
+    if let Some(emitter) = emitter {
+        emitter
+            .send(AssistantProtocolEventPayload::ContextPrepared {
+                requested_context_mode: report.requested_context_mode,
+                used_context_mode: report.used_context_mode,
+                analysis_complete: report.analysis_complete,
+                fallback_applied: report.context.fallback.is_some(),
+                variant_count: report.context.variants.len(),
+            })
+            .await?;
+    }
+
+    if cancellation.is_cancelled() {
+        attach_error(
+            &mut report,
+            AssistantStructuredError {
+                code: "request_cancelled".to_string(),
+                stage: "context_preparation".to_string(),
+                message: "assistant request was cancelled after context preparation".to_string(),
+                context_mode: None,
+            },
+        );
+        return Ok(AssistantExecutionOutput {
+            report,
+            raw_metrics: Vec::new(),
+        });
+    }
 
     if options.context_mode == ContextMode::Compare && !options.compare_generate {
         report.success = true;
@@ -310,17 +436,46 @@ pub(crate) async fn execute_assistant(
     }
 
     if options.verify_model {
-        match llm.model_available(model).await {
-            Ok(true) => {}
-            Ok(false) => {
+        // Report schema v1 keeps its Ollama labels; provider events carry the neutral error.
+        let health = llm.health(HealthRequest {
+            model: Some(model.to_string()),
+            timeout_ms: duration_ms_ceil(options.http_timeout),
+            ..HealthRequest::default()
+        });
+        tokio::pin!(health);
+        let health = tokio::select! {
+            _ = cancellation.cancelled() => {
+                Err(ProviderError::cancelled(llm.id(), "provider_preflight"))
+            }
+            health = &mut health => health,
+        };
+        match health {
+            Err(error) if error.kind == ProviderErrorKind::Cancelled => {
+                attach_error(
+                    &mut report,
+                    AssistantStructuredError {
+                        code: "request_cancelled".to_string(),
+                        stage: error.stage,
+                        message: "assistant request was cancelled during provider preflight"
+                            .to_string(),
+                        context_mode: None,
+                    },
+                );
+                return Ok(AssistantExecutionOutput {
+                    report,
+                    raw_metrics: Vec::new(),
+                });
+            }
+            Ok(health) if health.model_available == Some(true) => {}
+            Ok(_) => {
                 attach_error(
                     &mut report,
                     AssistantStructuredError {
                         code: "model_unavailable".to_string(),
                         stage: "ollama_preflight".to_string(),
                         message: format!(
-                        "configured model `{model}` is not present in the local Ollama inventory"
-                    ),
+                            "configured model `{model}` is not present in the local Ollama inventory"
+                        ),
                         context_mode: None,
                     },
                 );
@@ -335,7 +490,7 @@ pub(crate) async fn execute_assistant(
                     AssistantStructuredError {
                         code: "ollama_unavailable".to_string(),
                         stage: "ollama_preflight".to_string(),
-                        message: format!("local Ollama preflight failed: {error:#}"),
+                        message: format!("local Ollama preflight failed: {error}"),
                         context_mode: None,
                     },
                 );
@@ -347,32 +502,57 @@ pub(crate) async fn execute_assistant(
         }
     }
 
-    let generation_options = GenerateOptions {
-        num_predict: max_generated_tokens,
+    let generation_options = ProviderGenerationOptions {
+        max_output_tokens: max_generated_tokens,
         temperature: options.temperature,
         seed: options.seed,
+        keep_alive: options.keep_alive.clone(),
+        timeout_ms: duration_ms_ceil(options.http_timeout),
     };
     let mut raw_metrics = Vec::new();
+    let request_id = options
+        .protocol
+        .as_ref()
+        .map(|session| session.request_id.clone())
+        .unwrap_or_else(crate::generated_request_id);
     for (index, prompt) in prompts.iter().enumerate() {
         if report.runs[index].skipped_reason.is_some() {
             continue;
         }
         let mode = report.runs[index].context_mode;
-        match llm
-            .generate_timed_with_options(model, prompt, generation_options)
-            .await
-        {
+        let mut request =
+            GenerationRequest::new(provider_request_id(&request_id, mode), model, prompt);
+        request.options = generation_options.clone();
+        let generated = if let Some(emitter) = emitter {
+            stream_provider_generation(llm, request, mode, emitter, cancellation.clone()).await
+        } else {
+            llm.generate(request, cancellation.clone()).await
+        };
+        match generated {
             Ok(generated) => {
                 report.runs[index].generated = true;
-                report.runs[index].response = Some(generated.response);
-                report.runs[index].metrics = Some(metrics_report(&generated.metrics));
-                raw_metrics.push((mode, generated.metrics));
+                report.runs[index].response = Some(generated.output.clone());
+                report.runs[index].metrics = Some(metrics_report(&generated));
+                raw_metrics.push((mode, legacy_metrics(&generated, options.keep_alive.clone())));
             }
             Err(error) => {
+                let (code, stage, message) = if error.kind == ProviderErrorKind::Cancelled {
+                    (
+                        "generation_cancelled",
+                        error.stage.clone(),
+                        format!("local LLM provider generation failed: {error}"),
+                    )
+                } else {
+                    (
+                        "generation_failed",
+                        "ollama_generate".to_string(),
+                        format!("local Ollama generation failed: {error}"),
+                    )
+                };
                 let structured = AssistantStructuredError {
-                    code: "generation_failed".to_string(),
-                    stage: "ollama_generate".to_string(),
-                    message: format!("local Ollama generation failed: {error:#}"),
+                    code: code.to_string(),
+                    stage,
+                    message,
                     context_mode: Some(mode),
                 };
                 report.runs[index].error = Some(structured.clone());
@@ -393,7 +573,7 @@ pub(crate) async fn execute_assistant(
 
 fn validate_execution_options(model: &str, options: &AssistantExecutionOptions<'_>) -> Result<()> {
     if model.trim().is_empty() {
-        bail!("Ollama model name must not be empty");
+        bail!("LLM model name must not be empty");
     }
     if options.request.trim().is_empty() {
         bail!("assistant request must not be empty");
@@ -421,6 +601,17 @@ fn requested_run_modes(context: &ContextPreparation, requested: ContextMode) -> 
     } else {
         vec![requested]
     }
+}
+
+fn provider_request_id(assistant_request_id: &str, mode: ContextMode) -> String {
+    let suffix = format!(":{}", mode.as_str());
+    if assistant_request_id.len().saturating_add(suffix.len()) <= MAX_REQUEST_ID_BYTES {
+        return format!("{assistant_request_id}{suffix}");
+    }
+    let digest = blake3::hash(assistant_request_id.as_bytes())
+        .to_hex()
+        .to_string();
+    format!("assistant-{}{suffix}", &digest[..24])
 }
 
 fn compose_prompt(
@@ -453,24 +644,193 @@ fn prompt_report(prompt: &str) -> AssistantPromptReport {
     }
 }
 
-fn metrics_report(metrics: &GenerateMetrics) -> AssistantGenerationMetrics {
-    let generated_tokens_per_second = match (
-        metrics.eval_count,
-        metrics.eval_duration.map(|duration| duration.as_secs_f64()),
+async fn stream_provider_generation(
+    provider: &dyn LlmProvider,
+    request: GenerationRequest,
+    context_mode: ContextMode,
+    emitter: &AssistantEventEmitter,
+    cancellation: CancellationToken,
+) -> std::result::Result<GenerationResult, ProviderError> {
+    let mut validation = ProviderEventValidationState::new(&request);
+    let (events, mut receiver) = event_channel(64).map_err(|error| {
+        ProviderError::new(
+            provider.id(),
+            ProviderErrorKind::InvalidConfiguration,
+            "provider_event_channel",
+            false,
+            error.to_string(),
+        )
+    })?;
+    let generation = provider.stream(request, events, cancellation.clone());
+    tokio::pin!(generation);
+
+    loop {
+        tokio::select! {
+            result = &mut generation => {
+                while let Ok(event) = receiver.try_recv() {
+                    validate_and_forward_provider_event(
+                        provider,
+                        context_mode,
+                        event,
+                        &mut validation,
+                        emitter,
+                        &cancellation,
+                    ).await?;
+                }
+                return validate_provider_stream_completion(provider, result, &validation);
+            }
+            event = receiver.recv() => {
+                let Some(event) = event else {
+                    let result = (&mut generation).await;
+                    return validate_provider_stream_completion(provider, result, &validation);
+                };
+                validate_and_forward_provider_event(
+                    provider,
+                    context_mode,
+                    event,
+                    &mut validation,
+                    emitter,
+                    &cancellation,
+                ).await?;
+            }
+        }
+    }
+}
+
+struct ProviderEventValidationState {
+    expected_request_id: String,
+    expected_model: String,
+    next_sequence: u64,
+    terminal_count: usize,
+}
+
+impl ProviderEventValidationState {
+    fn new(request: &GenerationRequest) -> Self {
+        Self {
+            expected_request_id: request.request_id.clone(),
+            expected_model: request.model.clone(),
+            next_sequence: 0,
+            terminal_count: 0,
+        }
+    }
+}
+
+async fn validate_and_forward_provider_event(
+    provider: &dyn LlmProvider,
+    context_mode: ContextMode,
+    event: LlmProtocolEvent,
+    validation: &mut ProviderEventValidationState,
+    emitter: &AssistantEventEmitter,
+    cancellation: &CancellationToken,
+) -> std::result::Result<(), ProviderError> {
+    if validation.terminal_count > 0 {
+        cancellation.cancel();
+        return Err(provider_protocol_error(
+            provider,
+            "provider emitted an event after its terminal event",
+        ));
+    }
+    if let Err(error) = event.validate(
+        provider.id(),
+        &validation.expected_request_id,
+        &validation.expected_model,
+        validation.next_sequence,
     ) {
-        (Some(tokens), Some(seconds)) if seconds > 0.0 => Some(tokens as f64 / seconds),
-        _ => None,
-    };
+        cancellation.cancel();
+        return Err(error);
+    }
+    validation.next_sequence = validation.next_sequence.saturating_add(1);
+    if event.is_terminal() {
+        validation.terminal_count += 1;
+    }
+    if let Err(error) = emitter
+        .send(AssistantProtocolEventPayload::ProviderEvent {
+            context_mode,
+            event: Box::new(event),
+        })
+        .await
+    {
+        cancellation.cancel();
+        return Err(ProviderError::new(
+            provider.id(),
+            ProviderErrorKind::EventSinkClosed,
+            "assistant_event_forwarding",
+            false,
+            format!("failed to forward provider event: {error:#}"),
+        ));
+    }
+    Ok(())
+}
+
+fn validate_provider_stream_completion(
+    provider: &dyn LlmProvider,
+    result: std::result::Result<GenerationResult, ProviderError>,
+    validation: &ProviderEventValidationState,
+) -> std::result::Result<GenerationResult, ProviderError> {
+    if validation.terminal_count != 1 {
+        return Err(provider_protocol_error(
+            provider,
+            format!(
+                "provider stream expected exactly one terminal event, received {}",
+                validation.terminal_count
+            ),
+        ));
+    }
+    result
+}
+
+fn provider_protocol_error(
+    provider: &dyn LlmProvider,
+    message: impl Into<String>,
+) -> ProviderError {
+    ProviderError::new(
+        provider.id(),
+        ProviderErrorKind::Protocol,
+        "provider_event_validation",
+        false,
+        message,
+    )
+}
+
+fn metrics_report(result: &GenerationResult) -> AssistantGenerationMetrics {
+    let generated_tokens_per_second =
+        match (result.usage.generated_tokens, result.timings.generation_ms) {
+            (Some(tokens), Some(milliseconds)) if milliseconds > 0 => {
+                Some(tokens as f64 * 1_000.0 / milliseconds as f64)
+            }
+            _ => None,
+        };
     AssistantGenerationMetrics {
-        client_ms: duration_ms(metrics.client_duration),
-        ollama_total_ms: metrics.ollama_total_duration.map(duration_ms),
-        ollama_load_ms: metrics.ollama_load_duration.map(duration_ms),
-        prompt_eval_count: metrics.prompt_eval_count,
-        prompt_eval_ms: metrics.prompt_eval_duration.map(duration_ms),
-        generated_tokens: metrics.eval_count,
-        generation_ms: metrics.eval_duration.map(duration_ms),
+        client_ms: result.timings.client_ms,
+        ollama_total_ms: result.timings.provider_total_ms,
+        ollama_load_ms: result.timings.load_ms,
+        prompt_eval_count: result.usage.prompt_tokens,
+        prompt_eval_ms: result.timings.prompt_eval_ms,
+        generated_tokens: result.usage.generated_tokens,
+        generation_ms: result.timings.generation_ms,
         generated_tokens_per_second,
     }
+}
+
+fn legacy_metrics(result: &GenerationResult, keep_alive: Option<String>) -> GenerateMetrics {
+    GenerateMetrics {
+        client_duration: Duration::from_millis(result.timings.client_ms),
+        prompt_chars: result.prompt_chars,
+        ollama_total_duration: result.timings.provider_total_ms.map(Duration::from_millis),
+        ollama_load_duration: result.timings.load_ms.map(Duration::from_millis),
+        keep_alive,
+        prompt_eval_count: result.usage.prompt_tokens,
+        prompt_eval_duration: result.timings.prompt_eval_ms.map(Duration::from_millis),
+        eval_count: result.usage.generated_tokens,
+        eval_duration: result.timings.generation_ms.map(Duration::from_millis),
+    }
+}
+
+fn report_was_cancelled(report: &AssistantCommandReport) -> bool {
+    report
+        .errors
+        .iter()
+        .any(|error| error.code == "generation_cancelled" || error.code == "request_cancelled")
 }
 
 fn rag_report(enabled: bool, rag: &RagContext) -> AssistantRagReport {
@@ -535,8 +895,13 @@ fn duration_us(duration: std::time::Duration) -> u64 {
     duration.as_micros().min(u128::from(u64::MAX)) as u64
 }
 
-fn duration_ms(duration: std::time::Duration) -> u64 {
-    duration.as_millis().min(u128::from(u64::MAX)) as u64
+fn duration_ms_ceil(duration: Duration) -> u64 {
+    let nanos = duration.as_nanos();
+    nanos
+        .saturating_add(999_999)
+        .checked_div(1_000_000)
+        .unwrap_or(u128::from(u64::MAX))
+        .min(u128::from(u64::MAX)) as u64
 }
 
 #[cfg(test)]
@@ -545,10 +910,22 @@ mod tests {
     use std::net::TcpListener;
     use std::path::PathBuf;
     use std::sync::mpsc::{self, Receiver};
+    use std::sync::Arc;
     use std::thread;
     use std::time::Duration;
 
-    use crate::{AskOptions, ContextFallbackPolicy, ContextMode, OpticCode, PlanOptions};
+    use async_trait::async_trait;
+    use opticcode_llm::{
+        CancellationToken, EventSink, FinishReason, GenerationRequest, GenerationResult,
+        GenerationTimings, GenerationUsage, HealthReport, HealthRequest, HealthStatus,
+        LlmProtocolEvent, LlmProtocolEventPayload, LlmProvider, ModelInfo, ProviderCapabilities,
+        ProviderError, ProviderId, LLM_PROTOCOL_SCHEMA_VERSION,
+    };
+
+    use crate::{
+        assistant_event_channel, AskOptions, AssistantProtocolEventPayload,
+        AssistantProtocolSession, ContextFallbackPolicy, ContextMode, OpticCode, PlanOptions,
+    };
 
     const TAGS: &str =
         r#"{"models":[{"name":"qwen2.5-coder:14b","model":"qwen2.5-coder:14b","size":1}]}"#;
@@ -608,6 +985,277 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn injected_provider_streams_without_ollama_coupling() {
+        let app = OpticCode::with_provider(
+            Arc::new(FixtureProvider {
+                invalid_sequence: false,
+                health_delay: Duration::ZERO,
+            }),
+            "fixture-coder",
+        )
+        .unwrap();
+        let (events, mut receiver) = assistant_event_channel(16).unwrap();
+        let report = app
+            .ask_with_protocol(
+                ask_options("Locate Helpers#ping().", ContextMode::Legacy),
+                AssistantProtocolSession {
+                    request_id: "provider-fixture-1".to_string(),
+                    events,
+                    cancellation: CancellationToken::new(),
+                },
+            )
+            .await
+            .unwrap();
+        let mut observed = Vec::new();
+        while let Some(event) = receiver.recv().await {
+            observed.push(event);
+        }
+
+        assert!(report.success);
+        assert_eq!(report.generation.endpoint, "fixture://local");
+        assert_eq!(report.runs[0].response.as_deref(), Some("fixture response"));
+        assert_eq!(
+            observed.iter().filter(|event| event.is_terminal()).count(),
+            1
+        );
+        let reconstructed = observed
+            .iter()
+            .filter_map(|event| event.output_delta())
+            .collect::<String>();
+        assert_eq!(reconstructed, "fixture response");
+    }
+
+    #[tokio::test]
+    async fn invalid_provider_sequence_becomes_a_structured_assistant_failure() {
+        let app = OpticCode::with_provider(
+            Arc::new(FixtureProvider {
+                invalid_sequence: true,
+                health_delay: Duration::ZERO,
+            }),
+            "fixture-coder",
+        )
+        .unwrap();
+        let (events, mut receiver) = assistant_event_channel(16).unwrap();
+        let report = app
+            .ask_with_protocol(
+                ask_options("Locate Helpers#ping().", ContextMode::Legacy),
+                AssistantProtocolSession {
+                    request_id: "provider-fixture-bad-1".to_string(),
+                    events,
+                    cancellation: CancellationToken::new(),
+                },
+            )
+            .await
+            .unwrap();
+        let mut observed = Vec::new();
+        while let Some(event) = receiver.recv().await {
+            observed.push(event);
+        }
+
+        assert!(!report.success);
+        assert_eq!(report.errors[0].code, "generation_failed");
+        assert!(report.errors[0].message.contains("sequence mismatch"));
+        assert!(matches!(
+            observed.last().unwrap().payload,
+            AssistantProtocolEventPayload::Failed { .. }
+        ));
+    }
+
+    #[tokio::test]
+    async fn cancellation_interrupts_a_slow_provider_preflight() {
+        let app = OpticCode::with_provider(
+            Arc::new(FixtureProvider {
+                invalid_sequence: false,
+                health_delay: Duration::from_secs(5),
+            }),
+            "fixture-coder",
+        )
+        .unwrap();
+        let (events, mut receiver) = assistant_event_channel(16).unwrap();
+        let cancellation = CancellationToken::new();
+        let task_cancellation = cancellation.clone();
+        let task = tokio::spawn(async move {
+            app.ask_with_protocol(
+                ask_options("Locate Helpers#ping().", ContextMode::Legacy),
+                AssistantProtocolSession {
+                    request_id: "cancel-preflight-1".to_string(),
+                    events,
+                    cancellation: task_cancellation,
+                },
+            )
+            .await
+            .unwrap()
+        });
+
+        assert!(matches!(
+            receiver.recv().await.unwrap().payload,
+            AssistantProtocolEventPayload::Started { .. }
+        ));
+        assert!(matches!(
+            receiver.recv().await.unwrap().payload,
+            AssistantProtocolEventPayload::ContextPrepared { .. }
+        ));
+        cancellation.cancel();
+        let report = tokio::time::timeout(Duration::from_secs(2), task)
+            .await
+            .unwrap()
+            .unwrap();
+        let terminal = receiver.recv().await.unwrap();
+
+        assert!(!report.success);
+        assert_eq!(report.errors[0].code, "request_cancelled");
+        assert!(matches!(
+            terminal.payload,
+            AssistantProtocolEventPayload::Cancelled { .. }
+        ));
+        assert!(receiver.recv().await.is_none());
+    }
+
+    struct FixtureProvider {
+        invalid_sequence: bool,
+        health_delay: Duration,
+    }
+
+    #[async_trait]
+    impl LlmProvider for FixtureProvider {
+        fn id(&self) -> ProviderId {
+            ProviderId::Ollama
+        }
+
+        fn endpoint(&self) -> &str {
+            "fixture://local"
+        }
+
+        fn capabilities(&self) -> ProviderCapabilities {
+            ProviderCapabilities {
+                local_only: true,
+                health: true,
+                model_listing: true,
+                generation: true,
+                streaming: true,
+                cancellation: true,
+                token_usage: true,
+                provider_timings: true,
+                deterministic_seed: true,
+            }
+        }
+
+        async fn health(
+            &self,
+            request: HealthRequest,
+        ) -> std::result::Result<HealthReport, ProviderError> {
+            if !self.health_delay.is_zero() {
+                tokio::time::sleep(self.health_delay).await;
+            }
+            let model_available = request.model.as_ref().map(|_| true);
+            Ok(HealthReport {
+                schema_version: LLM_PROTOCOL_SCHEMA_VERSION,
+                provider: self.id(),
+                endpoint: self.endpoint().to_string(),
+                status: HealthStatus::Healthy,
+                reachable: true,
+                latency_ms: 0,
+                model_count: 1,
+                requested_model: request.model,
+                model_available,
+            })
+        }
+
+        async fn list_models(&self) -> std::result::Result<Vec<ModelInfo>, ProviderError> {
+            Ok(Vec::new())
+        }
+
+        async fn generate(
+            &self,
+            request: GenerationRequest,
+            _cancellation: CancellationToken,
+        ) -> std::result::Result<GenerationResult, ProviderError> {
+            Ok(fixture_generation_result(&request))
+        }
+
+        async fn stream(
+            &self,
+            request: GenerationRequest,
+            events: EventSink,
+            _cancellation: CancellationToken,
+        ) -> std::result::Result<GenerationResult, ProviderError> {
+            events
+                .send(LlmProtocolEvent::new(
+                    &request.request_id,
+                    0,
+                    LlmProtocolEventPayload::Started {
+                        provider: self.id(),
+                        model: request.model.clone(),
+                    },
+                ))
+                .await
+                .unwrap();
+            events
+                .send(LlmProtocolEvent::new(
+                    &request.request_id,
+                    if self.invalid_sequence { 2 } else { 1 },
+                    LlmProtocolEventPayload::Delta {
+                        text: "fixture response".to_string(),
+                    },
+                ))
+                .await
+                .unwrap();
+            let result = fixture_generation_result(&request);
+            if !self.invalid_sequence {
+                events
+                    .send(LlmProtocolEvent::new(
+                        &request.request_id,
+                        2,
+                        LlmProtocolEventPayload::Completed {
+                            result: result.clone(),
+                        },
+                    ))
+                    .await
+                    .unwrap();
+            }
+            Ok(result)
+        }
+    }
+
+    fn fixture_generation_result(request: &GenerationRequest) -> GenerationResult {
+        GenerationResult {
+            schema_version: LLM_PROTOCOL_SCHEMA_VERSION,
+            request_id: request.request_id.clone(),
+            provider: ProviderId::Ollama,
+            model: request.model.clone(),
+            output: "fixture response".to_string(),
+            finish_reason: FinishReason::Stop,
+            prompt_chars: request.prompt.chars().count(),
+            usage: GenerationUsage {
+                prompt_tokens: Some(10),
+                generated_tokens: Some(2),
+            },
+            timings: GenerationTimings {
+                client_ms: 1,
+                provider_total_ms: Some(1),
+                load_ms: Some(0),
+                prompt_eval_ms: Some(1),
+                generation_ms: Some(1),
+            },
+        }
+    }
+
+    #[test]
+    fn provider_request_ids_stay_bounded_and_context_specific() {
+        let assistant_id = "x".repeat(crate::protocol::MAX_ASSISTANT_REQUEST_ID_BYTES);
+        let legacy = super::provider_request_id(&assistant_id, ContextMode::Legacy);
+        let symbol = super::provider_request_id(&assistant_id, ContextMode::Symbol);
+
+        assert!(legacy.len() <= opticcode_llm::MAX_REQUEST_ID_BYTES);
+        assert!(opticcode_llm::validate_request_id(&legacy, ProviderId::Ollama).is_ok());
+        assert_ne!(legacy, symbol);
+        assert_eq!(
+            super::provider_request_id("request-1", ContextMode::Legacy),
+            "request-1:legacy"
+        );
+    }
+
+    #[tokio::test]
     async fn plan_symbol_generates_when_analysis_is_complete() {
         let (app, _requests) = app(vec![TAGS, GENERATE]);
         let report = app
@@ -651,6 +1299,26 @@ mod tests {
         assert_eq!(report.runs.len(), 2);
         assert!(report.runs.iter().all(|run| !run.generated));
         assert!(!report.double_generation_authorized);
+    }
+
+    #[tokio::test]
+    async fn ollama_preflight_error_codes_remain_backward_compatible() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        drop(listener);
+        let app = OpticCode::try_new(format!("http://{address}"), "qwen2.5-coder:14b")
+            .unwrap()
+            .with_http_timeout(Duration::from_millis(200))
+            .unwrap();
+
+        let report = app
+            .ask_with_report(ask_options("Locate Helpers#ping().", ContextMode::Legacy))
+            .await
+            .unwrap();
+
+        assert!(!report.success);
+        assert_eq!(report.errors[0].code, "ollama_unavailable");
+        assert_eq!(report.errors[0].stage, "ollama_preflight");
     }
 
     #[tokio::test]

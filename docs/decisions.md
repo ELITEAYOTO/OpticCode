@@ -1244,3 +1244,37 @@ Raison :
   changement silencieux de comportement.
 
 Reference : [`context-integration.md`](context-integration.md).
+
+### D-065 - Versionner les flux LLM avant toute interface
+
+Statut : valide.
+
+Decision :
+
+- isoler les contrats provider dans `opticcode-llm` et Ollama dans son propre
+  adaptateur ;
+- injecter `Arc<dyn LlmProvider>` dans le coeur tout en conservant les
+  constructeurs Ollama historiques ;
+- exposer health, modeles, generation, streaming, capacites et erreurs communes ;
+- garder les URL Ollama strictement locales ;
+- versionner separement `opticcode.llm` et `opticcode.assistant` en schema 1 ;
+- imposer request IDs bornes, sequences strictes et un terminal unique ;
+- revalider les flux provider dans le coeur avant de les encapsuler ;
+- utiliser des canaux bornes et une annulation cooperative jusqu'a la lecture
+  HTTP ;
+- garder le chemin historique non streame et EVAL inchange ;
+- exposer `--stream` pour l'humain et `--protocol-jsonl` pour les machines ;
+- repousser provider distant, llama.cpp, IDE, politique et boucle agent.
+
+Raison :
+
+- une extension ne doit ni parser la sortie humaine ni dependre du NDJSON
+  Ollama ;
+- une abstraction sans health, erreurs, annulation et capacites communes ne
+  suffit pas a rendre les providers interchangeables ;
+- les sequences et terminaux rendent les interruptions detectables ;
+- la backpressure evite un buffer intermediaire non borne ;
+- conserver les anciens chemins limite le risque de regression sur les mesures
+  CONTEXT-002 et EVAL-001.
+
+Reference : [`llm-protocol.md`](llm-protocol.md).

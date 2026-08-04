@@ -453,8 +453,9 @@ Limites :
 - estimation de tokens non specifique au tokenizer Qwen ;
 - le mode symbolique reste volontairement optionnel dans `ask` et `plan`.
 
-Suite : enrichir le protocole LLM et la politique avant toute boucle agent ; ne
-promouvoir `symbol` qu'apres davantage de repetitions et de revues humaines.
+Suite : LLM/PROTOCOL-001 est termine. Ajouter POLICY-001 avant toute boucle
+agent ; ne promouvoir `symbol` qu'apres davantage de repetitions et de revues
+humaines.
 
 References : [`java-syntax.md`](java-syntax.md), [`java-index.md`](java-index.md),
 [`java-edits.md`](java-edits.md) et
@@ -488,14 +489,15 @@ Acquis CONTEXT-002 :
 - Recall@k 0,833 -> 1,000, mais qualite 0,556 -> 0,333 ;
 - decision conservee : `legacy` reste le defaut.
 
-Suite : `LLM/PROTOCOL-001`, puis `POLICY-001`. RAG-002/Tantivy reste un
-prototype mesure distinct, sans embeddings dans sa premiere iteration.
+Suite : `LLM/PROTOCOL-001` est termine ; `POLICY-001` devient prioritaire.
+RAG-002/Tantivy reste un prototype mesure distinct, sans embeddings dans sa
+premiere iteration.
 
 Reference : [`evaluation.md`](evaluation.md).
 
 ## Phase 5.7 - Profils, memoire et optimisation controlee
 
-Statut : cadree.
+Statut : cadree, avec LLM/PROTOCOL-001 termine.
 
 Objectif :
 
@@ -505,12 +507,12 @@ Objectif :
 
 Priorites :
 
-1. Streaming pour confort interactif.
-2. Protocole d'outils structure et annulation LLM.
-3. Politique deny-by-default avant agent ecrivant.
+1. Streaming, abstraction provider, annulation et protocole LLM. Fait.
+2. Politique deny-by-default avant agent ecrivant.
+3. Contrats d'outils structures apres la politique.
 4. Packs RAG lies aux profils.
-4. Feedback accepted/rejected.
-5. Benchmark Q4/Q5 plus tard.
+5. Feedback accepted/rejected.
+6. Benchmark Q4/Q5 plus tard.
 
 Decisions :
 
@@ -524,6 +526,7 @@ Livrable :
 - `docs/ideas-triage.md`
 - `docs/profiles.md`
 - `docs/memory.md`
+- `docs/llm-protocol.md`
 
 ## Phase 6 - RAG local et donnees metier
 

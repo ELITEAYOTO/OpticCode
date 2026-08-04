@@ -241,7 +241,8 @@ Le cycle GIT-002 accepte maintenant une etape apply injectee, mais conserve une
 seule implementation du worktree, du build, du diff et du cleanup. Les futures
 regles Java ne doivent pas ajouter leur logique dans `worktree.rs`.
 
-LEGACY-002, CONTEXT-001, RAG-SAFE-001, EVAL-001 et CONTEXT-002 sont termines.
+LEGACY-002, CONTEXT-001, RAG-SAFE-001, EVAL-001, CONTEXT-002 et
+LLM/PROTOCOL-001 sont termines.
 Le contexte symbolique reste optionnel : il reduit le prefill mais n'a pas encore
 depasse la qualite legacy sur l'echantillon Qwen. Un index incremental/persistant
 attendra un prototype Tantivy mesure. Voir [`java-syntax.md`](java-syntax.md),
@@ -252,22 +253,37 @@ attendra un prototype Tantivy mesure. Voir [`java-syntax.md`](java-syntax.md),
 
 ## Runtime LLM
 
-Interface cible :
+Etat LLM/PROTOCOL-001 implemente :
 
 ```rust
-pub trait LlmProvider {
-    async fn chat(&self, request: ChatRequest) -> anyhow::Result<ChatResponse>;
+#[async_trait]
+pub trait LlmProvider: Send + Sync {
+    fn id(&self) -> ProviderId;
+    fn endpoint(&self) -> &str;
+    fn capabilities(&self) -> ProviderCapabilities;
+    async fn health(&self, request: HealthRequest) -> Result<HealthReport, ProviderError>;
+    async fn list_models(&self) -> Result<Vec<ModelInfo>, ProviderError>;
+    async fn generate(&self, request: GenerationRequest, cancellation: CancellationToken)
+        -> Result<GenerationResult, ProviderError>;
+    async fn stream(&self, request: GenerationRequest, events: EventSink,
+        cancellation: CancellationToken) -> Result<GenerationResult, ProviderError>;
 }
 ```
 
-Providers envisages :
+- contrats provider Serde sous `opticcode.llm` schema 1 ;
+- cycle assistant sous `opticcode.assistant` schema 1 ;
+- request IDs, tailles, timeouts, canaux et lignes NDJSON bornes ;
+- sequences strictes et exactement un terminal valide par flux ;
+- streaming, backpressure et annulation cooperative de bout en bout ;
+- `OllamaProvider` local comme seule implementation de production ;
+- injection `Arc<dyn LlmProvider>` testee dans le coeur ;
+- anciens appels non streames et EVAL preserves.
 
-- `OllamaProvider`
-- `OpenAiCompatibleProvider`
-- `LmStudioProvider`
-- `LlamaCppProvider`
+Les providers OpenAI-compatible, LM Studio et llama.cpp restent des options
+futures. Ils ne doivent etre ajoutes qu'avec leurs propres benchmarks et sans
+affaiblir la restriction locale du chemin Ollama.
 
-Le MVP doit commencer par un seul provider local stable, probablement Ollama ou LM Studio.
+Reference : [`llm-protocol.md`](llm-protocol.md).
 
 Regle d'optimisation :
 

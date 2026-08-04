@@ -45,6 +45,8 @@ local, Git isole les essais et Maven/Gradle compilent les projets Java.
 - revalidation et application de ces edits dans un worktree detache ;
 - transaction, reparse disque, build borne, hashes Git finaux et cleanup ;
 - aucune modification automatique provenant directement du modele.
+- provider LLM injectable, streaming local annule proprement et protocole JSONL
+  versionne pour les interfaces futures.
 
 ## Etat actuel
 
@@ -57,8 +59,13 @@ temporaire.
 CONTEXT-001 sait maintenant distinguer les overloads, signaler une ambiguite,
 suivre un niveau de relations exactes et n'ajouter `pom.xml` ou `plugin.yml` que
 si la demande le justifie. Sur cinq demandes controlees, il passe de 4 140 a
-1 206 tokens estimes face au contexte historique (-70,87 %). Il reste volontairement
-separe de `ask` et `plan` avant le benchmark Qwen A/B.
+1 206 tokens estimes face au contexte historique (-70,87 %). CONTEXT-002
+l'integre dans `ask` et `plan` en opt-in ; `legacy` reste le defaut car le
+premier A/B Qwen n'a pas encore prouve une qualite superieure.
+
+LLM/PROTOCOL-001 separe maintenant les contrats du provider de l'adaptateur
+Ollama. Les interfaces peuvent consommer des evenements versionnes et ordonnes,
+ou utiliser le streaming humain, sans lire directement le protocole Ollama.
 
 La production read-only d'edits Java cibles est disponible pour 26 regles
 Bukkit 1.8 avec sources epinglees et compilation legacy. L'index refuse de choisir arbitrairement entre deux classes ou
@@ -74,12 +81,13 @@ toucher la source.
 - index RAG incremental et scalable avec cache de generations ;
 - boucle agent bornee plan -> tools -> build -> correction ;
 - approbation finale et promotion controlee ;
-- evaluation qualite, vitesse et consommation de tokens sur des projets reels.
-- integration A/B du contexte symbolique dans les commandes LLM ;
+- evaluation qualite, vitesse et consommation de tokens sur des projets reels ;
+- politique deny-by-default des outils et des approbations ;
 
 Pour les details techniques, voir la [roadmap](roadmap.md),
 l'[architecture](architecture.md), la
 [preuve des regles legacy](java-legacy-rules.md), la
-[verification B3](java-edit-worktree.md) et
-l'[selection de contexte Java](java-context.md), puis
-l'[audit complet](project-audit-2026-07-11.md).
+[verification B3](java-edit-worktree.md),
+l'[selection de contexte Java](java-context.md),
+l'[integration CONTEXT-002](context-integration.md), puis le
+[protocole LLM](llm-protocol.md) et l'[audit complet](project-audit-2026-07-11.md).

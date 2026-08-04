@@ -1,4 +1,5 @@
 use std::fs;
+use std::future::Future;
 use std::path::{Path, PathBuf};
 use std::process::Command as ProcessCommand;
 use std::time::{Duration, Instant};
@@ -6,10 +7,14 @@ use std::time::{Duration, Instant};
 use anyhow::{bail, Context, Result};
 use clap::{Args, Parser, Subcommand};
 use opticcode_core::{
-    enrich_evaluation_with_llm, load_memory_for_workspace, load_profile_for_workspace,
-    load_rag_context, parse_keep_alive, AskOptions, AssistantCommandKind, AssistantCommandReport,
-    AssistantStructuredError, ContextFallbackPolicy, ContextMode, EvalLlmRuntimeOptions,
-    GenerateMetrics, OpticCode, PlanOptions, RagContext, DEFAULT_PROFILE,
+    assistant_event_channel, enrich_evaluation_with_llm, generated_request_id,
+    load_memory_for_workspace, load_profile_for_workspace, load_rag_context, parse_keep_alive,
+    validate_assistant_request_id, AskOptions, AssistantCommandKind, AssistantCommandReport,
+    AssistantEventReceiver, AssistantProtocolEvent, AssistantProtocolEventPayload,
+    AssistantProtocolSession, AssistantStructuredError, CancellationToken as LlmCancellationToken,
+    ContextFallbackPolicy, ContextMode, EvalLlmRuntimeOptions, GenerateMetrics, OpticCode,
+    PlanOptions, RagContext, ASSISTANT_PROTOCOL_ID, ASSISTANT_PROTOCOL_SCHEMA_VERSION,
+    DEFAULT_ASSISTANT_EVENT_CAPACITY, DEFAULT_PROFILE,
 };
 use opticcode_tools::apply_transaction::{
     apply_transaction_error_kind, inspect_apply_transaction, list_apply_transactions,
@@ -228,6 +233,18 @@ struct AssistantSharedArgs {
     strict_context: bool,
     #[arg(long)]
     compare_generate: bool,
+    #[arg(
+        long,
+        conflicts_with_all = ["json", "metrics_json", "protocol_jsonl"]
+    )]
+    stream: bool,
+    #[arg(
+        long,
+        conflicts_with_all = ["json", "metrics", "metrics_json", "stream"]
+    )]
+    protocol_jsonl: bool,
+    #[arg(long, requires = "protocol_jsonl")]
+    request_id: Option<String>,
     #[arg(long, conflicts_with = "metrics_json")]
     json: bool,
     #[arg(long)]
@@ -772,6 +789,10 @@ async fn run_assistant_command(command: IsolatedAssistantCommand) -> Result<()> 
 
 async fn run_isolated_ask(args: AskArgs) -> Result<()> {
     let AskArgs { prompt, shared } = args;
+    let stream = shared.stream;
+    let protocol_jsonl = shared.protocol_jsonl;
+    let protocol_request_id = shared.request_id.clone();
+    let stream_metrics = shared.metrics;
     let app = match create_opticcode(
         &shared.ollama_url,
         &shared.model,
@@ -779,20 +800,30 @@ async fn run_isolated_ask(args: AskArgs) -> Result<()> {
         shared.http_timeout_ms,
     ) {
         Ok(app) => app,
-        Err(error) if shared.json => {
-            print_assistant_command_error(
-                AssistantCommandKind::Ask,
-                &prompt,
-                &shared.model,
-                shared.context_mode,
-                &shared.path,
-                &error,
-            )?;
+        Err(error) if shared.json || protocol_jsonl => {
+            if protocol_jsonl {
+                print_assistant_protocol_setup_error(
+                    AssistantCommandKind::Ask,
+                    protocol_request_id.as_deref(),
+                    shared.context_mode,
+                    &shared.path,
+                    &error,
+                )?;
+            } else {
+                print_assistant_command_error(
+                    AssistantCommandKind::Ask,
+                    &prompt,
+                    &shared.model,
+                    shared.context_mode,
+                    &shared.path,
+                    &error,
+                )?;
+            }
             std::process::exit(2);
         }
         Err(error) => return Err(error),
     };
-    if shared.rag_debug && !shared.no_rag && !shared.json {
+    if shared.rag_debug && !shared.no_rag && !shared.json && !protocol_jsonl {
         print_rag_debug(&shared.rag_index, &prompt, shared.rag_limit)?;
     }
     let options = AskOptions {
@@ -812,7 +843,31 @@ async fn run_isolated_ask(args: AskArgs) -> Result<()> {
         compare_generate: shared.compare_generate,
         verify_model: true,
     };
-    if shared.json || shared.context_mode == ContextMode::Compare {
+    if stream || protocol_jsonl {
+        let (session, receiver, cancellation) =
+            match prepare_assistant_protocol_session(protocol_request_id) {
+                Ok(prepared) => prepared,
+                Err(error) if protocol_jsonl => {
+                    print_assistant_protocol_setup_error(
+                        AssistantCommandKind::Ask,
+                        None,
+                        shared.context_mode,
+                        &shared.path,
+                        &error,
+                    )?;
+                    std::process::exit(2);
+                }
+                Err(error) => return Err(error),
+            };
+        drive_assistant_protocol(
+            app.ask_with_protocol(options, session),
+            receiver,
+            cancellation,
+            protocol_jsonl,
+            stream_metrics,
+        )
+        .await
+    } else if shared.json || shared.context_mode == ContextMode::Compare {
         match app.ask_with_report(options).await {
             Ok(report) => {
                 finish_assistant_report(&report, shared.json, shared.metrics, shared.metrics_json)
@@ -847,6 +902,10 @@ async fn run_isolated_ask(args: AskArgs) -> Result<()> {
 
 async fn run_isolated_plan(args: PlanArgs) -> Result<()> {
     let PlanArgs { goal, shared } = args;
+    let stream = shared.stream;
+    let protocol_jsonl = shared.protocol_jsonl;
+    let protocol_request_id = shared.request_id.clone();
+    let stream_metrics = shared.metrics;
     let app = match create_opticcode(
         &shared.ollama_url,
         &shared.model,
@@ -854,20 +913,30 @@ async fn run_isolated_plan(args: PlanArgs) -> Result<()> {
         shared.http_timeout_ms,
     ) {
         Ok(app) => app,
-        Err(error) if shared.json => {
-            print_assistant_command_error(
-                AssistantCommandKind::Plan,
-                &goal,
-                &shared.model,
-                shared.context_mode,
-                &shared.path,
-                &error,
-            )?;
+        Err(error) if shared.json || protocol_jsonl => {
+            if protocol_jsonl {
+                print_assistant_protocol_setup_error(
+                    AssistantCommandKind::Plan,
+                    protocol_request_id.as_deref(),
+                    shared.context_mode,
+                    &shared.path,
+                    &error,
+                )?;
+            } else {
+                print_assistant_command_error(
+                    AssistantCommandKind::Plan,
+                    &goal,
+                    &shared.model,
+                    shared.context_mode,
+                    &shared.path,
+                    &error,
+                )?;
+            }
             std::process::exit(2);
         }
         Err(error) => return Err(error),
     };
-    if shared.rag_debug && !shared.no_rag && !shared.json {
+    if shared.rag_debug && !shared.no_rag && !shared.json && !protocol_jsonl {
         print_rag_debug(&shared.rag_index, &goal, shared.rag_limit)?;
     }
     let options = PlanOptions {
@@ -887,7 +956,31 @@ async fn run_isolated_plan(args: PlanArgs) -> Result<()> {
         compare_generate: shared.compare_generate,
         verify_model: true,
     };
-    if shared.json || shared.context_mode == ContextMode::Compare {
+    if stream || protocol_jsonl {
+        let (session, receiver, cancellation) =
+            match prepare_assistant_protocol_session(protocol_request_id) {
+                Ok(prepared) => prepared,
+                Err(error) if protocol_jsonl => {
+                    print_assistant_protocol_setup_error(
+                        AssistantCommandKind::Plan,
+                        None,
+                        shared.context_mode,
+                        &shared.path,
+                        &error,
+                    )?;
+                    std::process::exit(2);
+                }
+                Err(error) => return Err(error),
+            };
+        drive_assistant_protocol(
+            app.plan_with_protocol(options, session),
+            receiver,
+            cancellation,
+            protocol_jsonl,
+            stream_metrics,
+        )
+        .await
+    } else if shared.json || shared.context_mode == ContextMode::Compare {
         match app.plan_with_report(options).await {
             Ok(report) => {
                 finish_assistant_report(&report, shared.json, shared.metrics, shared.metrics_json)
@@ -926,6 +1019,184 @@ fn fallback_policy(strict: bool) -> ContextFallbackPolicy {
     } else {
         ContextFallbackPolicy::Legacy
     }
+}
+
+fn prepare_assistant_protocol_session(
+    requested_id: Option<String>,
+) -> Result<(
+    AssistantProtocolSession,
+    AssistantEventReceiver,
+    LlmCancellationToken,
+)> {
+    let request_id = requested_id.unwrap_or_else(generated_request_id);
+    validate_assistant_request_id(&request_id)?;
+    let (events, receiver) = assistant_event_channel(DEFAULT_ASSISTANT_EVENT_CAPACITY)?;
+    let cancellation = LlmCancellationToken::new();
+    let session = AssistantProtocolSession {
+        request_id,
+        events,
+        cancellation: cancellation.clone(),
+    };
+    Ok((session, receiver, cancellation))
+}
+
+#[derive(Default)]
+struct AssistantProtocolRenderState {
+    next_sequence: u64,
+    terminal_count: usize,
+    saw_delta: bool,
+    show_run_headings: bool,
+}
+
+async fn drive_assistant_protocol<F>(
+    execution: F,
+    mut receiver: AssistantEventReceiver,
+    cancellation: LlmCancellationToken,
+    protocol_jsonl: bool,
+    metrics: bool,
+) -> Result<()>
+where
+    F: Future<Output = Result<AssistantCommandReport>>,
+{
+    let signal_cancellation = cancellation.clone();
+    let signal_task = tokio::spawn(async move {
+        if tokio::signal::ctrl_c().await.is_ok() {
+            signal_cancellation.cancel();
+        }
+    });
+    tokio::task::yield_now().await;
+
+    tokio::pin!(execution);
+    let mut execution_result = None;
+    let mut events_open = true;
+    let mut state = AssistantProtocolRenderState::default();
+    let mut render_error = None;
+
+    while execution_result.is_none() || events_open {
+        tokio::select! {
+            event = receiver.recv(), if events_open => {
+                match event {
+                    Some(event) => {
+                        if let Err(error) = render_assistant_protocol_event(
+                            &event,
+                            protocol_jsonl,
+                            &mut state,
+                        ) {
+                            cancellation.cancel();
+                            render_error = Some(error);
+                            break;
+                        }
+                    }
+                    None => events_open = false,
+                }
+            }
+            result = &mut execution, if execution_result.is_none() => {
+                execution_result = Some(result);
+            }
+        }
+    }
+    signal_task.abort();
+
+    if let Some(error) = render_error {
+        return Err(error);
+    }
+    if state.terminal_count != 1 {
+        bail!(
+            "assistant protocol expected exactly one terminal event, received {}",
+            state.terminal_count
+        );
+    }
+    let execution_result = execution_result
+        .ok_or_else(|| anyhow::anyhow!("assistant protocol execution ended without a result"))?;
+    let report = match execution_result {
+        Ok(report) => report,
+        Err(_error) if protocol_jsonl => {
+            std::process::exit(2);
+        }
+        Err(error) => return Err(error),
+    };
+
+    if protocol_jsonl {
+        if !report.success {
+            std::process::exit(2);
+        }
+        return Ok(());
+    }
+
+    if state.saw_delta {
+        println!();
+        print_assistant_warnings(&report);
+        print_assistant_errors(&report);
+        if metrics {
+            print_assistant_metrics(&report);
+        }
+    } else {
+        print_assistant_report(&report, false, metrics, false)?;
+    }
+    io::stdout().flush()?;
+    if !report.success {
+        std::process::exit(2);
+    }
+    Ok(())
+}
+
+fn render_assistant_protocol_event(
+    event: &AssistantProtocolEvent,
+    protocol_jsonl: bool,
+    state: &mut AssistantProtocolRenderState,
+) -> Result<()> {
+    if event.schema_version != ASSISTANT_PROTOCOL_SCHEMA_VERSION
+        || event.protocol != ASSISTANT_PROTOCOL_ID
+    {
+        bail!("assistant protocol identity or schema version mismatch");
+    }
+    if event.sequence != state.next_sequence {
+        bail!(
+            "assistant protocol sequence mismatch: expected {}, received {}",
+            state.next_sequence,
+            event.sequence
+        );
+    }
+    if state.terminal_count > 0 {
+        bail!("assistant protocol emitted an event after its terminal event");
+    }
+
+    if protocol_jsonl {
+        println!("{}", serde_json::to_string(event)?);
+        io::stdout().flush()?;
+    } else {
+        match &event.payload {
+            AssistantProtocolEventPayload::Started {
+                requested_context_mode,
+                ..
+            } => {
+                state.show_run_headings = *requested_context_mode == ContextMode::Compare;
+            }
+            AssistantProtocolEventPayload::ProviderEvent {
+                context_mode,
+                event,
+            } => {
+                if state.show_run_headings && event.is_started() {
+                    if state.saw_delta {
+                        println!();
+                    }
+                    println!("=== {context_mode} response ===");
+                }
+                if let Some(delta) = event.output_delta() {
+                    print!("{delta}");
+                    io::stdout().flush()?;
+                    state.saw_delta = true;
+                }
+            }
+            _ => {}
+        }
+    }
+
+    state.next_sequence = state.next_sequence.saturating_add(1);
+    if event.is_terminal() {
+        state.terminal_count += 1;
+    }
+    Ok(())
 }
 
 fn finish_assistant_report(
@@ -1546,6 +1817,38 @@ fn print_assistant_warnings(report: &AssistantCommandReport) {
     }
 }
 
+fn print_assistant_errors(report: &AssistantCommandReport) {
+    for error in &report.errors {
+        eprintln!(
+            "Error [{} / {}]: {}",
+            error.stage, error.code, error.message
+        );
+    }
+}
+
+fn print_assistant_metrics(report: &AssistantCommandReport) {
+    for run in &report.runs {
+        eprintln!();
+        eprintln!("=== metrics ({}) ===", run.context_mode);
+        eprintln!("prompt_chars={}", run.prompt.chars);
+        eprintln!("estimated_prompt_tokens={}", run.prompt.estimated_tokens);
+        if let Some(metrics) = &run.metrics {
+            eprintln!("client_seconds={:.3}", metrics.client_ms as f64 / 1_000.0);
+            if let Some(tokens) = metrics.prompt_eval_count {
+                eprintln!("prompt_eval_count={tokens}");
+            }
+            if let Some(tokens) = metrics.generated_tokens {
+                eprintln!("eval_count={tokens}");
+            }
+            if let Some(rate) = metrics.generated_tokens_per_second {
+                eprintln!("eval_tokens_per_second={rate:.2}");
+            }
+        } else {
+            eprintln!("generation=not_run");
+        }
+    }
+}
+
 fn print_assistant_report(
     report: &AssistantCommandReport,
     json: bool,
@@ -1595,35 +1898,11 @@ fn print_assistant_report(
             }
         }
     }
-    for error in &report.errors {
-        eprintln!(
-            "Error [{} / {}]: {}",
-            error.stage, error.code, error.message
-        );
-    }
+    print_assistant_errors(report);
     io::stdout().flush()?;
 
     if metrics {
-        for run in &report.runs {
-            eprintln!();
-            eprintln!("=== metrics ({}) ===", run.context_mode);
-            eprintln!("prompt_chars={}", run.prompt.chars);
-            eprintln!("estimated_prompt_tokens={}", run.prompt.estimated_tokens);
-            if let Some(metrics) = &run.metrics {
-                eprintln!("client_seconds={:.3}", metrics.client_ms as f64 / 1_000.0);
-                if let Some(tokens) = metrics.prompt_eval_count {
-                    eprintln!("prompt_eval_count={tokens}");
-                }
-                if let Some(tokens) = metrics.generated_tokens {
-                    eprintln!("eval_count={tokens}");
-                }
-                if let Some(rate) = metrics.generated_tokens_per_second {
-                    eprintln!("eval_tokens_per_second={rate:.2}");
-                }
-            } else {
-                eprintln!("generation=not_run");
-            }
-        }
+        print_assistant_metrics(report);
     }
     if metrics_json {
         eprintln!();
@@ -1677,6 +1956,36 @@ fn print_assistant_command_error(
         }],
     };
     println!("{}", serde_json::to_string_pretty(&payload)?);
+    io::stdout().flush()?;
+    Ok(())
+}
+
+fn print_assistant_protocol_setup_error(
+    command: AssistantCommandKind,
+    requested_id: Option<&str>,
+    context_mode: ContextMode,
+    workspace: &Path,
+    error: &anyhow::Error,
+) -> Result<()> {
+    let request_id = requested_id
+        .filter(|request_id| validate_assistant_request_id(request_id).is_ok())
+        .map(str::to_string)
+        .unwrap_or_else(generated_request_id);
+    let event = AssistantProtocolEvent {
+        schema_version: ASSISTANT_PROTOCOL_SCHEMA_VERSION,
+        protocol: ASSISTANT_PROTOCOL_ID.to_string(),
+        request_id,
+        sequence: 0,
+        payload: AssistantProtocolEventPayload::Failed {
+            errors: vec![AssistantStructuredError {
+                code: "command_rejected".to_string(),
+                stage: format!("{}_setup", command.as_str()),
+                message: sanitize_assistant_error(&format!("{error:#}"), workspace),
+                context_mode: Some(context_mode),
+            }],
+        },
+    };
+    println!("{}", serde_json::to_string(&event)?);
     io::stdout().flush()?;
     Ok(())
 }

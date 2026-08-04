@@ -347,17 +347,20 @@ transformer automatiquement du code existant en regles fiables.
 
 ### LLM-001 - Streaming
 
-Retenu : oui.
+Statut : termine dans LLM/PROTOCOL-001.
 
 Gain : temps percu jusqu'au premier token, pas tokens/s. Garder `stream=false`
 pour les benchmarks comparables et ajouter le streaming pour usage interactif.
 
+Implementation : NDJSON Ollama fragmente, canaux bornes, deltas humains sans
+duplication, JSONL machine, annulation avant et pendant la generation.
+
 ### LLM-002 - Trait provider
 
-Retenu avant llama.cpp :
+Statut : socle termine dans LLM/PROTOCOL-001.
 
-- Ollama ;
-- provider OpenAI-compatible ;
+- Ollama implemente ;
+- provider OpenAI-compatible repousse ;
 - metriques communes ;
 - streaming/cancellation ;
 - model info et token count quand disponible.
@@ -484,7 +487,7 @@ Tree-sitter/Tantivy.
 10. Construire CONTEXT-001 selection par tache. Fait.
 11. Securiser l'ingestion et la publication RAG avec RAG-SAFE-001. Fait.
 12. Mesurer CONTEXT-002 avant toute activation par defaut. Fait ; legacy conserve.
-13. Ajouter streaming, annulation et protocole LLM structure borne.
+13. Ajouter streaming, annulation et protocole LLM structure borne. Fait.
 14. Ajouter POLICY-001 avant toute boucle agent ecrivant.
 15. Prototyper Tantivy contre JSONL sur EVAL-001, sans embeddings.
 16. Construire AGENT-001/002 seulement apres protocole et politique.
@@ -492,14 +495,13 @@ Tree-sitter/Tantivy.
 
 ## Prochain sprint propose
 
-`LLM/PROTOCOL-001 - Streaming, annulation et protocole structure borne`.
+`POLICY-001 - Politique d'outils deny-by-default et approbations`.
 
-CONTEXT-002 a montre que le contexte symbolique reduit les tokens reels, mais ne
-justifie pas encore un changement de defaut. La prochaine valeur produit est un
-runtime interactif mesurable : streaming pour le temps au premier token,
-annulation propre et messages structures pour preparer les tools sans exposer un
-shell arbitraire ni lancer une boucle autonome.
+LLM/PROTOCOL-001 fournit maintenant streaming, annulation, evenements versionnes
+et abstraction provider sans changer le mode legacy par defaut. La prochaine
+valeur produit est de definir ce qu'une future boucle peut lire, executer ou
+ecrire, avec refus par defaut, budgets et approbations explicites.
 
-Contraintes : conserver Ollama local, garder `stream=false` dans EVAL, versionner
-les evenements, borner tailles/temps et ne commencer ni provider complet,
-PolicyEngine, agent, IDE, llama.cpp ni RAG-002 dans ce sprint.
+Contraintes : ne pas commencer AGENT-001, l'extension IDE, llama.cpp, un provider
+distant ou RAG-002 dans ce sprint. Reference :
+[`llm-protocol.md`](llm-protocol.md).

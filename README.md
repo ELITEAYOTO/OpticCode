@@ -31,6 +31,9 @@ EVAL-001 compare maintenant ces chemins sur un corpus versionne de 45 cas,
 avec metriques de retrieval/contexte, rapports JSON/Markdown et controle read-only.
 CONTEXT-002 branche ce contexte dans `ask` et `plan` avec des modes explicites
 `legacy`, `symbol` et `compare`, un fallback visible et des mesures Ollama reelles.
+LLM/PROTOCOL-001 isole maintenant Ollama derriere un trait provider, diffuse les
+deltas avec annulation et expose un protocole JSONL versionne pour les futures
+interfaces.
 
 - Phase 0 : audit environnement Windows 10 termine.
 - Phase 1 : documentation de cadrage terminee.
@@ -39,7 +42,7 @@ CONTEXT-002 branche ce contexte dans `ask` et `plan` avec des modes explicites
 - Phase 3 : recherche depots externes et analyse Qwen Code terminees.
 - Phase 4 : MVP Rust fonctionnel.
 - Phase 5 : apply/worktree, Tree-sitter, index B1, edits B2/B3, LEGACY-002, CONTEXT-001, EVAL-001 et CONTEXT-002 termines.
-- Qualite courante : 209 tests workspace, Clippy strict, build release et gates specialisees valides.
+- Qualite courante : 231 tests workspace, Clippy strict, build release et gates specialisees valides.
 - Phase 6 : RAG-SAFE-001 termine ; le passage a Tantivy reste conditionne par un prototype mesure.
 - Qwen A/B : `symbol` reduit le prompt reel, mais reste optionnel car la qualite n'est pas encore superieure.
 - Phase 7 : agent iteratif non commence.
@@ -59,6 +62,7 @@ CONTEXT-002 branche ce contexte dans `ask` et `plan` avec des modes explicites
 - [Contexte Java guide par les symboles](docs/java-context.md)
 - [Evaluation reproductible du contexte et du retrieval](docs/evaluation.md)
 - [Integration du contexte dans ask et plan](docs/context-integration.md)
+- [Provider LLM et protocole machine](docs/llm-protocol.md)
 - [Backlog canonique d'optimisation](docs/optimization-backlog.md)
 - [Etat environnement](docs/environment-audit.md)
 - [Roadmap](docs/roadmap.md)
@@ -142,6 +146,8 @@ cargo run -q -- rag-search "nether wart" --index data/index --limit 5 --json
 cargo run -q -- rag-debug "Quels risques legacy verifier pour des pelles et spawners ?" --index data/index --limit 3 --json
 cargo run -q -- search Material.SULPHUR --path . --limit 5
 cargo run -q -- ask "Reponds en une phrase : quelle regle Bukkit 1.8.8 dois-tu respecter pour gunpowder ?" --path .
+cargo run -q -- ask "Explique Helpers#ping()." --path benchmarks/java-index-mini --profile none --no-memory --no-rag --stream
+cargo run -q -- plan "Localiser plugin.yml" --path benchmarks/java-index-mini --profile none --no-memory --no-rag --protocol-jsonl --request-id vscode-plan-1
 cargo run -q -- ask "Locate dev.opticcode.util.Helpers#ping()." --path benchmarks/java-index-mini --profile none --no-memory --no-rag --context-mode compare --json
 cargo run -q -- plan "Locate dev.opticcode.util.Helpers#ping()." --path benchmarks/java-index-mini --profile none --no-memory --no-rag --context-mode symbol --strict-context --json
 cargo run -q -- plan "Ajouter une commande /coins dans un plugin Bukkit 1.8.8" --path . --metrics --rag-limit 4
@@ -173,6 +179,8 @@ cargo run -q -- inspect --path benchmarks/mini-bukkit-plugin
 .\scripts\run-eval-quality.ps1 -IncludeRag
 .\scripts\run-context-integration-quality.ps1
 .\scripts\run-context-integration-quality.ps1 -WithLlm
+.\scripts\run-llm-protocol-quality.ps1
+.\scripts\run-llm-protocol-quality.ps1 -WithLlm
 ```
 
 ## Prochaine etape
@@ -183,7 +191,8 @@ prompt Ollama moyen de 1 902 a 1 188 tokens (-37,5 %) et porte Recall@k de
 0,333. `legacy` reste donc le mode par defaut ; `symbol` est opt-in et refuse ou
 fallback explicitement lorsqu'il n'est pas fiable.
 
-Le prochain chantier recommande est `LLM/PROTOCOL-001` pour le streaming,
-l'annulation et un protocole structure borne. `POLICY-001` doit suivre avant
-toute boucle agent capable d'ecrire. Un prototype `RAG-002` Tantivy arrive
-ensuite, car EVAL-001 a mesure les limites des requetes naturelles du JSONL.
+`LLM/PROTOCOL-001` est termine : sorties historiques preservees, streaming
+Ollama reel, annulation cooperative, provider injectable et JSONL versionne.
+Le prochain chantier recommande est `POLICY-001`, une politique deny-by-default
+pour les outils et approbations avant toute boucle agent capable d'ecrire. Un
+prototype `RAG-002` Tantivy reste ensuite soumis aux mesures EVAL-001.
