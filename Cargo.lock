@@ -812,6 +812,7 @@ dependencies = [
  "anyhow",
  "clap",
  "opticcode-core",
+ "opticcode-llm",
  "opticcode-tools",
  "serde",
  "serde_json",

@@ -7,7 +7,7 @@ use opticcode_llm::{CancellationToken, LlmProtocolEvent, ProviderId, MAX_REQUEST
 use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc;
 
-use crate::{AssistantCommandKind, AssistantStructuredError, ContextMode};
+use crate::{AssistantCommandKind, AssistantCommandReport, AssistantStructuredError, ContextMode};
 
 pub const ASSISTANT_PROTOCOL_ID: &str = "opticcode.assistant";
 pub const ASSISTANT_PROTOCOL_SCHEMA_VERSION: u32 = 1;
@@ -77,6 +77,8 @@ pub enum AssistantProtocolEventPayload {
     Completed {
         report_schema_version: u32,
         generated_runs: usize,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        summary: Option<Box<AssistantCompletionSummary>>,
     },
     Failed {
         errors: Vec<AssistantStructuredError>,
@@ -84,6 +86,91 @@ pub enum AssistantProtocolEventPayload {
     Cancelled {
         errors: Vec<AssistantStructuredError>,
     },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct AssistantCompletionSummary {
+    pub command: AssistantCommandKind,
+    pub success: bool,
+    pub model: String,
+    pub requested_context_mode: ContextMode,
+    pub used_context_mode: Option<ContextMode>,
+    pub preparation_duration_us: u64,
+    pub warnings: Vec<String>,
+    pub context_files: Vec<AssistantCompletionContextFile>,
+    pub runs: Vec<AssistantCompletionRun>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct AssistantCompletionContextFile {
+    pub context_mode: ContextMode,
+    pub path: String,
+    pub snippets: usize,
+    pub max_score: Option<u32>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct AssistantCompletionRun {
+    pub context_mode: ContextMode,
+    pub generated: bool,
+    pub estimated_prompt_tokens: usize,
+    pub client_ms: Option<u64>,
+    pub prompt_tokens: Option<u64>,
+    pub generated_tokens: Option<u64>,
+    pub generated_tokens_per_second: Option<f64>,
+}
+
+impl From<&AssistantCommandReport> for AssistantCompletionSummary {
+    fn from(report: &AssistantCommandReport) -> Self {
+        Self {
+            command: report.command,
+            success: report.success,
+            model: report.model.clone(),
+            requested_context_mode: report.requested_context_mode,
+            used_context_mode: report.used_context_mode,
+            preparation_duration_us: report.preparation_duration_us,
+            warnings: report.warnings.clone(),
+            context_files: report
+                .context
+                .variants
+                .iter()
+                .flat_map(|variant| {
+                    variant
+                        .report
+                        .files
+                        .iter()
+                        .map(move |file| AssistantCompletionContextFile {
+                            context_mode: variant.report.mode,
+                            path: file.path.clone(),
+                            snippets: file.snippets,
+                            max_score: file.max_score,
+                        })
+                })
+                .collect(),
+            runs: report
+                .runs
+                .iter()
+                .map(|run| AssistantCompletionRun {
+                    context_mode: run.context_mode,
+                    generated: run.generated,
+                    estimated_prompt_tokens: run.prompt.estimated_tokens,
+                    client_ms: run.metrics.as_ref().map(|metrics| metrics.client_ms),
+                    prompt_tokens: run
+                        .metrics
+                        .as_ref()
+                        .and_then(|metrics| metrics.prompt_eval_count),
+                    generated_tokens: run
+                        .metrics
+                        .as_ref()
+                        .and_then(|metrics| metrics.generated_tokens),
+                    generated_tokens_per_second: run
+                        .metrics
+                        .as_ref()
+                        .and_then(|metrics| metrics.generated_tokens_per_second),
+                })
+                .collect(),
+        }
+    }
 }
 
 pub fn assistant_event_channel(
@@ -187,6 +274,7 @@ mod tests {
             .send(AssistantProtocolEventPayload::Completed {
                 report_schema_version: 1,
                 generated_runs: 1,
+                summary: None,
             })
             .await
             .unwrap();

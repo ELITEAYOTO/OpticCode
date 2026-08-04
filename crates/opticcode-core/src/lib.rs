@@ -18,6 +18,7 @@ pub use context_runtime::{
 pub use eval_runtime::{enrich_evaluation_with_llm, EvalLlmRuntimeOptions};
 pub use protocol::{
     assistant_event_channel, generated_request_id, validate_assistant_request_id,
+    AssistantCompletionContextFile, AssistantCompletionRun, AssistantCompletionSummary,
     AssistantEventReceiver, AssistantEventSink, AssistantProtocolEvent,
     AssistantProtocolEventPayload, AssistantProtocolSession, ASSISTANT_PROTOCOL_ID,
     ASSISTANT_PROTOCOL_SCHEMA_VERSION, DEFAULT_ASSISTANT_EVENT_CAPACITY,

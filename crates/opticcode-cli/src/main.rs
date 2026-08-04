@@ -70,7 +70,14 @@ use opticcode_tools::{
     ApplyUndoResult, BuildOptions, BuildResult, PatchCheckResult, RagSourceReport,
 };
 use serde::Serialize;
-use std::io::{self, Write};
+use std::io::{self, Read, Write};
+
+mod discovery;
+
+use discovery::{
+    capabilities_report, doctor_report, render_capabilities, render_doctor, render_version,
+    version_report, DoctorOptions,
+};
 
 #[derive(Debug, Parser)]
 #[command(name = "opticcode")]
@@ -279,6 +286,33 @@ enum IsolatedAssistantCommand {
 
 #[derive(Debug, Subcommand)]
 enum Command {
+    /// Report OpticCode and machine protocol versions.
+    Version {
+        #[arg(long)]
+        json: bool,
+    },
+    /// Report commands, providers, output formats, and feature capabilities.
+    Capabilities {
+        #[arg(long)]
+        json: bool,
+    },
+    /// Inspect the local OpticCode environment without changing it.
+    Doctor {
+        #[arg(long, default_value = ".")]
+        path: PathBuf,
+        #[arg(long, default_value = DEFAULT_PROFILE)]
+        profile: String,
+        #[arg(long, default_value = "qwen2.5-coder:14b")]
+        model: String,
+        #[arg(long, default_value = "http://localhost:11434")]
+        ollama_url: String,
+        #[arg(long, default_value = "data/index")]
+        rag_index: PathBuf,
+        #[arg(long, default_value_t = 5_000)]
+        timeout_ms: u64,
+        #[arg(long)]
+        json: bool,
+    },
     Inspect {
         #[arg(long, default_value = ".")]
         path: PathBuf,
@@ -1058,6 +1092,9 @@ async fn drive_assistant_protocol<F>(
 where
     F: Future<Output = Result<AssistantCommandReport>>,
 {
+    if protocol_jsonl {
+        watch_protocol_stdin(cancellation.clone());
+    }
     let signal_cancellation = cancellation.clone();
     let signal_task = tokio::spawn(async move {
         if tokio::signal::ctrl_c().await.is_ok() {
@@ -1138,6 +1175,28 @@ where
         std::process::exit(2);
     }
     Ok(())
+}
+
+fn watch_protocol_stdin(cancellation: LlmCancellationToken) {
+    std::thread::spawn(move || {
+        let mut stdin = io::stdin().lock();
+        let mut command = Vec::with_capacity(16);
+        let mut byte = [0u8; 1];
+        loop {
+            match stdin.read(&mut byte) {
+                Ok(0) | Err(_) => return,
+                Ok(_) if byte[0] == b'\n' => break,
+                Ok(_) if command.len() >= 64 => return,
+                Ok(_) => command.push(byte[0]),
+            }
+        }
+        if command.last() == Some(&b'\r') {
+            command.pop();
+        }
+        if command == b"cancel" {
+            cancellation.cancel();
+        }
+    });
 }
 
 fn render_assistant_protocol_event(
@@ -1309,6 +1368,49 @@ fn run_java_context(
 
 async fn run_command(command: Command) -> Result<()> {
     match command {
+        Command::Version { json } => {
+            let report = version_report();
+            if json {
+                println!("{}", serde_json::to_string_pretty(&report)?);
+            } else {
+                println!("{}", render_version(&report));
+            }
+        }
+        Command::Capabilities { json } => {
+            let report = capabilities_report();
+            if json {
+                println!("{}", serde_json::to_string_pretty(&report)?);
+            } else {
+                println!("{}", render_capabilities(&report));
+            }
+        }
+        Command::Doctor {
+            path,
+            profile,
+            model,
+            ollama_url,
+            rag_index,
+            timeout_ms,
+            json,
+        } => {
+            if timeout_ms == 0 {
+                bail!("doctor timeout must be greater than zero");
+            }
+            let report = doctor_report(DoctorOptions {
+                workspace: path,
+                profile,
+                model,
+                ollama_url,
+                rag_index,
+                timeout: Duration::from_millis(timeout_ms),
+            })
+            .await;
+            if json {
+                println!("{}", serde_json::to_string_pretty(&report)?);
+            } else {
+                print!("{}", render_doctor(&report));
+            }
+        }
         Command::Inspect { path } => {
             let report = inspect_workspace(&path)?;
             println!("{}", report.to_display_string());

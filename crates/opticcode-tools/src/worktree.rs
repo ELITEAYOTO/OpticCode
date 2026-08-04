@@ -445,6 +445,14 @@ pub fn list_disposable_worktrees() -> Result<Vec<WorktreeLeaseInspection>> {
     list_disposable_worktrees_in(&storage)
 }
 
+/// Inspects existing OpticCode worktree leases without creating storage directories.
+pub fn inspect_disposable_worktrees_read_only() -> Result<Vec<WorktreeLeaseInspection>> {
+    let Some(storage) = WorktreeStorage::open_existing()? else {
+        return Ok(Vec::new());
+    };
+    list_disposable_worktrees_in(&storage)
+}
+
 pub fn cleanup_disposable_worktree(run_id: &str) -> Result<WorktreeCleanupReport> {
     validate_run_id(run_id)?;
     let storage = WorktreeStorage::default_storage()?;
@@ -1558,6 +1566,52 @@ impl WorktreeStorage {
         Self::prepare(&base, Some(&temp))
     }
 
+    fn open_existing() -> Result<Option<Self>> {
+        let temp = normalize_verbatim_path(
+            fs::canonicalize(std::env::temp_dir())
+                .context("failed to resolve the system temporary directory")?,
+        );
+        let base = temp.join(WORKTREE_STORAGE_DIRECTORY);
+        match fs::symlink_metadata(&base) {
+            Ok(metadata) if metadata.is_dir() && !path_is_reparse_point(&base)? => {}
+            Ok(_) => {
+                return Err(operation_error(
+                    WorktreeOperationErrorKind::Storage,
+                    format!(
+                        "worktree storage is not a normal directory: {}",
+                        base.display()
+                    ),
+                ));
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+            Err(error) => {
+                return Err(operation_error(
+                    WorktreeOperationErrorKind::Storage,
+                    format!(
+                        "failed to inspect worktree storage {}: {error}",
+                        base.display()
+                    ),
+                ));
+            }
+        }
+
+        let base = normalize_verbatim_path(fs::canonicalize(&base)?);
+        if base.parent() != Some(temp.as_path()) {
+            return Err(operation_error(
+                WorktreeOperationErrorKind::Storage,
+                format!(
+                    "worktree storage is not a direct child of the temporary directory: {}",
+                    base.display()
+                ),
+            ));
+        }
+
+        let runs = open_existing_controlled_directory(&base.join(WORKTREE_RUNS_DIRECTORY), &base)?;
+        let leases =
+            open_existing_controlled_directory(&base.join(WORKTREE_LEASES_DIRECTORY), &base)?;
+        Ok(Some(Self { runs, leases }))
+    }
+
     fn prepare(base: &Path, required_parent: Option<&Path>) -> Result<Self> {
         create_controlled_directory(base)?;
         let base =
@@ -1597,6 +1651,35 @@ impl WorktreeStorage {
     fn lease_path(&self, run_id: &str) -> PathBuf {
         self.leases.join(format!("{run_id}.json"))
     }
+}
+
+fn open_existing_controlled_directory(path: &Path, parent: &Path) -> Result<PathBuf> {
+    let metadata = fs::symlink_metadata(path).with_context(|| {
+        format!(
+            "failed to inspect controlled worktree directory: {}",
+            path.display()
+        )
+    })?;
+    if !metadata.is_dir() || path_is_reparse_point(path)? {
+        return Err(operation_error(
+            WorktreeOperationErrorKind::Storage,
+            format!(
+                "controlled worktree path is not a normal directory: {}",
+                path.display()
+            ),
+        ));
+    }
+    let resolved = normalize_verbatim_path(fs::canonicalize(path)?);
+    if resolved.parent() != Some(parent) {
+        return Err(operation_error(
+            WorktreeOperationErrorKind::Storage,
+            format!(
+                "controlled worktree directory escaped its parent: {}",
+                resolved.display()
+            ),
+        ));
+    }
+    Ok(resolved)
 }
 
 fn create_controlled_directory(path: &Path) -> Result<()> {

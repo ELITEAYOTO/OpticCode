@@ -9,7 +9,7 @@ use opticcode_llm::{
 };
 use serde::{Deserialize, Serialize};
 
-use crate::protocol::AssistantEventEmitter;
+use crate::protocol::{AssistantCompletionSummary, AssistantEventEmitter};
 use crate::{
     build_plan_prompt, build_prompt, load_memory_for_workspace, load_profile_for_workspace,
     load_rag_context, prepare_assistant_context, AssistantProtocolEventPayload,
@@ -203,6 +203,7 @@ pub(crate) async fn execute_assistant(
                             .iter()
                             .filter(|run| run.generated)
                             .count(),
+                        summary: Some(Box::new(AssistantCompletionSummary::from(&output.report))),
                     }
                 } else if report_was_cancelled(&output.report) {
                     AssistantProtocolEventPayload::Cancelled {
@@ -1023,6 +1024,17 @@ mod tests {
             .filter_map(|event| event.output_delta())
             .collect::<String>();
         assert_eq!(reconstructed, "fixture response");
+        let summary = match &observed.last().unwrap().payload {
+            AssistantProtocolEventPayload::Completed {
+                summary: Some(summary),
+                ..
+            } => summary,
+            terminal => panic!("unexpected terminal event: {terminal:?}"),
+        };
+        assert_eq!(summary.used_context_mode, Some(ContextMode::Legacy));
+        assert_eq!(summary.runs.len(), 1);
+        assert!(summary.runs[0].generated);
+        assert!(!summary.context_files.is_empty());
     }
 
     #[tokio::test]

@@ -1,7 +1,7 @@
 use std::io::{Read, Write};
 use std::net::TcpListener;
 use std::path::PathBuf;
-use std::process::Command;
+use std::process::{Command, Stdio};
 use std::thread;
 use std::time::Duration;
 
@@ -153,6 +153,17 @@ fn protocol_jsonl_streams_ordered_versioned_events() {
     assert_eq!(events[1]["type"], "context_prepared");
     assert_eq!(events.last().unwrap()["type"], "completed");
     assert_eq!(
+        events.last().unwrap()["summary"]["used_context_mode"],
+        "legacy"
+    );
+    assert_eq!(
+        events.last().unwrap()["summary"]["runs"][0]["prompt_tokens"],
+        20
+    );
+    assert!(events.last().unwrap()["summary"]["context_files"]
+        .as_array()
+        .is_some_and(|files| !files.is_empty()));
+    assert_eq!(
         events
             .iter()
             .filter(|event| matches!(
@@ -181,6 +192,56 @@ fn protocol_jsonl_streams_ordered_versioned_events() {
         .filter_map(|event| event["text"].as_str())
         .collect::<String>();
     assert_eq!(reconstructed, "mock response");
+}
+
+#[test]
+fn protocol_stdin_cancel_is_confirmed_by_one_terminal_event() {
+    let url = spawn_mock_ollama_slow_streaming();
+    let mut child = Command::new(binary())
+        .current_dir(workspace())
+        .args([
+            "ask",
+            "Locate Helpers#ping().",
+            "--path",
+            "benchmarks/java-index-mini",
+            "--profile",
+            "none",
+            "--no-memory",
+            "--no-rag",
+            "--ollama-url",
+            &url,
+            "--protocol-jsonl",
+            "--request-id",
+            "cli-cancel-1",
+        ])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    thread::sleep(Duration::from_millis(250));
+    child.stdin.take().unwrap().write_all(b"cancel\n").unwrap();
+    let output = child.wait_with_output().unwrap();
+
+    assert_eq!(output.status.code(), Some(2));
+    assert!(output.stderr.is_empty());
+    let events = String::from_utf8(output.stdout)
+        .unwrap()
+        .lines()
+        .map(|line| serde_json::from_str::<serde_json::Value>(line).unwrap())
+        .collect::<Vec<_>>();
+    let terminal = events
+        .iter()
+        .filter(|event| {
+            matches!(
+                event["type"].as_str(),
+                Some("completed" | "failed" | "cancelled")
+            )
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(terminal.len(), 1);
+    assert_eq!(terminal[0]["type"], "cancelled");
+    assert_eq!(terminal[0]["errors"][0]["code"], "generation_cancelled");
 }
 
 #[test]
@@ -349,6 +410,35 @@ fn spawn_mock_ollama_streaming() -> String {
             "\"eval_count\":5,\"eval_duration\":3000}\n"
         );
         write_chunked_response(&mut generation_stream, body);
+    });
+    format!("http://{address}")
+}
+
+fn spawn_mock_ollama_slow_streaming() -> String {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let address = listener.local_addr().unwrap();
+    thread::spawn(move || {
+        let (mut tags_stream, _) = listener.accept().unwrap();
+        read_http_request(&mut tags_stream);
+        let tags =
+            r#"{"models":[{"name":"qwen2.5-coder:14b","model":"qwen2.5-coder:14b","size":1}]}"#;
+        write_json_response(&mut tags_stream, tags);
+
+        let (mut generation_stream, _) = listener.accept().unwrap();
+        read_http_request(&mut generation_stream);
+        generation_stream
+            .write_all(
+                b"HTTP/1.1 200 OK\r\nContent-Type: application/x-ndjson\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n",
+            )
+            .unwrap();
+        let first = b"{\"response\":\"waiting\",\"done\":false}\n";
+        generation_stream
+            .write_all(format!("{:X}\r\n", first.len()).as_bytes())
+            .unwrap();
+        generation_stream.write_all(first).unwrap();
+        generation_stream.write_all(b"\r\n").unwrap();
+        generation_stream.flush().unwrap();
+        thread::sleep(Duration::from_secs(5));
     });
     format!("http://{address}")
 }
