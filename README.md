@@ -38,9 +38,13 @@ natives, diagnostics, Ask/Plan streames et verification explicite en worktree.
 VSCODE-CHAT-001 ajoute maintenant le participant natif `@opticcode`, un protocole
 `opticcode.chat` structure sur stdin/NDJSON, les 14 slash commands, les references
 fichier/range, un historique borne et un rendu progressif. Le Chat reste
-`read_only`. POLICY-001 ajoute maintenant une autorite Rust deny-by-default,
+initialement `read_only`. POLICY-001 ajoute maintenant une autorite Rust deny-by-default,
 des actions typees, trois modes, des approvals one-shot lies a l'etat, un audit
-borne hors workspace et une CLI machine. `CHAT-EDIT-001` n'est pas commence.
+borne hors workspace et une CLI machine. CHAT-EDIT-001 ajoute les `EditPlan`
+stricts, le `ProposalStore`, la verification worktree/build offline, le diff
+natif VS Code, l'apply original confirme et le rollback exact. La generation
+d'edition utilise maintenant un schema JSON Ollama et des ancres byte calculees
+par Rust ; le smoke Qwen 14B reel passe en une generation sans toucher l'original.
 
 - Phase 0 : audit environnement Windows 10 termine.
 - Phase 1 : documentation de cadrage terminee.
@@ -49,7 +53,7 @@ borne hors workspace et une CLI machine. `CHAT-EDIT-001` n'est pas commence.
 - Phase 3 : recherche depots externes et analyse Qwen Code terminees.
 - Phase 4 : MVP Rust fonctionnel.
 - Phase 5 : apply/worktree, Tree-sitter, index B1, edits B2/B3, LEGACY-002,
-  CONTEXT-001, EVAL-001, CONTEXT-002 et POLICY-001 termines.
+  CONTEXT-001, EVAL-001, CONTEXT-002, POLICY-001 et CHAT-EDIT-001 termines.
 - Qualite courante : suites Rust et TypeScript, tests CLI/Chat, Clippy/lint
   stricts, build release et gates specialisees reproductibles.
 - Phase 6 : RAG-SAFE-001 termine ; le passage a Tantivy reste conditionne par un prototype mesure.
@@ -64,6 +68,7 @@ borne hors workspace et une CLI machine. `CHAT-EDIT-001` n'est pas commence.
 - [Process runner borne](docs/process-runner.md)
 - [Apply transactionnel et recovery](docs/apply-transaction.md)
 - [Verification dans un worktree jetable](docs/worktree-verification.md)
+- [Editions Chat verifiees et transactionnelles](docs/chat-edits.md)
 - [Analyse Java Tree-sitter](docs/java-syntax.md)
 - [Index symbolique Java inter-fichiers](docs/java-index.md)
 - [Propositions d'edits Java ciblees](docs/java-edits.md)
@@ -216,10 +221,9 @@ prompt Ollama moyen de 1 902 a 1 188 tokens (-37,5 %) et porte Recall@k de
 0,333. `legacy` reste donc le mode par defaut ; `symbol` est opt-in et refuse ou
 fallback explicitement lorsqu'il n'est pas fiable.
 
-`LLM/PROTOCOL-001`, `VSCODE-001`, `VSCODE-CHAT-001` et `POLICY-001` sont
-termines : decouverte machine, streaming Ollama, annulation cooperative,
-participant Chat natif et autorite deny-by-default sont en place. Le prochain
-chantier est `CHAT-EDIT-001` : produire une proposition, l'executer uniquement
-dans un worktree lie a la requete, la verifier, afficher son diff puis demander
-une confirmation native. Aucun transfert automatique vers la source n'existe
-encore. `RAG-002` Tantivy reste soumis aux mesures EVAL-001.
+`LLM/PROTOCOL-001`, `VSCODE-001`, `VSCODE-CHAT-001`, `POLICY-001` et
+`CHAT-EDIT-001` sont termines : le Chat peut generer un plan strict, verifier
+dans un worktree, afficher le diff, puis appliquer ou rollbacker uniquement
+apres confirmation native. Le prochain jalon reste une premiere boucle agent
+bornee au-dessus de ce workflow ; `RAG-002` Tantivy reste soumis aux mesures
+EVAL-001.

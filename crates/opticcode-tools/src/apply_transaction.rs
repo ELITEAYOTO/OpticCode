@@ -176,8 +176,7 @@ impl ApplyTransactionRequest {
         self
     }
 
-    #[cfg(test)]
-    fn with_transaction_id(mut self, transaction_id: impl Into<String>) -> Self {
+    pub fn with_transaction_id(mut self, transaction_id: impl Into<String>) -> Self {
         self.requested_id = Some(transaction_id.into());
         self
     }

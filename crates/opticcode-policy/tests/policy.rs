@@ -361,6 +361,40 @@ fn worktree_git_file_and_lease_authorize_scoped_write() {
     let report = fixture.engine.check(&request).unwrap();
     assert!(report.report.allowed(), "{:?}", report.report.decision);
     assert_eq!(report.report.decision.rule_id(), "write.active_worktree");
+
+    let mut create = fixture.request(
+        PolicyAction::CreateFile(PathTarget {
+            root: worktree.root.clone(),
+            path: PathBuf::from("src/New.java"),
+            range: None,
+            expected_hash: None,
+        }),
+        PolicyMode::WorktreeEdit,
+    );
+    worktree.attach(&mut create);
+    let report = fixture.engine.check(&create).unwrap();
+    assert!(report.report.allowed(), "{:?}", report.report.decision);
+    assert_eq!(
+        report.report.decision.rule_id(),
+        "write.active_worktree_create"
+    );
+
+    let mut apply = fixture.request(
+        PolicyAction::ApplyPatch(ApplyPatchAction {
+            root: worktree.root.clone(),
+            paths: Vec::new(),
+            created_paths: vec![PathBuf::from("src/New.java")],
+            diff_hash: HASH_A.to_string(),
+            files_hash: HASH_B.to_string(),
+            transaction_id: "worktree-create-transaction".to_string(),
+            base_head: HASH_A.to_string(),
+        }),
+        PolicyMode::WorktreeEdit,
+    );
+    worktree.attach(&mut apply);
+    let report = fixture.engine.check(&apply).unwrap();
+    assert!(report.report.allowed(), "{:?}", report.report.decision);
+    assert_eq!(report.report.decision.rule_id(), "apply.active_worktree");
 }
 
 #[test]

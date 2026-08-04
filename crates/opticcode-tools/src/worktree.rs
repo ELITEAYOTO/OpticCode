@@ -366,12 +366,77 @@ impl WorktreeVerificationReport {
 pub struct WorktreeLease {
     pub schema_version: u32,
     pub run_id: String,
+    pub owner_workspace_id: String,
+    pub owner_request_id: String,
     pub process_id: u32,
     pub created_unix_ms: u64,
     pub source_git_root: PathBuf,
     pub source_project: PathBuf,
     pub source_commit: String,
     pub worktree_path: PathBuf,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WorktreeOwner {
+    pub workspace_id: String,
+    pub request_id: String,
+}
+
+impl WorktreeOwner {
+    pub fn new(workspace_id: impl Into<String>, request_id: impl Into<String>) -> Result<Self> {
+        let owner = Self {
+            workspace_id: workspace_id.into(),
+            request_id: request_id.into(),
+        };
+        validate_owner_id(&owner.workspace_id, "workspace owner")?;
+        validate_owner_id(&owner.request_id, "request owner")?;
+        Ok(owner)
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct DisposableWorktreeIntent {
+    pub run_id: String,
+    pub owner: WorktreeOwner,
+    pub source_root: PathBuf,
+    pub destination: PathBuf,
+    pub base_head: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct DisposableWorktreeContext {
+    pub run_id: String,
+    pub owner: WorktreeOwner,
+    pub source_root: PathBuf,
+    pub source_project: PathBuf,
+    pub worktree_root: PathBuf,
+    pub worktree_project: PathBuf,
+    pub base_head: String,
+    pub git_dir: PathBuf,
+    pub common_dir: PathBuf,
+    pub lease_path: PathBuf,
+}
+
+#[derive(Debug)]
+pub struct DisposableWorktreeRun<T> {
+    pub context: DisposableWorktreeContext,
+    pub creation: BoundedCommandReport,
+    pub operation: Option<T>,
+    pub operation_error: Option<String>,
+    pub cleanup: WorktreeCleanupReport,
+    pub source_after: Option<GitStateSnapshot>,
+    pub source_unchanged: bool,
+    pub errors: Vec<String>,
+}
+
+impl<T> DisposableWorktreeRun<T> {
+    pub fn operation_succeeded(&self) -> bool {
+        self.operation.is_some() && self.operation_error.is_none()
+    }
+
+    pub fn success(&self) -> bool {
+        self.operation_succeeded() && self.cleanup.success && self.source_unchanged
+    }
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -419,6 +484,272 @@ pub fn verify_java_legacy_patch_in_worktree(
             apply_java_legacy_patch_in_place(worktree_project).map(WorktreeApplyReport::from_plan)
         },
     )
+}
+
+pub fn run_in_disposable_worktree<T, BeforeCreate, Operation, BeforeCleanup>(
+    source_project: &Path,
+    owner: WorktreeOwner,
+    options: WorktreeVerificationOptions,
+    cancellation: &CancellationToken,
+    before_create: BeforeCreate,
+    operation: Operation,
+    before_cleanup: BeforeCleanup,
+) -> Result<DisposableWorktreeRun<T>>
+where
+    BeforeCreate: FnOnce(&DisposableWorktreeIntent) -> Result<()>,
+    Operation: FnOnce(&DisposableWorktreeContext) -> Result<T>,
+    BeforeCleanup: FnOnce(&DisposableWorktreeContext) -> Result<()>,
+{
+    validate_options(options)?;
+    validate_owner_id(&owner.workspace_id, "workspace owner")?;
+    validate_owner_id(&owner.request_id, "request owner")?;
+
+    let source_project = fs::canonicalize(source_project).map_err(|error| {
+        operation_error(
+            WorktreeOperationErrorKind::Precondition,
+            format!(
+                "failed to resolve source project {}: {error}",
+                source_project.display()
+            ),
+        )
+    })?;
+    let source_before = capture_git_state(&source_project).map_err(|error| {
+        operation_error(
+            WorktreeOperationErrorKind::Precondition,
+            format!("source project must be a Git worktree: {error:#}"),
+        )
+    })?;
+    if !source_before.changes.is_empty() {
+        return Err(operation_error(
+            WorktreeOperationErrorKind::Precondition,
+            format!(
+                "source Git worktree must be clean; found {} change(s)",
+                source_before.changes.len()
+            ),
+        ));
+    }
+    let source_root = source_before.root.clone();
+    let relative_project = source_project
+        .strip_prefix(&source_root)
+        .map_err(|_| {
+            operation_error(
+                WorktreeOperationErrorKind::Precondition,
+                "source project is outside its Git worktree root",
+            )
+        })?
+        .to_path_buf();
+    let base_head = resolve_head(
+        &source_root,
+        options.git_timeout,
+        options.output_limit_bytes,
+        Some(cancellation),
+    )?;
+    let refs_before = capture_refs_fingerprint(
+        &source_root,
+        options.git_timeout,
+        options.output_limit_bytes,
+        Some(cancellation),
+    )?;
+    let storage = WorktreeStorage::default_storage()?;
+    let run_id = new_run_id();
+    let destination = storage.worktree_path(&run_id);
+    let intent = DisposableWorktreeIntent {
+        run_id: run_id.clone(),
+        owner: owner.clone(),
+        source_root: source_root.clone(),
+        destination: destination.clone(),
+        base_head: base_head.clone(),
+    };
+    before_create(&intent)?;
+
+    let lease = WorktreeLease {
+        schema_version: WORKTREE_LEASE_SCHEMA_VERSION,
+        run_id: run_id.clone(),
+        owner_workspace_id: owner.workspace_id.clone(),
+        owner_request_id: owner.request_id.clone(),
+        process_id: std::process::id(),
+        created_unix_ms: unix_millis(),
+        source_git_root: source_root.clone(),
+        source_project: source_project.clone(),
+        source_commit: base_head.clone(),
+        worktree_path: destination.clone(),
+    };
+    write_lease(&storage, &lease)?;
+    if let Err(error) = fs::create_dir(&destination) {
+        let _ = fs::remove_file(storage.lease_path(&run_id));
+        return Err(operation_error(
+            WorktreeOperationErrorKind::Storage,
+            format!(
+                "failed to reserve disposable worktree {}: {error}",
+                destination.display()
+            ),
+        ));
+    }
+
+    let (creation_process, creation_command) = match add_worktree(
+        &source_root,
+        &destination,
+        &base_head,
+        options,
+        cancellation,
+    ) {
+        Ok(result) => result,
+        Err(error) => {
+            let _ = cleanup_lease(
+                &storage,
+                &lease,
+                options.git_timeout,
+                options.output_limit_bytes,
+            );
+            return Err(error).context("failed to start detached worktree creation");
+        }
+    };
+    let creation = BoundedCommandReport::from_process(creation_command, &creation_process);
+    if !creation.success {
+        let cleanup = cleanup_lease(
+            &storage,
+            &lease,
+            options.git_timeout,
+            options.output_limit_bytes,
+        )?;
+        return Err(operation_error(
+            WorktreeOperationErrorKind::Git,
+            format!(
+                "git worktree add failed: {}; cleanup_success={}",
+                process_error_summary(&creation_process),
+                cleanup.success
+            ),
+        ));
+    }
+
+    let worktree_project = destination.join(relative_project);
+    let setup = (|| -> Result<(PathBuf, PathBuf)> {
+        let worktree_state = capture_git_state(&destination)?;
+        if !worktree_state.changes.is_empty() {
+            anyhow::bail!("new disposable worktree is not clean");
+        }
+        let worktree_head = resolve_head(
+            &destination,
+            options.git_timeout,
+            options.output_limit_bytes,
+            Some(cancellation),
+        )?;
+        if worktree_head != base_head {
+            anyhow::bail!(
+                "disposable worktree HEAD mismatch: expected {base_head}, got {worktree_head}"
+            );
+        }
+        if !head_is_detached(
+            &destination,
+            options.git_timeout,
+            options.output_limit_bytes,
+            Some(cancellation),
+        )? {
+            anyhow::bail!("disposable worktree is unexpectedly attached to a branch");
+        }
+        resolve_worktree_git_directories(
+            &destination,
+            options.git_timeout,
+            options.output_limit_bytes,
+            cancellation,
+        )
+    })();
+    let (git_dir, common_dir) = match setup {
+        Ok(value) => value,
+        Err(error) => {
+            let cleanup = cleanup_lease(
+                &storage,
+                &lease,
+                options.git_timeout,
+                options.output_limit_bytes,
+            )?;
+            return Err(error).context(format!(
+                "disposable worktree setup failed; cleanup_success={}",
+                cleanup.success
+            ));
+        }
+    };
+
+    let context = DisposableWorktreeContext {
+        run_id,
+        owner,
+        source_root: source_root.clone(),
+        source_project,
+        worktree_root: destination,
+        worktree_project,
+        base_head: base_head.clone(),
+        git_dir,
+        common_dir,
+        lease_path: storage.lease_path(&lease.run_id),
+    };
+    let (operation, operation_error) = match operation(&context) {
+        Ok(value) => (Some(value), None),
+        Err(error) => (None, Some(format!("{error:#}"))),
+    };
+
+    let mut errors = Vec::new();
+    let cleanup = match before_cleanup(&context) {
+        Ok(()) => cleanup_lease(
+            &storage,
+            &lease,
+            options.git_timeout,
+            options.output_limit_bytes,
+        )?,
+        Err(error) => {
+            let message = format!("worktree cleanup authorization failed: {error:#}");
+            errors.push(message.clone());
+            skipped_cleanup_report(&lease, message)
+        }
+    };
+    if !cleanup.success {
+        errors.extend(cleanup.errors.iter().cloned());
+    }
+
+    let source_after = match capture_git_state(&source_root) {
+        Ok(state) => Some(state),
+        Err(error) => {
+            errors.push(format!("failed to recapture source Git state: {error:#}"));
+            None
+        }
+    };
+    let head_after = resolve_head(
+        &source_root,
+        options.git_timeout,
+        options.output_limit_bytes,
+        None,
+    )
+    .map_err(|error| errors.push(format!("failed to recapture source HEAD: {error:#}")))
+    .ok();
+    let refs_after = capture_refs_fingerprint(
+        &source_root,
+        options.git_timeout,
+        options.output_limit_bytes,
+        None,
+    )
+    .map_err(|error| errors.push(format!("failed to recapture source refs: {error:#}")))
+    .ok();
+    let source_guard_passed = source_after
+        .as_ref()
+        .and_then(|after| BuildGitReport::from_snapshots(source_before, after.clone(), true).ok())
+        .is_some_and(|guard| !guard.strict_violation());
+    let source_unchanged = source_guard_passed
+        && head_after.as_deref() == Some(base_head.as_str())
+        && refs_after.as_deref() == Some(refs_before.as_str());
+    if !source_unchanged {
+        errors
+            .push("source Git worktree or refs changed during disposable verification".to_string());
+    }
+
+    Ok(DisposableWorktreeRun {
+        context,
+        creation,
+        operation,
+        operation_error,
+        cleanup,
+        source_after,
+        source_unchanged,
+        errors,
+    })
 }
 
 pub(crate) fn verify_in_disposable_worktree_with_apply<F>(
@@ -589,6 +920,8 @@ where
     let lease = WorktreeLease {
         schema_version: WORKTREE_LEASE_SCHEMA_VERSION,
         run_id: run_id.clone(),
+        owner_workspace_id: "legacy-worktree".to_string(),
+        owner_request_id: run_id.clone(),
         process_id: std::process::id(),
         created_unix_ms: unix_millis(),
         source_git_root: git_root.clone(),
@@ -975,6 +1308,62 @@ fn add_worktree(
     .map(|process| (process, command))
 }
 
+fn resolve_worktree_git_directories(
+    worktree_root: &Path,
+    timeout: Duration,
+    output_limit_bytes: usize,
+    cancellation: &CancellationToken,
+) -> Result<(PathBuf, PathBuf)> {
+    let git_dir = resolve_git_directory(
+        worktree_root,
+        "--absolute-git-dir",
+        timeout,
+        output_limit_bytes,
+        cancellation,
+    )?;
+    let common_dir = resolve_git_directory(
+        worktree_root,
+        "--git-common-dir",
+        timeout,
+        output_limit_bytes,
+        cancellation,
+    )?;
+    if git_dir == common_dir || !git_dir.starts_with(&common_dir) {
+        anyhow::bail!("disposable worktree Git directories do not share a safe boundary");
+    }
+    Ok((git_dir, common_dir))
+}
+
+fn resolve_git_directory(
+    worktree_root: &Path,
+    argument: &str,
+    timeout: Duration,
+    output_limit_bytes: usize,
+    cancellation: &CancellationToken,
+) -> Result<PathBuf> {
+    let process = run_git(
+        worktree_root,
+        vec![OsString::from("rev-parse"), OsString::from(argument)],
+        timeout,
+        output_limit_bytes,
+        Some(cancellation),
+    )?;
+    if !process.success() || process.output.stdout_truncated {
+        anyhow::bail!(
+            "git rev-parse {argument} failed: {}",
+            process_error_summary(&process)
+        );
+    }
+    let value = PathBuf::from(process.stdout.trim());
+    let value = if value.is_absolute() {
+        value
+    } else {
+        worktree_root.join(value)
+    };
+    fs::canonicalize(&value)
+        .with_context(|| format!("failed to resolve Git directory {}", value.display()))
+}
+
 fn capture_worktree_diff(
     worktree_root: &Path,
     options: WorktreeVerificationOptions,
@@ -1292,6 +1681,23 @@ fn cleanup_lease(
     Ok(report)
 }
 
+fn skipped_cleanup_report(lease: &WorktreeLease, error: String) -> WorktreeCleanupReport {
+    WorktreeCleanupReport {
+        schema_version: WORKTREE_VERIFICATION_SCHEMA_VERSION,
+        operation: "worktree_cleanup",
+        operation_success: false,
+        run_id: lease.run_id.clone(),
+        worktree: lease.worktree_path.clone(),
+        attempted: false,
+        already_cleaned: false,
+        success: false,
+        registered: None,
+        descriptor_removed: false,
+        command: None,
+        errors: vec![error],
+    }
+}
+
 fn worktree_is_registered(
     source_git_root: &Path,
     target: &Path,
@@ -1452,6 +1858,8 @@ fn write_lease(storage: &WorktreeStorage, lease: &WorktreeLease) -> Result<()> {
 
 fn validate_lease(storage: &WorktreeStorage, lease: &WorktreeLease) -> Result<()> {
     validate_run_id(&lease.run_id)?;
+    validate_owner_id(&lease.owner_workspace_id, "workspace owner")?;
+    validate_owner_id(&lease.owner_request_id, "request owner")?;
     if lease.schema_version != WORKTREE_LEASE_SCHEMA_VERSION {
         return Err(operation_error(
             WorktreeOperationErrorKind::Storage,
@@ -1498,6 +1906,20 @@ fn validate_lease(storage: &WorktreeStorage, lease: &WorktreeLease) -> Result<()
                 ),
             ));
         }
+    }
+    Ok(())
+}
+
+fn validate_owner_id(value: &str, label: &str) -> Result<()> {
+    let valid = (1..=160).contains(&value.len())
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.'));
+    if !valid {
+        return Err(operation_error(
+            WorktreeOperationErrorKind::Precondition,
+            format!("{label} must contain only ASCII letters, digits, '-', '_' or '.'"),
+        ));
     }
     Ok(())
 }
@@ -1866,10 +2288,11 @@ fn verification_summary(
 mod tests {
     use super::{
         cleanup_disposable_worktree_in, cleanup_lease, list_disposable_worktrees_in,
-        validate_options, validate_run_id, verification_summary, write_lease, WorktreeLease,
-        WorktreeStorage, WorktreeVerificationOptions, WorktreeVerificationStatus,
-        WORKTREE_LEASE_SCHEMA_VERSION,
+        run_in_disposable_worktree, validate_options, validate_run_id, verification_summary,
+        write_lease, WorktreeLease, WorktreeOwner, WorktreeStorage, WorktreeVerificationOptions,
+        WorktreeVerificationStatus, WORKTREE_LEASE_SCHEMA_VERSION,
     };
+    use crate::process_runner::CancellationToken;
     use std::fs;
     use std::path::PathBuf;
     use std::time::{SystemTime, UNIX_EPOCH};
@@ -1938,6 +2361,8 @@ mod tests {
         let lease = WorktreeLease {
             schema_version: WORKTREE_LEASE_SCHEMA_VERSION,
             run_id: run_id.to_string(),
+            owner_workspace_id: "fixture-workspace".to_string(),
+            owner_request_id: "fixture-request".to_string(),
             process_id: std::process::id(),
             created_unix_ms: 1,
             source_git_root: source.clone(),
@@ -1970,6 +2395,92 @@ mod tests {
         assert!(!repeated.attempted);
 
         let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn generic_worktree_is_detached_owned_and_cleaned_after_success() {
+        let source = initialize_git_fixture("opticcode-owned-worktree");
+        let owner = WorktreeOwner::new("workspace-fixture", "request-fixture").unwrap();
+        let run = run_in_disposable_worktree(
+            &source,
+            owner.clone(),
+            WorktreeVerificationOptions::default(),
+            &CancellationToken::new(),
+            |intent| {
+                assert_eq!(intent.owner, owner);
+                assert!(!intent.destination.exists());
+                Ok(())
+            },
+            |context| {
+                let lease: WorktreeLease = serde_json::from_slice(&fs::read(&context.lease_path)?)?;
+                assert_eq!(lease.owner_workspace_id, "workspace-fixture");
+                assert_eq!(lease.owner_request_id, "request-fixture");
+                fs::write(context.worktree_root.join("tracked.txt"), "proposed\n")?;
+                Ok(context.run_id.clone())
+            },
+            |_context| Ok(()),
+        )
+        .unwrap();
+
+        assert!(run.success());
+        assert!(run.operation.is_some());
+        assert!(!run.context.worktree_root.exists());
+        assert!(!run.context.lease_path.exists());
+        assert_eq!(
+            fs::read_to_string(source.join("tracked.txt")).unwrap(),
+            "tracked\n"
+        );
+        let _ = fs::remove_dir_all(source);
+    }
+
+    #[test]
+    fn generic_worktree_cleanup_does_not_hide_operation_failure() {
+        let source = initialize_git_fixture("opticcode-failed-worktree");
+        let run = run_in_disposable_worktree(
+            &source,
+            WorktreeOwner::new("workspace-fixture", "request-failure").unwrap(),
+            WorktreeVerificationOptions::default(),
+            &CancellationToken::new(),
+            |_intent| Ok(()),
+            |context| -> anyhow::Result<()> {
+                fs::write(context.worktree_root.join("tracked.txt"), "failed\n")?;
+                anyhow::bail!("intentional operation failure")
+            },
+            |_context| Ok(()),
+        )
+        .unwrap();
+
+        assert!(!run.operation_succeeded());
+        assert!(run
+            .operation_error
+            .as_deref()
+            .is_some_and(|error| error.contains("intentional operation failure")));
+        assert!(run.cleanup.success);
+        assert!(run.source_unchanged);
+        assert!(!run.context.worktree_root.exists());
+        let _ = fs::remove_dir_all(source);
+    }
+
+    fn initialize_git_fixture(prefix: &str) -> PathBuf {
+        let source = unique_temp_dir(prefix);
+        fs::create_dir(&source).expect("source should be created");
+        run_git(&source, &["init", "--quiet"]);
+        fs::write(source.join("tracked.txt"), "tracked\n").expect("fixture should be written");
+        run_git(&source, &["add", "--all"]);
+        run_git(
+            &source,
+            &[
+                "-c",
+                "user.name=OpticCode Test",
+                "-c",
+                "user.email=opticcode-test@example.invalid",
+                "commit",
+                "--quiet",
+                "-m",
+                "fixture",
+            ],
+        );
+        fs::canonicalize(source).expect("source should resolve")
     }
 
     fn unique_temp_dir(prefix: &str) -> PathBuf {

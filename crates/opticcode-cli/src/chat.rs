@@ -90,7 +90,10 @@ pub async fn run_chat(args: ChatArgs) -> Result<i32> {
         return Ok(2);
     }
 
-    let app = if matches!(request.command, ChatCommand::Ask | ChatCommand::Plan) {
+    let app = if matches!(
+        request.command,
+        ChatCommand::Ask | ChatCommand::Plan | ChatCommand::Fix
+    ) {
         match create_opticcode(
             &args.ollama_url,
             &request.model,
@@ -135,6 +138,7 @@ pub async fn run_chat(args: ChatArgs) -> Result<i32> {
             rag_index: args.rag_index,
             verify_model: true,
             policy_state_root: None,
+            proposal_state_root: None,
         },
     );
     tokio::pin!(execution);

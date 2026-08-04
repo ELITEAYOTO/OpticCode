@@ -47,6 +47,7 @@ pub struct ChatRuntimeOptions {
     pub rag_index: PathBuf,
     pub verify_model: bool,
     pub policy_state_root: Option<PathBuf>,
+    pub proposal_state_root: Option<PathBuf>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -64,7 +65,7 @@ pub struct ChatExecutionReport {
 }
 
 #[derive(Debug)]
-struct RuntimeFailure {
+pub(crate) struct RuntimeFailure {
     code: &'static str,
     stage: &'static str,
     message: String,
@@ -72,7 +73,7 @@ struct RuntimeFailure {
 }
 
 impl RuntimeFailure {
-    fn new(code: &'static str, stage: &'static str, message: impl Into<String>) -> Self {
+    pub(crate) fn new(code: &'static str, stage: &'static str, message: impl Into<String>) -> Self {
         Self {
             code,
             stage,
@@ -81,7 +82,7 @@ impl RuntimeFailure {
         }
     }
 
-    fn retriable(mut self, retriable: bool) -> Self {
+    pub(crate) fn retriable(mut self, retriable: bool) -> Self {
         self.retriable = retriable;
         self
     }
@@ -109,13 +110,13 @@ impl std::fmt::Display for RuntimeFailure {
 impl std::error::Error for RuntimeFailure {}
 
 #[derive(Debug)]
-struct PreparedRequest {
-    workspace: PathBuf,
-    prompt: String,
-    references: Vec<ChatResolvedReference>,
-    rejected: Vec<ChatRejectedReference>,
-    warnings: Vec<String>,
-    repository_state: String,
+pub(crate) struct PreparedRequest {
+    pub(crate) workspace: PathBuf,
+    pub(crate) prompt: String,
+    pub(crate) references: Vec<ChatResolvedReference>,
+    pub(crate) rejected: Vec<ChatRejectedReference>,
+    pub(crate) warnings: Vec<String>,
+    pub(crate) repository_state: String,
 }
 
 #[derive(Debug)]
@@ -125,19 +126,22 @@ struct ReferenceMaterial {
 }
 
 #[derive(Debug)]
-struct CommandOutcome {
-    context_files: Vec<ChatContextFile>,
-    used_context_mode: Option<ContextMode>,
-    metrics: ChatMetrics,
-    warnings: Vec<String>,
+pub(crate) struct CommandOutcome {
+    pub(crate) context_files: Vec<ChatContextFile>,
+    pub(crate) used_context_mode: Option<ContextMode>,
+    pub(crate) metrics: ChatMetrics,
+    pub(crate) warnings: Vec<String>,
 }
 
 #[derive(Debug)]
-struct ChatPolicyAuthorization {
-    policy_version: String,
-    decision: String,
-    rule_id: String,
-    effective_security_mode: ChatSecurityMode,
+pub(crate) struct ChatPolicyAuthorization {
+    pub(crate) policy_version: String,
+    pub(crate) decision: String,
+    pub(crate) rule_id: String,
+    pub(crate) action_kind: String,
+    pub(crate) action_hash: String,
+    pub(crate) audit_event_id: Option<String>,
+    pub(crate) effective_security_mode: ChatSecurityMode,
 }
 
 pub async fn execute_chat(
@@ -242,9 +246,9 @@ async fn execute_chat_inner(
             requested_security_mode: request.security_mode,
             security_mode: authorization.effective_security_mode,
             effective_security_mode: authorization.effective_security_mode,
-            policy_version: authorization.policy_version,
-            policy_decision: authorization.decision,
-            policy_rule_id: authorization.rule_id,
+            policy_version: authorization.policy_version.clone(),
+            policy_decision: authorization.decision.clone(),
+            policy_rule_id: authorization.rule_id.clone(),
         })
         .await
         .map_err(event_failure)?;
@@ -252,7 +256,7 @@ async fn execute_chat_inner(
         return Err(RuntimeFailure::new(
             "security_mode_unavailable",
             "policy",
-            "the Rust policy authority forced read_only; chat edit modes remain unavailable until CHAT-EDIT-001",
+            "clients must request read_only; only the Rust runtime may perform scoped worktree_edit or approved_apply transitions",
         ));
     }
     if cancellation.is_cancelled() {
@@ -301,7 +305,17 @@ async fn execute_chat_inner(
         | ChatCommand::Diff
         | ChatCommand::Apply
         | ChatCommand::Rollback => {
-            run_unavailable_command(request.command, emitter, started).await?
+            crate::chat_edit_runtime::run_chat_edit(
+                app,
+                request,
+                &prepared,
+                &authorization,
+                emitter,
+                cancellation,
+                options,
+                started,
+            )
+            .await?
         }
         ChatCommand::Unknown => {
             return Err(RuntimeFailure::new(
@@ -399,6 +413,9 @@ fn authorize_chat_request(
         policy_version: preflight.report.policy_version,
         decision: preflight.report.decision.kind().to_string(),
         rule_id: preflight.report.decision.rule_id().to_string(),
+        action_kind: preflight.report.action_kind,
+        action_hash: preflight.report.action_hash,
+        audit_event_id: preflight.report.audit_event_id,
         effective_security_mode: ChatSecurityMode::ReadOnly,
     })
 }
@@ -501,6 +518,55 @@ fn validate_request(request: &ChatRequest) -> std::result::Result<(), RuntimeFai
             "request_validation",
             "compare_generate is valid only with compare context mode",
         ));
+    }
+    if let Some(edit) = &request.edit {
+        if !matches!(
+            request.command,
+            ChatCommand::Fix
+                | ChatCommand::Verify
+                | ChatCommand::Diff
+                | ChatCommand::Apply
+                | ChatCommand::Rollback
+        ) {
+            return Err(RuntimeFailure::new(
+                "invalid_edit_control",
+                "request_validation",
+                "structured edit controls are valid only for chat edit commands",
+            ));
+        }
+        if let Some(proposal_id) = &edit.proposal_id {
+            validate_identifier("proposal_id", proposal_id, 160)?;
+        }
+        if let Some(transaction_id) = &edit.transaction_id {
+            validate_identifier("transaction_id", transaction_id, 160)?;
+        }
+        if edit.discard && request.command != ChatCommand::Diff {
+            return Err(RuntimeFailure::new(
+                "invalid_edit_control",
+                "request_validation",
+                "proposal discard is accepted only through the read-only diff command",
+            ));
+        }
+        if let Some(confirmation) = &edit.native_confirmation {
+            if !matches!(request.command, ChatCommand::Apply | ChatCommand::Rollback) {
+                return Err(RuntimeFailure::new(
+                    "invalid_native_confirmation",
+                    "request_validation",
+                    "native confirmation is accepted only for apply or rollback",
+                ));
+            }
+            validate_identifier("confirmation.client", &confirmation.client, 96)?;
+            validate_identifier(
+                "confirmation.confirmation_id",
+                &confirmation.confirmation_id,
+                160,
+            )?;
+            validate_identifier(
+                "confirmation.approval_request_id",
+                &confirmation.approval_request_id,
+                160,
+            )?;
+        }
     }
     let mut ids = BTreeSet::new();
     for reference in &request.references {
@@ -1449,7 +1515,7 @@ async fn run_status_command(
             "- repository state: `{}`\n",
             "- Git changes: {}\n",
             "- policy: deny-by-default POLICY-001 active\n",
-            "- write/apply: unavailable until CHAT-EDIT-001"
+            "- chat edits: verified worktree proposals with native approval for original apply"
         ),
         request.provider,
         request.model,
@@ -1502,39 +1568,16 @@ async fn run_help_command(
         "- `/context`: inspect legacy/symbol context\n",
         "- `/analyze`, `/index`, `/legacy`: run read-only Java analysis\n",
         "- `/status`, `/runs`: inspect local state\n",
-        "- `/fix`, `/verify`, `/diff`, `/apply`, `/rollback`: unavailable until CHAT-EDIT-001\n\n",
+        "- `/fix`: generate and verify a bounded edit proposal in a disposable worktree\n",
+        "- `/verify`, `/diff`: revalidate or review a stored proposal\n",
+        "- `/apply`, `/rollback`: require a native VS Code modal and one-shot Policy approval\n\n",
         "Attached files are never implicit write permission. Sensitive files, paths outside the workspace, and symlinks/junctions are refused."
     );
     emit_text(emitter, markdown).await?;
     Ok(empty_outcome(started))
 }
 
-async fn run_unavailable_command(
-    command: ChatCommand,
-    emitter: &ChatEventEmitter,
-    started: Instant,
-) -> std::result::Result<CommandOutcome, RuntimeFailure> {
-    emitter
-        .send(ChatProtocolEventPayload::Warning {
-            code: "feature_unavailable".to_string(),
-            message: format!("/{command} is unavailable until CHAT-EDIT-001 is fully active"),
-        })
-        .await
-        .map_err(event_failure)?;
-    emit_text(
-        emitter,
-        &format!(
-            "`/{command}` is unavailable until CHAT-EDIT-001. No file, worktree, process, or Git state was changed."
-        ),
-    )
-    .await?;
-    Ok(CommandOutcome {
-        warnings: vec![format!("/{command} is not active in read_only mode")],
-        ..empty_outcome(started)
-    })
-}
-
-async fn emit_text(
+pub(crate) async fn emit_text(
     emitter: &ChatEventEmitter,
     text: &str,
 ) -> std::result::Result<(), RuntimeFailure> {
@@ -1909,6 +1952,7 @@ mod tests {
                 previous_repository_state: None,
             },
             expected_protocols: ChatExpectedProtocols::default(),
+            edit: None,
         }
     }
 
@@ -1931,6 +1975,7 @@ mod tests {
                 rag_index: PathBuf::from("missing-index"),
                 verify_model: true,
                 policy_state_root: Some(policy_state.path().to_path_buf()),
+                proposal_state_root: Some(policy_state.path().to_path_buf()),
             },
         )
         .await
@@ -1977,6 +2022,7 @@ mod tests {
             rag_index: PathBuf::from("missing-index"),
             verify_model: true,
             policy_state_root: Some(policy_state.path().to_path_buf()),
+            proposal_state_root: Some(policy_state.path().to_path_buf()),
         };
         for command in [
             ChatCommand::Ask,
@@ -2139,28 +2185,26 @@ mod tests {
         assert_eq!(rejected.map(Vec::len), Some(3));
     }
 
-    #[tokio::test]
-    async fn edit_commands_are_explicitly_unavailable_before_chat_edit() {
+    #[test]
+    fn edit_controls_are_command_scoped_and_fix_requires_a_task() {
         let temp = fixture();
-        for command in [
-            ChatCommand::Fix,
-            ChatCommand::Verify,
-            ChatCommand::Diff,
-            ChatCommand::Apply,
-            ChatCommand::Rollback,
-        ] {
-            let source_before =
-                fs::read(temp.path().join("src/main/java/test/Plugin.java")).unwrap();
-            let (report, events) = run(None, request(temp.path(), command)).await;
-            assert_eq!(report.status, ChatExecutionStatus::Completed);
-            assert!(events.iter().any(|event| matches!(
-                &event.payload,
-                ChatProtocolEventPayload::Warning { code, .. } if code == "feature_unavailable"
-            )));
-            assert_eq!(
-                fs::read(temp.path().join("src/main/java/test/Plugin.java")).unwrap(),
-                source_before
-            );
-        }
+        let mut fix = request(temp.path(), ChatCommand::Fix);
+        fix.prompt.clear();
+        assert_eq!(validate_request(&fix).unwrap_err().code, "prompt_required");
+
+        let mut diff = request(temp.path(), ChatCommand::Diff);
+        diff.edit = Some(crate::ChatEditControl {
+            proposal_id: Some("plan-1".to_string()),
+            native_confirmation: Some(crate::ChatNativeConfirmation {
+                client: "opticcode-vscode".to_string(),
+                confirmation_id: "confirmation-1".to_string(),
+                approval_request_id: "apply-confirmation-1".to_string(),
+            }),
+            ..crate::ChatEditControl::default()
+        });
+        assert_eq!(
+            validate_request(&diff).unwrap_err().code,
+            "invalid_native_confirmation"
+        );
     }
 }

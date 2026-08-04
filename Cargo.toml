@@ -2,6 +2,7 @@
 members = [
     "crates/opticcode-cli",
     "crates/opticcode-core",
+    "crates/opticcode-edit",
     "crates/opticcode-llm",
     "crates/opticcode-policy",
     "crates/opticcode-tools",
@@ -39,6 +40,7 @@ windows-sys = { version = "0.61", features = [
 ] }
 
 opticcode-core = { path = "crates/opticcode-core" }
+opticcode-edit = { path = "crates/opticcode-edit" }
 opticcode-llm = { path = "crates/opticcode-llm" }
 opticcode-policy = { path = "crates/opticcode-policy" }
 opticcode-tools = { path = "crates/opticcode-tools" }

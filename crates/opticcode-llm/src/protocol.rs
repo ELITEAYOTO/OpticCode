@@ -10,6 +10,7 @@ pub const MAX_REQUEST_ID_BYTES: usize = 128;
 pub const MAX_MODEL_NAME_BYTES: usize = 256;
 pub const MAX_PROMPT_BYTES: usize = 16 * 1024 * 1024;
 pub const MAX_GENERATED_OUTPUT_BYTES: usize = 16 * 1024 * 1024;
+pub const MAX_OUTPUT_SCHEMA_BYTES: usize = 256 * 1024;
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[serde(rename_all = "snake_case")]
@@ -112,7 +113,25 @@ pub struct GenerationOptions {
     pub seed: Option<i64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub keep_alive: Option<String>,
+    #[serde(default, skip_serializing_if = "GenerationOutputFormat::is_text")]
+    pub output_format: GenerationOutputFormat,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub output_schema: Option<serde_json::Value>,
     pub timeout_ms: u64,
+}
+
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum GenerationOutputFormat {
+    #[default]
+    Text,
+    Json,
+}
+
+impl GenerationOutputFormat {
+    pub const fn is_text(&self) -> bool {
+        matches!(self, Self::Text)
+    }
 }
 
 impl Default for GenerationOptions {
@@ -122,6 +141,8 @@ impl Default for GenerationOptions {
             temperature: None,
             seed: None,
             keep_alive: None,
+            output_format: GenerationOutputFormat::Text,
+            output_schema: None,
             timeout_ms: DEFAULT_PROVIDER_TIMEOUT_MS,
         }
     }
@@ -200,6 +221,20 @@ impl GenerationRequest {
                 "request_validation",
                 "keep_alive must be at most 64 bytes and contain no control characters",
             ));
+        }
+        if let Some(schema) = &self.options.output_schema {
+            if self.options.output_format != GenerationOutputFormat::Json
+                || !schema.is_object()
+                || serde_json::to_vec(schema).map_or(true, |value| {
+                    value.is_empty() || value.len() > MAX_OUTPUT_SCHEMA_BYTES
+                })
+            {
+                return Err(ProviderError::invalid_request(
+                    provider,
+                    "request_validation",
+                    "output_schema requires bounded JSON output and an object schema",
+                ));
+            }
         }
         Ok(())
     }
@@ -548,8 +583,8 @@ pub fn validate_model_name(value: &str, provider: ProviderId) -> Result<(), Prov
 #[cfg(test)]
 mod tests {
     use super::{
-        GenerationRequest, LlmProtocolEvent, LlmProtocolEventPayload, ProviderError, ProviderId,
-        LLM_PROTOCOL_SCHEMA_VERSION,
+        GenerationOutputFormat, GenerationRequest, LlmProtocolEvent, LlmProtocolEventPayload,
+        ProviderError, ProviderId, LLM_PROTOCOL_SCHEMA_VERSION,
     };
 
     #[test]
@@ -566,6 +601,25 @@ mod tests {
         invalid = request;
         invalid.options.temperature = Some(f32::NAN);
         assert!(invalid.validate(ProviderId::Ollama).is_err());
+
+        let mut structured = GenerationRequest::new("structured-1", "qwen:14b", "json");
+        structured.options.output_format = GenerationOutputFormat::Json;
+        structured.options.output_schema =
+            Some(serde_json::json!({"type": "object", "required": ["answer"]}));
+        let json = serde_json::to_string(&structured).unwrap();
+        assert!(json.contains(r#""output_format":"json""#));
+        assert!(json.contains(r#""output_schema":{"required":["answer"],"type":"object"}"#));
+        assert_eq!(
+            serde_json::from_str::<GenerationRequest>(&json)
+                .unwrap()
+                .options
+                .output_format,
+            GenerationOutputFormat::Json
+        );
+
+        let mut invalid_schema = GenerationRequest::new("schema-1", "qwen:14b", "json");
+        invalid_schema.options.output_schema = Some(serde_json::json!({"type": "object"}));
+        assert!(invalid_schema.validate(ProviderId::Ollama).is_err());
     }
 
     #[test]

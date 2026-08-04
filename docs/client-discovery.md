@@ -28,7 +28,8 @@ families. It does not contact Ollama.
 
 POLICY-001 adds the compatible `policy_runtime` block: schema/version, the
 `read_only`, `worktree_edit`, and `approved_apply` modes, engine/audit/approval/
-CLI availability, plus `chat_read_only: true` and `chat_write: false`.
+CLI availability, plus `chat_read_only: true` and `chat_write: true`. Clients
+still request `read_only`; Rust alone performs scoped internal mode transitions.
 
 `doctor` performs bounded, read-only checks for the executable, Git, Java,
 Maven, Gradle, the Ollama CLI/provider, the configured model, RAG v2, the active

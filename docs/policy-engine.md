@@ -9,9 +9,9 @@ crate `opticcode-policy` est independant du modele, du Chat, de VS Code et des
 prompts. Une action qui n'est pas representee, comprise et autorisee par ce
 moteur ne peut pas devenir implicitement executable.
 
-Le jalon ne rend pas le Chat capable d'ecrire. `/fix`, `/verify`, `/diff`,
-`/apply` et `/rollback` restent explicitement indisponibles jusqu'a
-`CHAT-EDIT-001`.
+CHAT-EDIT-001 consomme maintenant cette autorite pour `/fix`, `/verify`,
+`/diff`, `/apply` et `/rollback`. Le client demande toujours `read_only` ; Rust
+seul ouvre un scope `worktree_edit` ou `approved_apply` pour une action exacte.
 
 ## Architecture
 
@@ -101,8 +101,8 @@ Une mutation exige un worktree detache sous le stockage temporaire controle :
 - revalidation avant execution.
 
 Une lease historique qui ne contient pas les champs de proprietaire ne suffit
-pas a autoriser une future action Chat. `CHAT-EDIT-001` devra creer la lease
-enrichie via un adaptateur de confiance.
+pas a autoriser une action Chat. `CHAT-EDIT-001` cree la lease enrichie via son
+adaptateur Rust de confiance et la lie au workspace et a la requete exacts.
 
 ### `approved_apply`
 
@@ -278,12 +278,15 @@ effectif `read_only`, meme si le client demande `worktree_edit` ou
 - decision ;
 - `rule_id`.
 
-Les commandes de lecture obtiennent `Allow`. Les commandes edit restent des
-reponses informatives sans ecriture ni worktree.
+Les commandes de lecture obtiennent `Allow`. `/fix` produit d'abord un plan en
+lecture, puis chaque creation worktree, ecriture, processus, diff et cleanup est
+evalue separement. `/apply` et `/rollback` exigent `RequireApproval`, une
+confirmation native puis la consommation one-shot.
 
 `version --json`, `capabilities --json` et `doctor --json` exposent le schema,
 les trois modes, le moteur, l'audit, les approvals, la CLI et
-`chat_write: false` sans supprimer les champs historiques.
+`chat_write: true` sans supprimer les champs historiques. Cette capacite ne
+permet pas au client de choisir lui-meme un mode plus permissif.
 
 ## Validation
 
@@ -303,15 +306,19 @@ Etat valide de POLICY-001 : 288 tests Rust (dont 25 Policy et 59 dans le package
 CLI), 36 tests unitaires TypeScript, integration CLI reelle, Extension Host,
 build release et audit RustSec sur 195 dependances sans vulnerabilite connue.
 
-## Limites avant CHAT-EDIT-001
+## Integration CHAT-EDIT-001
 
-- aucune proposition generale produite par le modele ;
-- aucun `ProposalStore` ;
-- aucune commande Chat d'ecriture ;
-- aucune creation de lease enrichie depuis le Chat ;
-- aucun transfert du worktree vers l'original ;
-- aucune enforcement reseau ou sandbox processus au niveau OS ;
-- aucune approbation native VS Code encore branchee au moteur.
+- `ProposalStore` conserve les references d'audit, jamais les grants bruts ;
+- les leases GIT-002 portent workspace et request ID ;
+- une creation controlee est permise seulement dans le worktree actif reconnu ;
+- Maven/Gradle restent offline, shell false et bornes ;
+- l'original exige un diff, fichiers, HEAD, digest et transaction exacts ;
+- l'approval est cree seulement apres la modale native puis consomme une fois ;
+- une transaction etrangere ou un replay sont refuses ;
+- TypeScript ne contient aucune regle Policy.
 
-Le prochain jalon devra adapter les outils existants a ces contrats sans
-dupliquer la politique en TypeScript et sans relacher `approved_apply`.
+Limite conservee : Policy n'est pas un sandbox OS. L'executor applique donc
+encore l'allowlist, l'environnement sans reseau, les timeouts, GIT-002,
+APPLY-001 et les revalidations TOCTOU.
+
+Reference : [`chat-edits.md`](chat-edits.md).

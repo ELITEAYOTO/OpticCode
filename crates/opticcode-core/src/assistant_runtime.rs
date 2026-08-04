@@ -3,9 +3,9 @@ use std::time::{Duration, Instant};
 
 use anyhow::{bail, Result};
 use opticcode_llm::{
-    event_channel, CancellationToken, GenerateMetrics, GenerationRequest, GenerationResult,
-    HealthRequest, LlmProtocolEvent, LlmProvider, ProviderError, ProviderErrorKind,
-    ProviderGenerationOptions, MAX_REQUEST_ID_BYTES,
+    event_channel, CancellationToken, GenerateMetrics, GenerationOutputFormat, GenerationRequest,
+    GenerationResult, HealthRequest, LlmProtocolEvent, LlmProvider, ProviderError,
+    ProviderErrorKind, ProviderGenerationOptions, MAX_REQUEST_ID_BYTES,
 };
 use serde::{Deserialize, Serialize};
 
@@ -508,6 +508,8 @@ async fn execute_assistant_inner(
         temperature: options.temperature,
         seed: options.seed,
         keep_alive: options.keep_alive.clone(),
+        output_format: GenerationOutputFormat::Text,
+        output_schema: None,
         timeout_ms: duration_ms_ceil(options.http_timeout),
     };
     let mut raw_metrics = Vec::new();

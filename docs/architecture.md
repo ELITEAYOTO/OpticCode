@@ -48,6 +48,12 @@ optic-core
   |     +-- one-shot state-bound approvals
   |     +-- bounded workspace-namespaced audit
   |
+  +-- opticcode-edit
+  |     +-- strict versioned EditPlan validation
+  |     +-- atomic ProposalStore outside the workspace
+  |     +-- isolated verification and real Git diff
+  |     +-- approved APPLY-001 and exact rollback
+  |
   +-- optic-rag
   |     +-- sqlite metadata
   |     +-- tantivy full-text
@@ -340,7 +346,8 @@ ChatRequest VS Code
 - historique borne et metadata de session separees par workspace ;
 - un terminal unique et annulation structuree ;
 - decision, `rule_id` et mode Policy effectif dans l'evenement d'acceptation ;
-- commandes d'edition fermees jusqu'au pipeline CHAT-EDIT-001 verifie.
+- commandes d'edition orchestrees par CHAT-EDIT-001, avec escalades Policy
+  internes et confirmation native pour l'original.
 
 La couche TypeScript ne devient pas une seconde implementation du core. Elle
 adapte uniquement les objets VS Code au protocole machine et les evenements aux

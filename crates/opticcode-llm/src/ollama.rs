@@ -7,17 +7,18 @@ use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    CancellationToken, EventSink, FinishReason, GenerationRequest, GenerationResult,
-    GenerationTimings, GenerationUsage, HealthReport, HealthRequest, HealthStatus,
-    LlmProtocolEvent, LlmProtocolEventPayload, LlmProvider, ModelInfo, ProviderCapabilities,
-    ProviderError, ProviderErrorKind, ProviderId, LLM_PROTOCOL_SCHEMA_VERSION,
-    MAX_GENERATED_OUTPUT_BYTES,
+    CancellationToken, EventSink, FinishReason, GenerationOutputFormat, GenerationRequest,
+    GenerationResult, GenerationTimings, GenerationUsage, HealthReport, HealthRequest,
+    HealthStatus, LlmProtocolEvent, LlmProtocolEventPayload, LlmProvider, ModelInfo,
+    ProviderCapabilities, ProviderError, ProviderErrorKind, ProviderId,
+    LLM_PROTOCOL_SCHEMA_VERSION, MAX_GENERATED_OUTPUT_BYTES,
 };
 
 pub const DEFAULT_OLLAMA_HTTP_TIMEOUT: Duration = Duration::from_secs(120);
 pub const MAX_OLLAMA_HTTP_TIMEOUT: Duration = Duration::from_secs(60 * 60);
 const MAX_STREAM_LINE_BYTES: usize = 1024 * 1024;
 const MAX_NON_STREAM_BODY_BYTES: usize = MAX_GENERATED_OUTPUT_BYTES + MAX_STREAM_LINE_BYTES;
+const MAX_HTTP_ERROR_DETAIL_BYTES: usize = 4 * 1024;
 const EVENT_DELIVERY_TIMEOUT: Duration = Duration::from_secs(5);
 
 #[derive(Debug, Clone)]
@@ -39,6 +40,8 @@ struct OllamaGenerateRequest<'a> {
     model: &'a str,
     prompt: &'a str,
     stream: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    format: Option<serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     keep_alive: Option<&'a str>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -190,7 +193,7 @@ impl OllamaProvider {
             .send()
             .await
             .map_err(|error| map_reqwest_error(error, "model_inventory"))?;
-        let response = checked_status(response, "model_inventory")?;
+        let response = checked_status(response, "model_inventory").await?;
         let parsed = response
             .json::<OllamaTagsResponse>()
             .await
@@ -216,6 +219,16 @@ impl OllamaProvider {
             model: &request.model,
             prompt: &request.prompt,
             stream,
+            format: match request.options.output_format {
+                GenerationOutputFormat::Text => None,
+                GenerationOutputFormat::Json => Some(
+                    request
+                        .options
+                        .output_schema
+                        .clone()
+                        .unwrap_or_else(|| serde_json::Value::String("json".to_string())),
+                ),
+            },
             keep_alive: request.options.keep_alive.as_deref(),
             options: wire_options.has_values().then_some(wire_options),
         };
@@ -234,7 +247,7 @@ impl OllamaProvider {
                 response.map_err(|error| map_reqwest_error(error, "generation_send"))?
             }
         };
-        checked_status(response, "generation_status")
+        checked_status(response, "generation_status").await
     }
 
     async fn generate_inner(
@@ -820,7 +833,7 @@ fn finish_reason(value: Option<&str>) -> FinishReason {
     }
 }
 
-fn checked_status(
+async fn checked_status(
     response: reqwest::Response,
     stage: &str,
 ) -> std::result::Result<reqwest::Response, ProviderError> {
@@ -828,13 +841,49 @@ fn checked_status(
         return Ok(response);
     }
     let status = response.status();
+    let detail = read_bounded_http_error_detail(response).await;
     Err(ProviderError::new(
         ProviderId::Ollama,
         ProviderErrorKind::HttpStatus,
         stage,
         status.is_server_error() || status.as_u16() == 429,
-        format!("local Ollama API returned HTTP {status}"),
+        match detail {
+            Some(detail) => format!("local Ollama API returned HTTP {status}: {detail}"),
+            None => format!("local Ollama API returned HTTP {status}"),
+        },
     ))
+}
+
+async fn read_bounded_http_error_detail(mut response: reqwest::Response) -> Option<String> {
+    let mut bytes = Vec::with_capacity(MAX_HTTP_ERROR_DETAIL_BYTES);
+    while bytes.len() < MAX_HTTP_ERROR_DETAIL_BYTES {
+        let chunk = match response.chunk().await {
+            Ok(Some(chunk)) => chunk,
+            Ok(None) => break,
+            Err(_) => return None,
+        };
+        let remaining = MAX_HTTP_ERROR_DETAIL_BYTES.saturating_sub(bytes.len());
+        bytes.extend_from_slice(&chunk[..chunk.len().min(remaining)]);
+    }
+    let detail = bounded_http_error_detail(&bytes);
+    (!detail.is_empty()).then_some(detail)
+}
+
+fn bounded_http_error_detail(bytes: &[u8]) -> String {
+    let bytes = &bytes[..bytes.len().min(MAX_HTTP_ERROR_DETAIL_BYTES)];
+    let value = String::from_utf8_lossy(bytes);
+    value
+        .chars()
+        .map(|character| {
+            if character.is_control() {
+                ' '
+            } else {
+                character
+            }
+        })
+        .collect::<String>()
+        .trim()
+        .to_string()
 }
 
 fn map_reqwest_error(error: reqwest::Error, stage: &str) -> ProviderError {
@@ -1005,13 +1054,13 @@ mod tests {
     use std::time::Duration;
 
     use crate::{
-        event_channel, CancellationToken, GenerationRequest, HealthRequest, HealthStatus,
-        LlmProtocolEventPayload, LlmProvider, ProviderErrorKind,
+        event_channel, CancellationToken, GenerationOutputFormat, GenerationRequest, HealthRequest,
+        HealthStatus, LlmProtocolEventPayload, LlmProvider, ProviderErrorKind,
     };
 
     use super::{
-        ensure_output_capacity, parse_keep_alive, validate_local_ollama_url, GenerateOptions,
-        OllamaClient, OllamaProvider,
+        bounded_http_error_detail, ensure_output_capacity, parse_keep_alive,
+        validate_local_ollama_url, GenerateOptions, OllamaClient, OllamaProvider,
     };
 
     #[test]
@@ -1020,6 +1069,13 @@ mod tests {
         assert_eq!(parse_keep_alive("0").as_deref(), Some("0"));
         assert_eq!(parse_keep_alive(" none "), None);
         assert_eq!(parse_keep_alive(""), None);
+    }
+
+    #[test]
+    fn bounds_and_sanitizes_local_http_error_details() {
+        let detail = bounded_http_error_detail(b"grammar\r\nfailed\0");
+        assert_eq!(detail, "grammar  failed");
+        assert!(bounded_http_error_detail(&[b'x'; 8 * 1024]).len() <= 4 * 1024);
     }
 
     #[test]
@@ -1107,6 +1163,70 @@ mod tests {
         assert!(request.contains(r#""num_predict":64"#));
         assert!(request.contains(r#""temperature":0.0"#));
         assert!(request.contains(r#""seed":42"#));
+    }
+
+    #[tokio::test]
+    async fn sends_native_json_format_for_structured_generation() {
+        let (url, request) = spawn_mock(
+            r#"{"response":"{\"ok\":true}","done":true}"#,
+            Duration::ZERO,
+        );
+        let provider = OllamaProvider::try_new(url).unwrap();
+        let mut generation = GenerationRequest::new("structured-1", "qwen", "return JSON");
+        generation.options.output_format = GenerationOutputFormat::Json;
+
+        let result = provider
+            .generate(generation, CancellationToken::new())
+            .await
+            .unwrap();
+        let request = request.recv().unwrap();
+
+        assert_eq!(result.output, r#"{"ok":true}"#);
+        assert!(request.contains(r#""format":"json""#));
+    }
+
+    #[tokio::test]
+    async fn sends_native_schema_for_constrained_generation() {
+        let (url, request) = spawn_mock(
+            r#"{"response":"{\"answer\":true}","done":true}"#,
+            Duration::ZERO,
+        );
+        let provider = OllamaProvider::try_new(url).unwrap();
+        let mut generation = GenerationRequest::new("schema-1", "qwen", "return JSON");
+        generation.options.output_format = GenerationOutputFormat::Json;
+        generation.options.output_schema = Some(serde_json::json!({
+            "type": "object",
+            "properties": {"answer": {"type": "boolean"}},
+            "required": ["answer"],
+            "additionalProperties": false
+        }));
+
+        provider
+            .generate(generation, CancellationToken::new())
+            .await
+            .unwrap();
+        let request = request.recv().unwrap();
+
+        assert!(request.contains(r#""format":{"additionalProperties":false"#));
+        assert!(request.contains(r#""answer":{"type":"boolean"}"#));
+    }
+
+    #[tokio::test]
+    async fn bounds_http_error_details_while_reading_the_response() {
+        let body = format!("grammar\r\nfailed:{}", "x".repeat(8 * 1024));
+        let (url, _request) = spawn_status_mock("400 Bad Request", body);
+        let provider = OllamaProvider::try_new(url).unwrap();
+        let request = GenerationRequest::new("error-1", "qwen", "return JSON");
+
+        let error = provider
+            .generate(request, CancellationToken::new())
+            .await
+            .unwrap_err();
+
+        assert_eq!(error.kind, ProviderErrorKind::HttpStatus);
+        assert!(error.message.contains("grammar  failed"));
+        assert!(error.message.len() < 5 * 1024);
+        assert!(!error.message.contains('\n'));
     }
 
     #[tokio::test]
@@ -1341,6 +1461,26 @@ mod tests {
             thread::sleep(delay);
             let response = format!(
                 "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                body.len(),
+                body
+            );
+            let _ = stream.write_all(response.as_bytes());
+        });
+        (format!("http://{address}"), receiver)
+    }
+
+    fn spawn_status_mock(status: &'static str, body: String) -> (String, Receiver<String>) {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let (sender, receiver) = mpsc::channel();
+        thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            stream
+                .set_read_timeout(Some(Duration::from_secs(2)))
+                .unwrap();
+            sender.send(read_http_request(&mut stream)).unwrap();
+            let response = format!(
+                "HTTP/1.1 {status}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
                 body.len(),
                 body
             );

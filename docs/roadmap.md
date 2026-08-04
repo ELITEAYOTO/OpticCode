@@ -559,20 +559,20 @@ Acquis Chat :
 - historique et session bornes, namespaces distincts par workspace ;
 - Markdown streame, ancres, file tree, metriques et boutons natifs ;
 - annulation structuree, kill force distinct et terminal unique ;
-- `/fix`, `/verify`, `/diff`, `/apply` et `/rollback` fermes explicitement.
+- `/fix`, `/verify`, `/diff`, `/apply` et `/rollback` actifs via CHAT-EDIT-001.
 - chaque commande est evaluee par PolicyEngine dans Rust ;
 - mode effectif `read_only`, decision et `rule_id` exposes dans le protocole ;
 - un mode plus permissif demande par le client est refuse avant les references.
 
 Limites :
 
-- pas de LSP, daemon, boucle agent ou transfert automatique vers la source ;
+- pas de LSP, daemon ou boucle agent ;
 - rapports et runs limites a la session VS Code ;
 - `legacy` reste le contexte par defaut ; `symbol` et `compare` sont explicites.
 
-Suite : `CHAT-EDIT-001` est le prochain jalon. Il doit produire et stocker une
-proposition, creer une lease liee a la requete, verifier dans GIT-002 et afficher
-le diff sans encore automatiser le transfert vers la source.
+Suite : la proposition, la lease, GIT-002, le diff et le transfert confirme sont
+maintenant couverts par CHAT-EDIT-001. Le prochain jalon est une premiere boucle
+agent bornee qui compose ces primitives sans elargir leurs permissions.
 
 References : [`llm-protocol.md`](llm-protocol.md),
 [`client-discovery.md`](client-discovery.md) et
@@ -599,16 +599,51 @@ Acquis :
 
 Limites :
 
-- le Chat ne cree encore ni proposition, ni worktree, ni approval ;
 - Policy ne remplace pas un sandbox OS pour le reseau et les processus ;
-- les anciennes leases GIT-002 doivent etre enrichies par le futur adaptateur
-  avant de pouvoir servir a une action Chat ;
-- aucune application originale n'est exposee au participant.
+- la protection contre les modifications d'un editeur externe reste fondee sur
+  la revalidation de hashes et l'echec ferme.
 
-Suite stricte : `CHAT-EDIT-001`, sans AGENT-001, Tantivy, embeddings, llama.cpp
-ou changement du contexte par defaut.
+Suite stricte : premiere boucle agent bornee, sans Tantivy, embeddings, llama.cpp
+ou changement du contexte par defaut dans le meme sprint.
 
 Reference : [`policy-engine.md`](policy-engine.md).
+
+## Phase 5.10 - Editions Chat verifiees
+
+Statut : `CHAT-EDIT-001` termine.
+
+Acquis :
+
+- crate `opticcode-edit` avec `EditPlan` Serde strict et limites dures ;
+- sortie LLM traitee comme non fiable, schema JSON natif et une correction de
+  format maximum ;
+- snapshots de references avec BLAKE3 complet et ancres byte exactes ;
+- `ProposalStore` atomique hors workspace, TTL, recovery et machine d'etats ;
+- verification dans un worktree detache possede, via Policy et APPLY-001 ;
+- Tree-sitter Java, Maven/Gradle offline, Process Runner et diff Git reel ;
+- snapshots minimaux, statistiques et documents virtuels base/propose VS Code ;
+- `/fix`, `/verify`, `/diff`, `/apply`, `/rollback` et discard cible ;
+- confirmation modale native liee au proposal/diff ou a la transaction ;
+- approval Policy one-shot consommee pendant apply/rollback ;
+- rollback automatique post-apply et rollback manuel exact/idempotent ;
+- annulation relayee sans abandon de transaction originale ;
+- E2E Git/Maven public Chat jusqu'au retour byte-for-byte a la base ;
+- smoke Qwen 14B reel : une generation, zero correction, environ 33 secondes
+  chaud / 91 648 ms froid, original inchange et zero lease ;
+- gate `scripts/run-chat-edit-quality.ps1` et documentation dediee.
+
+Limites conservees :
+
+- cinq fichiers, une creation texte, aucun delete/rename/binaire ;
+- pas de reseau, installation, wrapper, shell, push ou commit automatique ;
+- pas encore de boucle agent iterative ;
+- `legacy` reste le contexte par defaut.
+
+Suite : `AGENT-001` borne, avec un nombre d'iterations et un budget explicites,
+en reutilisant uniquement ce pipeline verifie. RAG-002 reste un chantier mesure
+separe.
+
+Reference : [`chat-edits.md`](chat-edits.md).
 
 ## Phase 6 - RAG local et donnees metier
 

@@ -16,6 +16,8 @@ Inclus :
 
 - contrats provider independants d'Ollama dans `opticcode-llm` ;
 - implementation locale `OllamaProvider` ;
+- format de sortie provider-neutre, avec JSON et schema JSON natifs pour les
+  generations structurees ;
 - health check, inventaire des modeles, generation et streaming NDJSON ;
 - annulation avant envoi et pendant la lecture du flux ;
 - evenements provider `opticcode.llm` schema 1 ;
@@ -87,6 +89,7 @@ runtime assistant. Les constructeurs historiques restent des raccourcis Ollama.
 | nom de modele | 256 octets, aucun caractere de controle |
 | prompt provider | 16 Mio |
 | sortie generee cumulee | 16 Mio |
+| schema JSON de sortie | 256 Kio |
 | timeout provider | 1 a 3 600 000 ms |
 | ligne NDJSON Ollama | 1 Mio |
 | capacite d'un canal public | 1 a 4 096 evenements |
@@ -95,6 +98,18 @@ runtime assistant. Les constructeurs historiques restent des raccourcis Ollama.
 
 Les URL Ollama restent limitees a HTTP local (`localhost`, loopback IPv4 ou
 IPv6), sans credentials, query, fragment ou chemin API fourni par l'appelant.
+
+`GenerationOutputFormat::Text` reste le defaut et n'est pas serialise, ce qui
+preserve les requetes schema 1 existantes. `output_schema` est optionnel, borne,
+valide seulement avec `Json` et reste un objet JSON provider-neutre. Sans schema,
+l'adaptateur Ollama envoie `format: "json"`; avec schema, il transmet directement
+l'objet a l'API locale.
+
+CHAT-EDIT-001 utilise une grammaire volontairement limitee aux formes, types,
+enums et constantes. Les limites numeriques, tailles, chemins, hashes et ranges
+sont revalidees en Rust. Cette separation garde le modele utile pour produire la
+structure sans en faire l'autorite de securite. Les erreurs HTTP Ollama exposent
+un detail local nettoye et borne a 4 Kio pour diagnostiquer une grammaire refusee.
 
 ## Protocole provider
 

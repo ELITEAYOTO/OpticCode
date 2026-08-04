@@ -309,7 +309,7 @@ pub fn capabilities_report() -> CapabilitiesReport {
             approvals: true,
             cli: true,
             chat_read_only: true,
-            chat_write: false,
+            chat_write: true,
         },
     }
 }

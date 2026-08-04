@@ -9,12 +9,12 @@ pub use ollama::{
 };
 pub use protocol::{
     validate_model_name, validate_request_id, validate_schema, validate_timeout, FinishReason,
-    GenerationOptions as ProviderGenerationOptions, GenerationRequest, GenerationResult,
-    GenerationTimings, GenerationUsage, HealthReport, HealthRequest, HealthStatus,
-    LlmProtocolEvent, LlmProtocolEventPayload, ModelInfo, ProviderCapabilities, ProviderError,
-    ProviderErrorKind, ProviderId, DEFAULT_PROVIDER_TIMEOUT_MS, LLM_PROTOCOL_ID,
-    LLM_PROTOCOL_SCHEMA_VERSION, MAX_GENERATED_OUTPUT_BYTES, MAX_PROVIDER_TIMEOUT_MS,
-    MAX_REQUEST_ID_BYTES,
+    GenerationOptions as ProviderGenerationOptions, GenerationOutputFormat, GenerationRequest,
+    GenerationResult, GenerationTimings, GenerationUsage, HealthReport, HealthRequest,
+    HealthStatus, LlmProtocolEvent, LlmProtocolEventPayload, ModelInfo, ProviderCapabilities,
+    ProviderError, ProviderErrorKind, ProviderId, DEFAULT_PROVIDER_TIMEOUT_MS, LLM_PROTOCOL_ID,
+    LLM_PROTOCOL_SCHEMA_VERSION, MAX_GENERATED_OUTPUT_BYTES, MAX_OUTPUT_SCHEMA_BYTES,
+    MAX_PROVIDER_TIMEOUT_MS, MAX_REQUEST_ID_BYTES,
 };
 pub use provider::{
     event_channel, CancellationToken, EventChannelError, EventReceiver, EventSink, LlmProvider,

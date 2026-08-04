@@ -40,7 +40,7 @@ fn version_and_capabilities_are_stable_pure_json_contracts() {
     assert_eq!(capabilities["policy_runtime"]["audit"], true);
     assert_eq!(capabilities["policy_runtime"]["approvals"], true);
     assert_eq!(capabilities["policy_runtime"]["chat_read_only"], true);
-    assert_eq!(capabilities["policy_runtime"]["chat_write"], false);
+    assert_eq!(capabilities["policy_runtime"]["chat_write"], true);
 }
 
 #[test]

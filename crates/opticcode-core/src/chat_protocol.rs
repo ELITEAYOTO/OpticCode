@@ -57,6 +57,29 @@ pub struct ChatRequest {
     pub security_mode: ChatSecurityMode,
     pub client: ChatClientMetadata,
     pub expected_protocols: ChatExpectedProtocols,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub edit: Option<ChatEditControl>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct ChatEditControl {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub proposal_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub transaction_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub native_confirmation: Option<ChatNativeConfirmation>,
+    #[serde(default)]
+    pub discard: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct ChatNativeConfirmation {
+    pub client: String,
+    pub confirmation_id: String,
+    pub approval_request_id: String,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -102,7 +125,7 @@ impl ChatCommand {
     }
 
     pub const fn requires_prompt(self) -> bool {
-        matches!(self, Self::Ask | Self::Plan | Self::Context)
+        matches!(self, Self::Ask | Self::Plan | Self::Context | Self::Fix)
     }
 }
 
@@ -503,6 +526,24 @@ pub struct ChatProtocolEvent {
     pub payload: ChatProtocolEventPayload,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct ChatEditReviewFile {
+    pub path: String,
+    pub status: String,
+    pub line_ending: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub base_content: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub base_hash: Option<String>,
+    pub proposed_content: String,
+    pub proposed_hash: String,
+    pub proposed_bytes: usize,
+    pub additions: usize,
+    pub deletions: usize,
+    pub hunks: usize,
+}
+
 impl ChatProtocolEvent {
     pub fn is_terminal(&self) -> bool {
         self.payload.is_terminal()
@@ -577,13 +618,49 @@ pub enum ChatProtocolEventPayload {
     Metrics {
         metrics: ChatMetrics,
     },
+    EditPlanStarted {
+        plan_id: String,
+    },
     EditPlanReady {
         plan_id: String,
         summary: String,
         file_count: usize,
     },
+    PolicyDecision {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        proposal_id: Option<String>,
+        stage: String,
+        action_kind: String,
+        decision: String,
+        rule_id: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        audit_event_id: Option<String>,
+    },
+    ProposalStored {
+        proposal_id: String,
+        state: String,
+        expires_at_unix_ms: u64,
+    },
     VerificationStarted {
         proposal_id: String,
+    },
+    WorktreeCreated {
+        proposal_id: String,
+        run_id: String,
+    },
+    EditAppliedInWorktree {
+        proposal_id: String,
+        success: bool,
+    },
+    BuildStarted {
+        proposal_id: String,
+        offline: bool,
+    },
+    BuildCompleted {
+        proposal_id: String,
+        success: bool,
+        build: String,
+        tests: String,
     },
     VerificationCompleted {
         proposal_id: String,
@@ -596,10 +673,14 @@ pub enum ChatProtocolEventPayload {
         files: usize,
         additions: usize,
         deletions: usize,
+        display_patch: String,
+        display_truncated: bool,
+        changes: Vec<ChatEditReviewFile>,
     },
     ApprovalRequired {
         proposal_id: String,
         approval_request_id: String,
+        operation: String,
         summary: String,
     },
     ApplyStarted {
@@ -612,7 +693,21 @@ pub enum ChatProtocolEventPayload {
         success: bool,
     },
     RollbackAvailable {
+        proposal_id: String,
         transaction_id: String,
+    },
+    RollbackStarted {
+        proposal_id: String,
+        transaction_id: String,
+    },
+    RollbackCompleted {
+        proposal_id: String,
+        transaction_id: String,
+        success: bool,
+        already_rolled_back: bool,
+    },
+    ProposalDiscarded {
+        proposal_id: String,
     },
     Completed {
         summary: ChatCompletionSummary,
@@ -650,6 +745,33 @@ impl ChatProtocolEventPayload {
         };
         if text.is_some_and(|value| value.len() > MAX_CHAT_EVENT_TEXT_BYTES) {
             bail!("chat event text exceeds its bounded payload limit");
+        }
+        if let Self::DiffReady {
+            display_patch,
+            changes,
+            ..
+        } = self
+        {
+            if display_patch.len() > 1024 * 1024 || changes.len() > 5 {
+                bail!("chat diff review event exceeds its bounded collection or patch limit");
+            }
+            let snapshot_bytes = changes.iter().try_fold(0usize, |total, file| {
+                if file.path.len() > 4 * 1024
+                    || file.proposed_content.len() > 512 * 1024
+                    || file
+                        .base_content
+                        .as_ref()
+                        .is_some_and(|content| content.len() > 512 * 1024)
+                {
+                    bail!("chat diff review file exceeds its bounded payload limit");
+                }
+                Ok(total
+                    .saturating_add(file.proposed_content.len())
+                    .saturating_add(file.base_content.as_ref().map_or(0, String::len)))
+            })?;
+            if snapshot_bytes > 4 * 1024 * 1024 {
+                bail!("chat diff review snapshots exceed their aggregate payload limit");
+            }
         }
         Ok(())
     }
@@ -836,6 +958,7 @@ mod tests {
                 previous_repository_state: None,
             },
             expected_protocols: ChatExpectedProtocols::default(),
+            edit: None,
         }
     }
 

@@ -1355,3 +1355,73 @@ honorer l'environnement et le reseau declares, revalider le preflight et passer
 par Process Runner, GIT-002 et APPLY-001.
 
 Reference : [`policy-engine.md`](policy-engine.md).
+
+### D-068 - Separer proposition, verification et mutation originale
+
+Statut : valide.
+
+Decision :
+
+- traiter chaque sortie LLM comme un `EditPlan` non fiable, ferme et borne ;
+- persister le plan valide et son cycle dans un `ProposalStore` atomique hors
+  workspace, namespace par workspace et soumis a TTL ;
+- verifier chaque proposition dans un worktree Git detache possede par
+  OpticCode, avec APPLY-001, reparse Java et build Maven/Gradle offline ;
+- calculer patch, statistiques et snapshots depuis l'etat Git reel du
+  worktree, puis nettoyer ce worktree avant toute mutation originale ;
+- conserver le Chat en `read_only` et n'autoriser que des escalades Rust
+  explicites vers `worktree_edit` puis `approved_apply` ;
+- ignorer toute approbation textuelle et exiger une confirmation modale VS Code
+  liee au proposal, au diff, au workspace et a la transaction ;
+- consommer une approbation Policy one-shot pendant APPLY-001 sans exposer son
+  token au modele ou a TypeScript ;
+- cibler le rollback sur la transaction exacte et refuser workspace, etat ou
+  transaction derives ;
+- garder delete, rename, binaire, reseau, installation, commit et push hors de
+  CHAT-EDIT-001.
+
+Raison :
+
+- une generation correcte ne constitue ni une preuve de build ni une
+  autorisation d'ecriture ;
+- le worktree rend l'echec de generation, de syntaxe ou de build sans effet sur
+  le projet original ;
+- une revue native basee sur des snapshots exacts reste disponible apres le
+  nettoyage du worktree ;
+- l'approbation one-shot ferme les replays et lie le consentement utilisateur
+  au changement effectivement verifie ;
+- APPLY-001 et son journal fournissent une restauration ciblee sans commande
+  Git destructive.
+
+Limite assumee : le build original n'est pas relance apres application. Il
+reutilise la preuve offline du worktree pour les memes snapshots, puis reparse
+les fichiers et recalcule le diff original exact. Une boucle autonome et des
+mutations plus larges restent hors de ce jalon.
+
+Reference : [`chat-edits.md`](chat-edits.md).
+
+### D-069 - Contraindre la forme LLM sans lui deleguer les invariants
+
+Statut : valide.
+
+Decision :
+
+- conserver `GenerationOutputFormat::Text` par defaut et ajouter un
+  `output_schema` JSON optionnel, borne et provider-neutre ;
+- traduire ce schema vers `format` dans l'adaptateur Ollama uniquement ;
+- limiter la grammaire native aux formes, types, enums et constantes compatibles
+  avec le runtime local ;
+- garder toutes les bornes, chemins, hashes, ranges et regles Policy dans les
+  validateurs Rust ;
+- calculer les BLAKE3 complets et ancres de lignes byte dans Rust pour les
+  references resolues, puis demander au modele de les copier exactement ;
+- conserver au maximum une correction de format et ne jamais retenter une
+  erreur semantique.
+
+Raison : le JSON libre a produit du texte parasite, des champs inventes, un hash
+incorrect et une liste serialisee comme chaine. Le schema natif supprime cette
+variabilite de forme et a ramene le smoke Qwen reel a une generation, tandis que
+les controles Rust continuent de refuser toute derive sans mutation.
+
+Reference : [`llm-protocol.md`](llm-protocol.md) et
+[`chat-edits.md`](chat-edits.md).

@@ -128,7 +128,7 @@ fn help_chat_is_versioned_sequenced_read_only_and_terminal_once() {
         .filter_map(|event| event["text"].as_str())
         .collect::<String>();
     assert!(rendered.contains("/apply"));
-    assert!(rendered.contains("unavailable until CHAT-EDIT-001"));
+    assert!(rendered.contains("native VS Code modal"));
 }
 
 #[test]

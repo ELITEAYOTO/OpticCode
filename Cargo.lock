@@ -828,6 +828,7 @@ dependencies = [
  "anyhow",
  "async-trait",
  "blake3",
+ "opticcode-edit",
  "opticcode-llm",
  "opticcode-policy",
  "opticcode-tools",
@@ -836,6 +837,21 @@ dependencies = [
  "tempfile",
  "tokio",
  "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "opticcode-edit"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "blake3",
+ "getrandom 0.4.3",
+ "opticcode-llm",
+ "opticcode-policy",
+ "opticcode-tools",
+ "serde",
+ "serde_json",
+ "tempfile",
 ]
 
 [[package]]

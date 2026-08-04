@@ -696,12 +696,17 @@ fn evaluate_write(
     }
     paths.push(report);
     if creation {
-        Ok(approval_required(
-            "write.create_requires_approval",
-            RiskLevel::Medium,
-            "Creating a new proposal file requires confirmation.",
-            "The proposed path does not exist and adds a new project surface.",
-            "Review the exact path before approving this one-shot creation.",
+        Ok(allowed(
+            "write.active_worktree_create",
+            "active_opticcode_worktree",
+            &[
+                "validated lease",
+                "controlled temporary root",
+                "new path validated by the proposal contract",
+                "transactional write",
+            ],
+            "The new file may be created inside the active disposable worktree.",
+            "The original workspace remains untouched until a separate approved apply.",
         ))
     } else {
         Ok(allowed(
@@ -821,15 +826,6 @@ fn evaluate_apply_patch(
         ));
     }
     if active.as_ref() == Some(&root) && request.mode == PolicyMode::WorktreeEdit {
-        if !action.created_paths.is_empty() {
-            return Ok(approval_required(
-                "apply.worktree_creation_requires_approval",
-                RiskLevel::Medium,
-                "This proposal creates files and requires confirmation.",
-                "Existing worktree files may be edited automatically, but new paths are reviewed.",
-                "Review the created paths and approve the exact proposal action.",
-            ));
-        }
         return Ok(allowed(
             "apply.active_worktree",
             "active_opticcode_worktree",
@@ -837,6 +833,7 @@ fn evaluate_apply_patch(
                 "validated lease",
                 "transactional patch",
                 "bounded file set",
+                "created paths validated by the proposal contract",
                 "post-apply verification",
             ],
             "The patch may be applied transactionally inside the disposable worktree.",

@@ -1,4 +1,5 @@
 mod assistant_runtime;
+mod chat_edit_runtime;
 mod chat_protocol;
 mod chat_runtime;
 mod context_runtime;
@@ -14,12 +15,13 @@ pub use assistant_runtime::{
 pub use chat_protocol::{
     chat_event_channel, chat_setup_failure_event, validate_chat_request_id, ChatBudgets,
     ChatClientMetadata, ChatCommand, ChatCompletionSummary, ChatContextFile, ChatControlKind,
-    ChatControlMessage, ChatEventReceiver, ChatEventSink, ChatExpectedProtocols,
-    ChatGenerationOptions, ChatHistoryRole, ChatHistoryTurn, ChatMetrics, ChatProtocolError,
-    ChatProtocolEvent, ChatProtocolEventPayload, ChatProtocolSession, ChatReference,
-    ChatReferenceTarget, ChatRejectedReference, ChatRequest, ChatResolvedReference,
-    ChatSecurityMode, ChatTextPosition, ChatTextRange, CHAT_CONTROL_PROTOCOL_ID, CHAT_PROTOCOL_ID,
-    CHAT_PROTOCOL_SCHEMA_VERSION, DEFAULT_CHAT_EVENT_CAPACITY, MAX_CHAT_REQUEST_BYTES,
+    ChatControlMessage, ChatEditControl, ChatEditReviewFile, ChatEventReceiver, ChatEventSink,
+    ChatExpectedProtocols, ChatGenerationOptions, ChatHistoryRole, ChatHistoryTurn, ChatMetrics,
+    ChatNativeConfirmation, ChatProtocolError, ChatProtocolEvent, ChatProtocolEventPayload,
+    ChatProtocolSession, ChatReference, ChatReferenceTarget, ChatRejectedReference, ChatRequest,
+    ChatResolvedReference, ChatSecurityMode, ChatTextPosition, ChatTextRange,
+    CHAT_CONTROL_PROTOCOL_ID, CHAT_PROTOCOL_ID, CHAT_PROTOCOL_SCHEMA_VERSION,
+    DEFAULT_CHAT_EVENT_CAPACITY, MAX_CHAT_REQUEST_BYTES,
 };
 pub use chat_runtime::{
     execute_chat, ChatExecutionReport, ChatExecutionStatus, ChatRuntimeOptions,
@@ -48,8 +50,9 @@ use std::time::Duration;
 
 use anyhow::{bail, Context, Result};
 use opticcode_llm::{
-    default_ollama_keep_alive, HealthRequest, LlmProvider, OllamaProvider,
-    DEFAULT_PROVIDER_TIMEOUT_MS, MAX_PROVIDER_TIMEOUT_MS,
+    default_ollama_keep_alive, GenerationOutputFormat, GenerationRequest, GenerationResult,
+    HealthRequest, LlmProvider, OllamaProvider, DEFAULT_PROVIDER_TIMEOUT_MS,
+    MAX_PROVIDER_TIMEOUT_MS,
 };
 pub use opticcode_llm::{parse_keep_alive, CancellationToken, GenerateMetrics, ProviderId};
 use opticcode_tools::search_rag_index_queries;
@@ -240,6 +243,31 @@ impl OpticCode {
             );
         }
         Ok(())
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub async fn generate_structured(
+        &self,
+        request_id: impl Into<String>,
+        prompt: impl Into<String>,
+        output_schema: serde_json::Value,
+        max_output_tokens: u32,
+        temperature: Option<f32>,
+        seed: Option<i64>,
+        cancellation: CancellationToken,
+    ) -> Result<GenerationResult> {
+        if max_output_tokens == 0 {
+            bail!("structured generation output budget must be greater than zero");
+        }
+        let mut request = GenerationRequest::new(request_id, &self.model, prompt);
+        request.options.max_output_tokens = Some(max_output_tokens);
+        request.options.temperature = temperature;
+        request.options.seed = seed;
+        request.options.keep_alive = self.keep_alive.clone();
+        request.options.output_format = GenerationOutputFormat::Json;
+        request.options.output_schema = Some(output_schema);
+        request.options.timeout_ms = duration_ms(self.http_timeout);
+        Ok(self.llm.generate(request, cancellation).await?)
     }
 
     pub async fn ask_with_project_context(&self, options: AskOptions) -> Result<String> {
