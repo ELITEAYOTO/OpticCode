@@ -8,6 +8,7 @@ import type {
   ChatCommand,
   ChatCompletionSummary,
   ChatContextFile,
+  ChatEditReviewFile,
   ChatMetrics,
   ChatProtocolEvent,
   ChatRejectedReference,
@@ -162,9 +163,6 @@ export function validateCapabilitiesReport(value: unknown): CapabilitiesReport {
     for (const field of ['audit', 'approvals', 'cli', 'chat_read_only', 'chat_write']) {
       requireBoolean(policy[field], `policy_runtime.${field}`);
     }
-    if (policy.chat_write !== false) {
-      incompatible('Chat write must remain disabled before CHAT-EDIT-001.');
-    }
   } else if (features.policy === true) {
     incompatible('Policy feature is enabled without policy_runtime capabilities.');
   }
@@ -264,6 +262,44 @@ function chatContextFile(value: unknown, field: string): ChatContextFile {
     path: requireString(file.path, `${field}.path`),
     snippets: requireInteger(file.snippets, `${field}.snippets`),
     provenance: requireString(file.provenance, `${field}.provenance`),
+  };
+}
+
+function chatEditReviewFile(value: unknown, field: string): ChatEditReviewFile {
+  const file = requireRecord(value, field);
+  const status = requireString(file.status, `${field}.status`);
+  const lineEnding = requireString(file.line_ending, `${field}.line_ending`);
+  if (status !== 'modified' && status !== 'created') {
+    incompatible(`Unknown edit review status ${status}.`);
+  }
+  if (!['none', 'lf', 'crlf'].includes(lineEnding)) {
+    incompatible(`Unknown edit review line ending ${lineEnding}.`);
+  }
+  const baseContent = file.base_content;
+  const baseHash = file.base_hash;
+  const proposedContent = requireString(file.proposed_content, `${field}.proposed_content`);
+  if (
+    proposedContent.length > 512 * 1024 ||
+    (baseContent !== undefined && requireString(baseContent, `${field}.base_content`).length > 512 * 1024)
+  ) {
+    incompatible('Edit review snapshot exceeds its per-file bound.');
+  }
+  return {
+    path: requireString(file.path, `${field}.path`),
+    status,
+    line_ending: lineEnding as ChatEditReviewFile['line_ending'],
+    ...(baseContent === undefined
+      ? {}
+      : { base_content: requireString(baseContent, `${field}.base_content`) }),
+    ...(baseHash === undefined
+      ? {}
+      : { base_hash: requireString(baseHash, `${field}.base_hash`) }),
+    proposed_content: proposedContent,
+    proposed_hash: requireString(file.proposed_hash, `${field}.proposed_hash`),
+    proposed_bytes: requireInteger(file.proposed_bytes, `${field}.proposed_bytes`),
+    additions: requireInteger(file.additions, `${field}.additions`),
+    deletions: requireInteger(file.deletions, `${field}.deletions`),
+    hunks: requireInteger(file.hunks, `${field}.hunks`),
   };
 }
 
@@ -417,13 +453,51 @@ export function validateChatEvent(
     case 'metrics':
       chatMetrics(event.metrics, 'metrics');
       break;
+    case 'edit_plan_started':
+      requireString(event.plan_id, 'plan_id');
+      break;
     case 'edit_plan_ready':
       requireString(event.plan_id, 'plan_id');
       requireString(event.summary, 'summary');
       requireInteger(event.file_count, 'file_count');
       break;
+    case 'policy_decision':
+      if (event.proposal_id !== undefined) {
+        requireString(event.proposal_id, 'proposal_id');
+      }
+      requireString(event.stage, 'stage');
+      requireString(event.action_kind, 'action_kind');
+      requireString(event.decision, 'decision');
+      requireString(event.rule_id, 'rule_id');
+      if (event.audit_event_id !== undefined) {
+        requireString(event.audit_event_id, 'audit_event_id');
+      }
+      break;
+    case 'proposal_stored':
+      requireString(event.proposal_id, 'proposal_id');
+      requireString(event.state, 'state');
+      requireInteger(event.expires_at_unix_ms, 'expires_at_unix_ms');
+      break;
     case 'verification_started':
       requireString(event.proposal_id, 'proposal_id');
+      break;
+    case 'worktree_created':
+      requireString(event.proposal_id, 'proposal_id');
+      requireString(event.run_id, 'run_id');
+      break;
+    case 'edit_applied_in_worktree':
+      requireString(event.proposal_id, 'proposal_id');
+      requireBoolean(event.success, 'success');
+      break;
+    case 'build_started':
+      requireString(event.proposal_id, 'proposal_id');
+      requireBoolean(event.offline, 'offline');
+      break;
+    case 'build_completed':
+      requireString(event.proposal_id, 'proposal_id');
+      requireBoolean(event.success, 'success');
+      requireString(event.build, 'build');
+      requireString(event.tests, 'tests');
       break;
     case 'verification_completed':
       requireString(event.proposal_id, 'proposal_id');
@@ -436,10 +510,34 @@ export function validateChatEvent(
       requireInteger(event.files, 'files');
       requireInteger(event.additions, 'additions');
       requireInteger(event.deletions, 'deletions');
+      if (
+        event.display_patch !== undefined ||
+        event.display_truncated !== undefined ||
+        event.changes !== undefined
+      ) {
+        const displayPatch = requireString(event.display_patch, 'display_patch');
+        requireBoolean(event.display_truncated, 'display_truncated');
+        const changes = requireArray(event.changes, 'changes');
+        if (displayPatch.length > 1024 * 1024 || changes.length > 5) {
+          incompatible('Chat diff review event exceeds its bounded payload limits.');
+        }
+        let snapshotCharacters = 0;
+        for (const [index, change] of changes.entries()) {
+          const parsed = chatEditReviewFile(change, `changes[${index}]`);
+          snapshotCharacters +=
+            parsed.proposed_content.length + (parsed.base_content?.length ?? 0);
+        }
+        if (snapshotCharacters > 4 * 1024 * 1024) {
+          incompatible('Chat diff review snapshots exceed their aggregate bound.');
+        }
+      }
       break;
     case 'approval_required':
       requireString(event.proposal_id, 'proposal_id');
       requireString(event.approval_request_id, 'approval_request_id');
+      if (event.operation !== undefined && !['apply', 'rollback'].includes(requireString(event.operation, 'operation'))) {
+        incompatible('Unknown approval operation.');
+      }
       requireString(event.summary, 'summary');
       break;
     case 'apply_started':
@@ -452,7 +550,23 @@ export function validateChatEvent(
       requireBoolean(event.success, 'success');
       break;
     case 'rollback_available':
+      if (event.proposal_id !== undefined) {
+        requireString(event.proposal_id, 'proposal_id');
+      }
       requireString(event.transaction_id, 'transaction_id');
+      break;
+    case 'rollback_started':
+      requireString(event.proposal_id, 'proposal_id');
+      requireString(event.transaction_id, 'transaction_id');
+      break;
+    case 'rollback_completed':
+      requireString(event.proposal_id, 'proposal_id');
+      requireString(event.transaction_id, 'transaction_id');
+      requireBoolean(event.success, 'success');
+      requireBoolean(event.already_rolled_back, 'already_rolled_back');
+      break;
+    case 'proposal_discarded':
+      requireString(event.proposal_id, 'proposal_id');
       break;
     case 'completed':
       chatCompletionSummary(event.summary);

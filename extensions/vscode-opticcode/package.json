@@ -2,7 +2,7 @@
   "name": "opticcode",
   "displayName": "OpticCode",
   "description": "Experimental thin VS Code client for the local OpticCode assistant.",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "publisher": "opticcode-local",
   "license": "MIT",
   "repository": {
@@ -40,7 +40,7 @@
     "test:integration": "npm run compile && node --test out/test/integration/*.test.js",
     "test:assistant": "npm run compile && node scripts/real-assistant-smoke.mjs",
     "test:vscode": "npm run compile && node scripts/run-vscode-test.mjs",
-    "package": "npm run compile && vsce package --out ../../artifacts/opticcode-vscode-0.1.0.vsix"
+    "package": "npm run compile && vsce package --out ../../artifacts/opticcode-vscode-0.2.0.vsix"
   },
   "contributes": {
     "chatParticipants": [

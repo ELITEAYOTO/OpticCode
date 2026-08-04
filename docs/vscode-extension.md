@@ -73,22 +73,25 @@ Runs retains up to 50 session entries with command, request ID, state, duration,
 context, tokens, model, build/worktree summary, and report path.
 
 The Chat view exposes `@opticcode` with `/ask`, `/plan`, `/context`, `/analyze`,
-`/index`, `/legacy`, `/status`, `/runs`, `/help` and the future edit commands.
+`/index`, `/legacy`, `/status`, `/runs`, `/help`, `/fix`, `/verify`, `/diff`,
+`/apply`, and `/rollback`.
 Attached files, locations and active Unicode selections become structured
 references. Full details are documented in [`vscode-chat.md`](vscode-chat.md).
 
 ## Security boundary
 
-The extension does not expose original-workspace apply, `--allow-dirty`, shell
-commands, package installation, Git push, or an autonomous loop. Worktree
-verification requires modal confirmation and reports edit, build, diff, and
-cleanup independently. Recovery is targeted by an explicit OpticCode lease ID.
+The extension exposes original-workspace apply only through a native modal and
+a Rust one-shot approval. It does not expose `--allow-dirty`, shell commands,
+package installation, Git push, or an autonomous loop. Worktree verification
+does not need confirmation and reports edit, build, diff, and cleanup
+independently. Recovery is targeted by an explicit OpticCode lease/transaction.
 
-POLICY-001 is enforced in the Rust Chat runtime. Every command is evaluated by
-the deny-by-default engine, `request_accepted` reports its decision/rule and the
-effective mode is always `read_only`. TypeScript validates those fields but is
-not a second policy implementation. A client-supplied edit mode is rejected
-before references or tools are reached.
+POLICY-001 is enforced in the Rust Chat runtime. Every request begins in
+`read_only`, and `request_accepted` reports its decision/rule. Only the trusted
+Rust edit orchestrator can request bounded `worktree_edit` or
+`approved_apply` stages; a client-supplied edit mode is rejected before
+references or tools are reached. TypeScript validates and presents Policy
+results but is not a second policy implementation.
 
 Reports are written outside the source workspace to VS Code global extension
 storage. The VSIX excludes dependencies, tests, local models, RAG indexes,
@@ -123,7 +126,7 @@ finding ranges and deterministic handlers for Help, Status, Context and Ask:
 npm run test:vscode
 ```
 
-The packaged extension is `artifacts/opticcode-vscode-0.1.0.vsix`.
+The packaged extension is `artifacts/opticcode-vscode-0.2.0.vsix`.
 
 ## Known limits
 
@@ -132,6 +135,8 @@ The packaged extension is `artifacts/opticcode-vscode-0.1.0.vsix`.
   cancellation contract yet, so their progress is not advertised as cancellable.
 - `compare` preserves the CLI rule that two model generations require explicit
   authorization.
-- No fix is automatically applied to the original project.
-- Chat edit commands remain fail-closed until CHAT-EDIT-001; POLICY-001 itself
-  is active and advertised by discovery.
+- No fix is automatically applied to the original project; native confirmation
+  is mandatory.
+- Delete, rename, binary edits and autonomous iteration remain unavailable.
+
+See [`chat-edits.md`](chat-edits.md) for the complete transaction contract.

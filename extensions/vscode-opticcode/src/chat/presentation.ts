@@ -95,12 +95,43 @@ export class ChatEventPresenter {
         ];
       case 'metrics':
         return [];
+      case 'edit_plan_started':
+        return [{ kind: 'progress', text: 'Generating a bounded structured edit plan...' }];
       case 'edit_plan_ready':
         return [
           { kind: 'markdown', text: `\n**Edit plan:** ${escapeMarkdown(event.summary)}\n` },
         ];
+      case 'policy_decision':
+        return [
+          {
+            kind: 'progress',
+            text: `Policy ${event.decision}: ${event.stage} (${event.rule_id}).`,
+          },
+        ];
+      case 'proposal_stored':
+        return [{ kind: 'progress', text: `Proposal stored as ${event.proposal_id}.` }];
       case 'verification_started':
         return [{ kind: 'progress', text: 'Verifying proposal in a disposable worktree...' }];
+      case 'worktree_created':
+        return [{ kind: 'progress', text: 'Detached disposable worktree created.' }];
+      case 'edit_applied_in_worktree':
+        return [
+          {
+            kind: 'progress',
+            text: event.success
+              ? 'Validated snapshots applied in the isolated worktree.'
+              : 'Isolated worktree apply failed.',
+          },
+        ];
+      case 'build_started':
+        return [{ kind: 'progress', text: 'Running the allowlisted offline build...' }];
+      case 'build_completed':
+        return [
+          {
+            kind: 'progress',
+            text: `Offline build ${event.build}; tests ${event.tests}.`,
+          },
+        ];
       case 'verification_completed':
         return [
           {
@@ -120,13 +151,31 @@ export class ChatEventPresenter {
             title: 'Show Diff',
             arguments: [event.proposal_id],
           },
+          {
+            kind: 'button',
+            command: 'opticcode.internal.chat.showAllChanges',
+            title: 'Show All Changes',
+            arguments: [event.proposal_id],
+          },
+          {
+            kind: 'button',
+            command: 'opticcode.internal.chat.discardProposal',
+            title: 'Discard Proposal',
+            arguments: [event.proposal_id],
+          },
         ];
       case 'approval_required':
         return [
           {
             kind: 'button',
-            command: 'opticcode.internal.chat.applyProposal',
-            title: 'Apply Verified Changes',
+            command:
+              event.operation === 'rollback'
+                ? 'opticcode.internal.chat.rollbackTransaction'
+                : 'opticcode.internal.chat.applyProposal',
+            title:
+              event.operation === 'rollback'
+                ? 'Rollback Transaction'
+                : 'Apply Verified Changes',
             arguments: [event.proposal_id, event.approval_request_id],
           },
         ];
@@ -145,7 +194,23 @@ export class ChatEventPresenter {
             kind: 'button',
             command: 'opticcode.internal.chat.rollbackTransaction',
             title: 'Rollback Transaction',
-            arguments: [event.transaction_id],
+            arguments: [event.proposal_id, event.transaction_id],
+          },
+        ];
+      case 'rollback_started':
+        return [{ kind: 'progress', text: 'Rolling back the exact OpticCode transaction...' }];
+      case 'rollback_completed':
+        return [
+          {
+            kind: 'markdown',
+            text: `\n**Rollback:** ${event.success ? 'completed' : 'failed'}${event.already_rolled_back ? ' (already restored)' : ''}.\n`,
+          },
+        ];
+      case 'proposal_discarded':
+        return [
+          {
+            kind: 'markdown',
+            text: `\nProposal \`${escapeMarkdown(event.proposal_id)}\` discarded.\n`,
           },
         ];
       case 'completed':

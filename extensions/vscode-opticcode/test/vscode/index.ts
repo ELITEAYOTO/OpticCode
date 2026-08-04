@@ -7,6 +7,8 @@ import {
   type ChatRuntimeService,
   type ChatStateSink,
 } from '../../src/chat/participant';
+import { ChatEditArtifactStore } from '../../src/chat/editArtifacts';
+import { EditReviewContentProvider, reviewUri } from '../../src/chat/editReview';
 import { ChatSessionStore, type MementoLike } from '../../src/chat/session';
 import type { Finding } from '../../src/model';
 import type {
@@ -44,6 +46,14 @@ export async function run(): Promise<void> {
   const commands = await vscode.commands.getCommands(true);
   for (const command of PUBLIC_COMMANDS) {
     assert.ok(commands.includes(command), `missing command ${command}`);
+  }
+  for (const command of [
+    'opticcode.internal.chat.showDiff',
+    'opticcode.internal.chat.showAllChanges',
+    'opticcode.internal.chat.applyProposal',
+    'opticcode.internal.chat.rollbackTransaction',
+  ]) {
+    assert.ok(commands.includes(command), `missing internal edit command ${command}`);
   }
 
   const state = new SessionState();
@@ -131,6 +141,7 @@ export async function run(): Promise<void> {
     assert.equal(editor.selection.start.character, 0);
 
     await testChatHandler(workspace);
+    testVirtualEditDocuments(workspace);
   } finally {
     runs.dispose();
     status.dispose();
@@ -214,6 +225,7 @@ async function testChatHandler(workspace: vscode.WorkspaceFolder): Promise<void>
     write: async (name) => `C:\\fixture-reports\\${name}`,
   };
   const output = { appendLine: (): void => {} };
+  const observedEvents: ChatProtocolEvent[] = [];
   const handler = new OpticCodeChatHandler(
     '0.1.0',
     service,
@@ -221,12 +233,14 @@ async function testChatHandler(workspace: vscode.WorkspaceFolder): Promise<void>
     output,
     reports,
     new ChatSessionStore(new HostMemoryMemento()),
+    { observe: (_workspace, event) => observedEvents.push(event) },
   );
 
   const cases: Array<{ command: string | undefined; prompt: string; expected: string }> = [
     { command: 'help', prompt: '', expected: 'help' },
     { command: 'status', prompt: '', expected: 'status' },
     { command: 'context', prompt: 'Locate Plugin.', expected: 'context' },
+    { command: 'fix', prompt: 'Replace the fixture message.', expected: 'fix' },
     { command: undefined, prompt: 'Explain Plugin.', expected: 'ask' },
   ];
   for (const testCase of cases) {
@@ -248,6 +262,12 @@ async function testChatHandler(workspace: vscode.WorkspaceFolder): Promise<void>
       assert.ok(response.markdownValues.join('').includes(`/${testCase.expected}`));
       assert.ok(response.progressValues.length > 0);
       assert.ok(response.buttons.some((button) => button.title === 'Show Full Report'));
+      if (testCase.expected === 'fix') {
+        assert.ok(response.buttons.some((button) => button.title === 'Show Diff'));
+        assert.ok(
+          response.buttons.some((button) => button.title === 'Apply Verified Changes'),
+        );
+      }
       const protocolRequest = requests.at(-1);
       assert.equal(protocolRequest?.command, testCase.expected);
       assert.equal(protocolRequest?.security_mode, 'read_only');
@@ -256,8 +276,9 @@ async function testChatHandler(workspace: vscode.WorkspaceFolder): Promise<void>
       token.dispose();
     }
   }
-  assert.equal(requests.length, 4);
-  assert.equal(recordedRuns.length, 4);
+  assert.equal(requests.length, 5);
+  assert.equal(recordedRuns.length, 5);
+  assert.ok(observedEvents.some((event) => event.type === 'diff_ready'));
 
   const failureResponse = new HostChatResponse();
   const failureHandler = new OpticCodeChatHandler(
@@ -344,7 +365,7 @@ function fixtureConnection(workspace: string): Connection {
         approvals: true,
         cli: true,
         chat_read_only: true,
-        chat_write: false,
+        chat_write: true,
       },
     },
     client: undefined as unknown as Connection['client'],
@@ -389,12 +410,80 @@ function fixtureChatResult(request: ChatProtocolRequest): ChatStreamResult {
       policy_decision: 'allow',
       policy_rule_id: 'analysis.context_read_only',
     },
+  ];
+  if (request.command === 'fix') {
+    events.push(
+      {
+        schema_version: 1,
+        protocol: 'opticcode.chat',
+        request_id: request.request_id,
+        sequence: events.length,
+        elapsed_ms: events.length,
+        type: 'edit_plan_started',
+        plan_id: 'plan-host-edit',
+      },
+      {
+        schema_version: 1,
+        protocol: 'opticcode.chat',
+        request_id: request.request_id,
+        sequence: events.length + 1,
+        elapsed_ms: events.length + 1,
+        type: 'diff_ready',
+        proposal_id: 'plan-host-edit',
+        files: 1,
+        additions: 1,
+        deletions: 1,
+        display_patch: 'fixture diff',
+        display_truncated: false,
+        changes: [
+          {
+            path: 'src/main/java/dev/opticcode/app/Plugin.java',
+            status: 'modified',
+            line_ending: 'lf',
+            base_content: 'class Plugin { String value = "before"; }\n',
+            base_hash: 'a'.repeat(64),
+            proposed_content: 'class Plugin { String value = "after"; }\n',
+            proposed_hash: 'b'.repeat(64),
+            proposed_bytes: 43,
+            additions: 1,
+            deletions: 1,
+            hunks: 1,
+          },
+        ],
+      },
+      {
+        schema_version: 1,
+        protocol: 'opticcode.chat',
+        request_id: request.request_id,
+        sequence: events.length + 2,
+        elapsed_ms: events.length + 2,
+        type: 'verification_completed',
+        proposal_id: 'plan-host-edit',
+        success: true,
+        build: 'passed',
+        tests: 'passed',
+      },
+      {
+        schema_version: 1,
+        protocol: 'opticcode.chat',
+        request_id: request.request_id,
+        sequence: events.length + 3,
+        elapsed_ms: events.length + 3,
+        type: 'approval_required',
+        proposal_id: 'plan-host-edit',
+        approval_request_id: 'apply-confirmation-host',
+        operation: 'apply',
+        summary: 'Apply one verified host fixture change.',
+      },
+    );
+  }
+  events.push(
     {
       schema_version: 1,
       protocol: 'opticcode.chat',
       request_id: request.request_id,
-      sequence: 1,
-      elapsed_ms: 1,
+      sequence: events.length,
+      elapsed_ms: events.length,
       type: 'token_delta',
       text: `/${request.command} fixture response`,
     },
@@ -402,13 +491,13 @@ function fixtureChatResult(request: ChatProtocolRequest): ChatStreamResult {
       schema_version: 1,
       protocol: 'opticcode.chat',
       request_id: request.request_id,
-      sequence: 2,
-      elapsed_ms: 2,
+      sequence: events.length + 1,
+      elapsed_ms: events.length + 1,
       type: 'completed',
       summary,
     },
-  ];
-  const terminal = events[2];
+  );
+  const terminal = events.at(-1);
   assert.ok(terminal);
   return {
     requestId: request.request_id,
@@ -422,4 +511,50 @@ function fixtureChatResult(request: ChatProtocolRequest): ChatStreamResult {
     stderr: '',
     cancellationConfirmed: false,
   };
+}
+
+function testVirtualEditDocuments(workspace: vscode.WorkspaceFolder): void {
+  const artifacts = new ChatEditArtifactStore();
+  artifacts.accept(workspace.uri.fsPath, {
+    schema_version: 1,
+    protocol: 'opticcode.chat',
+    request_id: 'host-virtual-edit',
+    sequence: 0,
+    elapsed_ms: 0,
+    type: 'diff_ready',
+    proposal_id: 'plan-host-virtual',
+    files: 1,
+    additions: 1,
+    deletions: 1,
+    display_patch: 'fixture',
+    display_truncated: false,
+    changes: [
+      {
+        path: 'src/Plugin Été.java',
+        status: 'modified',
+        line_ending: 'crlf',
+        base_content: 'class Plugin { String value = "été"; }\r\n',
+        base_hash: 'a'.repeat(64),
+        proposed_content: 'class Plugin { String value = "Été"; }\r\n',
+        proposed_hash: 'b'.repeat(64),
+        proposed_bytes: 42,
+        additions: 1,
+        deletions: 1,
+        hunks: 1,
+      },
+    ],
+  });
+  const artifact = artifacts.get(workspace.uri.fsPath, 'plan-host-virtual');
+  assert.ok(artifact);
+  const provider = new EditReviewContentProvider(artifacts);
+  assert.equal(
+    provider.provideTextDocumentContent(reviewUri(artifact, 'src/Plugin Été.java', 'base')),
+    'class Plugin { String value = "été"; }\r\n',
+  );
+  assert.equal(
+    provider.provideTextDocumentContent(
+      reviewUri(artifact, 'src/Plugin Été.java', 'proposed'),
+    ),
+    'class Plugin { String value = "Été"; }\r\n',
+  );
 }

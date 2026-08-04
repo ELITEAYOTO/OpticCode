@@ -9,9 +9,9 @@ reste un client mince : il ne parse pas Java, ne construit pas le RAG et ne
 manipule ni Git ni les fichiers. Toutes ces decisions restent dans le runtime
 Rust.
 
-Le jalon livre la conversation read-only. POLICY-001 est maintenant actif dans
-le runtime Rust ; les commandes d'edition repondent explicitement qu'elles sont
-indisponibles jusqu'a `CHAT-EDIT-001`.
+Le Chat commence toujours en `read_only`. POLICY-001 et CHAT-EDIT-001 sont
+actifs : Rust peut ouvrir un worktree de verification puis demander une
+approbation native pour une transaction originale exacte.
 
 ## Ouvrir et invoquer
 
@@ -43,11 +43,11 @@ API et aucune installation VS Code Insiders ne sont requises.
 | `/status` | etat repository/runtime | aucune |
 | `/runs` | metadata recentes bornees | aucune |
 | `/help` | commandes et limites | aucune |
-| `/fix` | indisponible avant CHAT-EDIT-001 | aucune |
-| `/verify` | indisponible avant CHAT-EDIT-001 | aucune |
-| `/diff` | indisponible avant CHAT-EDIT-001 | aucune |
-| `/apply` | indisponible avant CHAT-EDIT-001 | aucune |
-| `/rollback` | indisponible avant une transaction appliquee | aucune |
+| `/fix` | plan + verification worktree | worktree OpticCode uniquement |
+| `/verify` | revalidation d'une proposition | worktree OpticCode uniquement |
+| `/diff` | snapshots et diff natif | aucune |
+| `/apply` | transaction confirmee | original apres modale + approval |
+| `/rollback` | restauration transactionnelle | original apres modale + approval |
 
 Une commande inconnue est refusee dans l'extension avant de lancer le CLI.
 Le Chat demarre toujours en mode `read_only`. Si un client fabrique une requete
@@ -64,7 +64,8 @@ VS Code ChatRequest
   -> PolicyEngine Rust deny-by-default
   -> resolution sure des references dans Rust
   -> contexte/RAG/Java existants
-  -> LlmProvider existant pour Ask/Plan
+  -> LlmProvider existant pour Ask/Plan/EditPlan
+  -> opticcode-edit + GIT-002 + APPLY-001 pour les editions
   -> evenements NDJSON opticcode.chat schema 1
   -> ChatResponseStream natif
 ```
@@ -234,10 +235,12 @@ Elle couvre notamment :
 - Markdown, references, boutons et metriques ;
 - isolation de sessions/workspaces ;
 - enregistrement du participant dans un vrai Extension Host ;
-- handlers deterministes `/help`, `/status`, `/context` et Ask.
+- handlers deterministes `/help`, `/status`, `/context`, Ask et `/fix` ;
 - decision Policy et mode effectif read-only pour chaque commande ;
 - refus d'un client demandant un mode plus permissif avant toute reference ;
-- absence d'ecriture pour les cinq commandes edit indisponibles.
+- snapshots virtuels Unicode/CRLF, boutons de revue et absence d'Apply apres
+  verification echouee ;
+- E2E Rust `/fix`, typed apply sans mutation, modale simulee, apply et rollback.
 
 L'API de test VS Code ne permet pas de saisir de facon stable une requete dans
 la vue Chat comme un utilisateur. Le test Extension Host active donc le vrai
@@ -256,15 +259,17 @@ deterministe du runtime. Le transport reel est teste separement contre le vrai
 7. Verifier les ancres, le contexte, les tokens et la duree.
 8. Annuler un Ask en cours et verifier que l'issue est explicitement confirmee
    ou rapportee comme forcee/non confirmee.
-9. Tester `/fix` et confirmer qu'aucune ecriture ni worktree n'est lance avant
-   les jalons suivants.
+9. Tester `/fix` sur une copie Git propre et ouvrir le diff natif.
+10. Confirmer que l'original reste propre avant la modale Apply.
+11. Appliquer, puis utiliser le bouton de rollback et verifier le retour a la base.
 
 ## Limites actuelles
 
-- `/fix`, `/verify`, `/diff`, `/apply` et `/rollback` sont volontairement
-  inactifs jusqu'a CHAT-EDIT-001 ;
 - aucun shell arbitraire, package install, Git push ou publication ;
 - pas de boucle autonome ;
 - pas de daemon reseau ;
 - `legacy` reste le mode de contexte par defaut ;
 - le provider brut dans le selecteur de modeles VS Code n'est pas implemente.
+
+Le cycle detaille, les limites et la recuperation sont dans
+[`chat-edits.md`](chat-edits.md).

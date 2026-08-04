@@ -177,6 +177,19 @@ export interface ChatExpectedProtocols {
   llm: number;
 }
 
+export interface ChatNativeConfirmation {
+  client: string;
+  confirmation_id: string;
+  approval_request_id: string;
+}
+
+export interface ChatEditControl {
+  proposal_id?: string | undefined;
+  transaction_id?: string | undefined;
+  native_confirmation?: ChatNativeConfirmation | undefined;
+  discard?: boolean | undefined;
+}
+
 export interface ChatProtocolRequest extends JsonObject {
   schema_version: number;
   protocol: string;
@@ -196,6 +209,21 @@ export interface ChatProtocolRequest extends JsonObject {
   security_mode: ChatSecurityMode;
   client: ChatClientMetadata;
   expected_protocols: ChatExpectedProtocols;
+  edit?: ChatEditControl | undefined;
+}
+
+export interface ChatEditReviewFile {
+  path: string;
+  status: 'modified' | 'created';
+  line_ending: 'none' | 'lf' | 'crlf';
+  base_content?: string | undefined;
+  base_hash?: string | undefined;
+  proposed_content: string;
+  proposed_hash: string;
+  proposed_bytes: number;
+  additions: number;
+  deletions: number;
+  hunks: number;
 }
 
 export interface ChatResolvedReference {
@@ -299,8 +327,34 @@ export type ChatProtocolEvent = ChatEventBase &
       }
     | { type: 'warning'; code: string; message: string }
     | { type: 'metrics'; metrics: ChatMetrics }
+    | { type: 'edit_plan_started'; plan_id: string }
     | { type: 'edit_plan_ready'; plan_id: string; summary: string; file_count: number }
+    | {
+        type: 'policy_decision';
+        proposal_id?: string | undefined;
+        stage: string;
+        action_kind: string;
+        decision: string;
+        rule_id: string;
+        audit_event_id?: string | undefined;
+      }
+    | {
+        type: 'proposal_stored';
+        proposal_id: string;
+        state: string;
+        expires_at_unix_ms: number;
+      }
     | { type: 'verification_started'; proposal_id: string }
+    | { type: 'worktree_created'; proposal_id: string; run_id: string }
+    | { type: 'edit_applied_in_worktree'; proposal_id: string; success: boolean }
+    | { type: 'build_started'; proposal_id: string; offline: boolean }
+    | {
+        type: 'build_completed';
+        proposal_id: string;
+        success: boolean;
+        build: string;
+        tests: string;
+      }
     | {
         type: 'verification_completed';
         proposal_id: string;
@@ -314,11 +368,15 @@ export type ChatProtocolEvent = ChatEventBase &
         files: number;
         additions: number;
         deletions: number;
+        display_patch?: string | undefined;
+        display_truncated?: boolean | undefined;
+        changes?: ChatEditReviewFile[] | undefined;
       }
     | {
         type: 'approval_required';
         proposal_id: string;
         approval_request_id: string;
+        operation?: 'apply' | 'rollback' | undefined;
         summary: string;
       }
     | { type: 'apply_started'; proposal_id: string; transaction_id: string }
@@ -328,7 +386,16 @@ export type ChatProtocolEvent = ChatEventBase &
         transaction_id: string;
         success: boolean;
       }
-    | { type: 'rollback_available'; transaction_id: string }
+    | { type: 'rollback_available'; proposal_id?: string | undefined; transaction_id: string }
+    | { type: 'rollback_started'; proposal_id: string; transaction_id: string }
+    | {
+        type: 'rollback_completed';
+        proposal_id: string;
+        transaction_id: string;
+        success: boolean;
+        already_rolled_back: boolean;
+      }
+    | { type: 'proposal_discarded'; proposal_id: string }
     | { type: 'completed'; summary: ChatCompletionSummary }
     | { type: 'cancelled'; reason: string }
     | {

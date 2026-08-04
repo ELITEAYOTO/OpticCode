@@ -28,12 +28,14 @@ import {
   type ReferenceCandidate,
 } from './model';
 import { ChatEventPresenter, type ChatRenderOperation } from './presentation';
+import { ChatEditReviewController } from './editReview';
 import { ChatSessionStore, type ChatSessionMetadata } from './session';
 
 const INTERNAL_COMMANDS = {
   showContext: 'opticcode.internal.chat.showContext',
   showReport: 'opticcode.internal.chat.showReport',
   showDiff: 'opticcode.internal.chat.showDiff',
+  showAllChanges: 'opticcode.internal.chat.showAllChanges',
   applyProposal: 'opticcode.internal.chat.applyProposal',
   discardProposal: 'opticcode.internal.chat.discardProposal',
   rollbackTransaction: 'opticcode.internal.chat.rollbackTransaction',
@@ -74,13 +76,16 @@ export function registerOpticCodeChat(
   const reports = new ReportStore(extensionContext.globalStorageUri);
   const sessions = new ChatSessionStore(extensionContext.globalState);
   const subscriptions: vscode.Disposable[] = [];
+  const clientVersion = extensionVersion(extensionContext);
+  const editReview = new ChatEditReviewController(clientVersion, service, output);
   const handler = new OpticCodeChatHandler(
-    extensionVersion(extensionContext),
+    clientVersion,
     service,
     state,
     output,
     reports,
     sessions,
+    editReview,
   );
   const participant = vscode.chat.createChatParticipant(
     CHAT_PARTICIPANT_ID,
@@ -88,6 +93,7 @@ export function registerOpticCodeChat(
   );
   participant.iconPath = vscode.Uri.joinPath(extensionContext.extensionUri, 'media', 'opticcode.svg');
   subscriptions.push(participant);
+  subscriptions.push(editReview);
 
   const showStoredReport = async (runId: unknown): Promise<void> => {
     if (typeof runId !== 'string') {
@@ -104,24 +110,25 @@ export function registerOpticCodeChat(
   subscriptions.push(
     vscode.commands.registerCommand(INTERNAL_COMMANDS.showContext, showStoredReport),
     vscode.commands.registerCommand(INTERNAL_COMMANDS.showReport, showStoredReport),
-    vscode.commands.registerCommand(INTERNAL_COMMANDS.showDiff, async () => {
-      await vscode.window.showInformationMessage(
-        'Verified diffs are unavailable until CHAT-EDIT-001 is active.',
-      );
-    }),
-    vscode.commands.registerCommand(INTERNAL_COMMANDS.applyProposal, async () => {
-      await vscode.window.showInformationMessage(
-        'Transactional apply is unavailable until POLICY-001 and CHAT-EDIT-001 are active.',
-      );
-    }),
-    vscode.commands.registerCommand(INTERNAL_COMMANDS.discardProposal, async () => {
-      await vscode.window.showInformationMessage('No verified proposal is active.');
-    }),
-    vscode.commands.registerCommand(INTERNAL_COMMANDS.rollbackTransaction, async () => {
-      await vscode.window.showInformationMessage(
-        'Rollback is unavailable until a transaction has been applied.',
-      );
-    }),
+    vscode.commands.registerCommand(INTERNAL_COMMANDS.showDiff, (proposalId) =>
+      editReview.showDiff(proposalId),
+    ),
+    vscode.commands.registerCommand(INTERNAL_COMMANDS.showAllChanges, (proposalId) =>
+      editReview.showAllChanges(proposalId),
+    ),
+    vscode.commands.registerCommand(
+      INTERNAL_COMMANDS.applyProposal,
+      (proposalId, approvalRequestId) =>
+        editReview.applyProposal(proposalId, approvalRequestId),
+    ),
+    vscode.commands.registerCommand(INTERNAL_COMMANDS.discardProposal, (proposalId) =>
+      editReview.discardProposal(proposalId),
+    ),
+    vscode.commands.registerCommand(
+      INTERNAL_COMMANDS.rollbackTransaction,
+      (proposalOrTransaction, approvalOrTransaction) =>
+        editReview.rollbackTransaction(proposalOrTransaction, approvalOrTransaction),
+    ),
   );
 
   return {
@@ -142,6 +149,7 @@ export class OpticCodeChatHandler {
     private readonly output: Pick<vscode.OutputChannel, 'appendLine'>,
     private readonly reports: ChatReportSink,
     private readonly sessions: ChatSessionStore,
+    private readonly editReview?: Pick<ChatEditReviewController, 'observe'>,
   ) {}
 
   public async handle(
@@ -197,7 +205,10 @@ export class OpticCodeChatHandler {
       const result = await this.service.runChat(
         protocolRequest,
         workspace.uri,
-        (event) => this.render(response, workspace, presenter.accept(event)),
+        (event) => {
+          this.editReview?.observe(connection.workspace, event);
+          this.render(response, workspace, presenter.accept(event));
+        },
         token,
       );
       let reportPath: string | undefined;
@@ -220,6 +231,8 @@ export class OpticCodeChatHandler {
         runId,
         ...(stored?.recentRunIds ?? []).filter((candidate) => candidate !== runId),
       ].slice(0, 16);
+      const lastProposalId = latestProposalId(result.events) ?? stored?.lastProposalId;
+      const lastTransactionId = latestTransactionId(result.events) ?? stored?.lastTransactionId;
       try {
         await this.sessions.record({
           schemaVersion: 1,
@@ -231,6 +244,8 @@ export class OpticCodeChatHandler {
             : { repositoryState: result.summary.repository_state }),
           recentRunIds,
           ...(reportPath === undefined ? {} : { lastReportPath: reportPath }),
+          ...(lastProposalId === undefined ? {} : { lastProposalId }),
+          ...(lastTransactionId === undefined ? {} : { lastTransactionId }),
           updatedAt: new Date().toISOString(),
         });
       } catch (error) {
@@ -731,3 +746,27 @@ function timestamp(): string {
 
 export const chatInternalCommands = INTERNAL_COMMANDS;
 export const chatEditCommands = EDIT_COMMANDS;
+
+function latestProposalId(events: readonly ChatProtocolEvent[]): string | undefined {
+  for (let index = events.length - 1; index >= 0; index -= 1) {
+    const event = events[index];
+    if (event !== undefined && 'proposal_id' in event && typeof event.proposal_id === 'string') {
+      return event.proposal_id;
+    }
+  }
+  return undefined;
+}
+
+function latestTransactionId(events: readonly ChatProtocolEvent[]): string | undefined {
+  for (let index = events.length - 1; index >= 0; index -= 1) {
+    const event = events[index];
+    if (
+      event !== undefined &&
+      'transaction_id' in event &&
+      typeof event.transaction_id === 'string'
+    ) {
+      return event.transaction_id;
+    }
+  }
+  return undefined;
+}

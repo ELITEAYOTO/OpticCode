@@ -5,6 +5,7 @@ import type {
   ChatBudgets,
   ChatCommand,
   ChatExpectedProtocols,
+  ChatEditControl,
   ChatGenerationOptions,
   ChatHistoryTurn,
   ChatProtocolRequest,
@@ -52,6 +53,7 @@ export const CHAT_GENERATION: Readonly<ChatGenerationOptions> = {
   compare_generate: false,
 };
 
+const CHAT_FIX_MAX_OUTPUT_TOKENS = 4096;
 const MAX_PROMPT_CHARS = 64 * 1024;
 const MAX_HISTORY_TURN_CHARS = 8 * 1024;
 const MAX_REFERENCE_REASON_CHARS = 512;
@@ -98,6 +100,7 @@ export interface ChatRequestInput {
   previousRepositoryState?: string | undefined;
   expectedProtocols: ChatExpectedProtocols;
   securityMode?: ChatSecurityMode | undefined;
+  edit?: ChatEditControl | undefined;
 }
 
 export class ChatRequestBuildError extends Error {
@@ -243,7 +246,13 @@ export function buildChatRequest(input: ChatRequestInput): ChatProtocolRequest {
     references: input.references.slice(0, CHAT_BUDGETS.max_references),
     history: input.history.slice(-CHAT_BUDGETS.max_history_turns),
     budgets: { ...CHAT_BUDGETS },
-    generation: { ...CHAT_GENERATION },
+    generation: {
+      ...CHAT_GENERATION,
+      max_output_tokens:
+        input.command === 'fix'
+          ? CHAT_FIX_MAX_OUTPUT_TOKENS
+          : CHAT_GENERATION.max_output_tokens,
+    },
     security_mode: input.securityMode ?? 'read_only',
     client: {
       name: 'opticcode-vscode',
@@ -255,6 +264,7 @@ export function buildChatRequest(input: ChatRequestInput): ChatProtocolRequest {
       previous_repository_state: input.previousRepositoryState ?? null,
     },
     expected_protocols: { ...input.expectedProtocols },
+    ...(input.edit === undefined ? {} : { edit: input.edit }),
   };
 }
 
@@ -381,7 +391,7 @@ function estimateTokens(value: string): number {
 }
 
 function requiresPrompt(command: ChatCommand): boolean {
-  return command === 'ask' || command === 'plan' || command === 'context';
+  return command === 'ask' || command === 'plan' || command === 'context' || command === 'fix';
 }
 
 function boundedIdentifier(value: unknown): string | undefined {

@@ -180,6 +180,7 @@ describe('OpticCode chat model', () => {
     assert.equal(request.protocol, 'opticcode.chat');
     assert.equal(request.security_mode, 'read_only');
     assert.equal(request.command, 'ask');
+    assert.equal(request.generation.max_output_tokens, 1024);
     assert.match(request.request_id, /^vscode-chat-ask-/u);
 
     assert.throws(
@@ -189,6 +190,31 @@ describe('OpticCode chat model', () => {
     assert.doesNotThrow(() =>
       buildChatRequest({ ...requestInput(), command: 'help', prompt: '' }),
     );
+    assert.throws(
+      () => buildChatRequest({ ...requestInput(), command: 'fix', prompt: '' }),
+      ChatRequestBuildError,
+    );
+    const fix = buildChatRequest({
+      ...requestInput(),
+      command: 'fix',
+      prompt: 'Add a guard to the selected method.',
+    });
+    assert.equal(fix.generation.max_output_tokens, 4096);
+    const apply = buildChatRequest({
+      ...requestInput(),
+      command: 'apply',
+      prompt: '',
+      edit: {
+        proposal_id: 'plan-1',
+        native_confirmation: {
+          client: 'opticcode-vscode',
+          confirmation_id: 'vscode-modal-1',
+          approval_request_id: 'apply-confirmation-1',
+        },
+      },
+    });
+    assert.equal(apply.edit?.proposal_id, 'plan-1');
+    assert.equal(apply.security_mode, 'read_only');
   });
 });
 

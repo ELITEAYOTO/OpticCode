@@ -34,13 +34,13 @@ npm run compile
 npm run lint
 npm test
 npm run package
-code --install-extension ..\..\artifacts\opticcode-vscode-0.1.0.vsix
+code --install-extension ..\..\artifacts\opticcode-vscode-0.2.0.vsix --force
 ```
 
 No global npm package is required. The package output is:
 
 ```text
-artifacts/opticcode-vscode-0.1.0.vsix
+artifacts/opticcode-vscode-0.2.0.vsix
 ```
 
 ## Configuration
@@ -65,10 +65,10 @@ and Plan, report viewing, lease recovery, and the OutputChannel.
 
 The native Chat view also exposes `@opticcode`. With no slash command it runs
 Ask. Available read-only commands are `/ask`, `/plan`, `/context`, `/analyze`,
-`/index`, `/legacy`, `/status`, `/runs`, and `/help`. The edit commands are
-discoverable but return an explicit unavailable response until CHAT-EDIT-001.
-The Rust POLICY-001 engine already evaluates every command and forces the
-effective mode to `read_only`.
+`/index`, `/legacy`, `/status`, `/runs`, and `/help`. `/fix`, `/verify`,
+`/diff`, `/apply`, and `/rollback` implement the verified edit workflow.
+Every request starts in `read_only`; Rust alone may authorize the bounded
+`worktree_edit` and `approved_apply` stages through POLICY-001.
 
 Attach files or precise selections with the Chat context controls. OpticCode
 keeps paths workspace-relative, validates them again in Rust, refuses sensitive
@@ -97,11 +97,12 @@ the extension only validates and presents them.
 
 ## Worktree safety
 
-Verification always asks for confirmation. OpticCode creates a detached
-disposable worktree, applies verified edits there, optionally runs Maven or
-Gradle, captures the diff, and cleans up. The report keeps edit, build, diff,
-and cleanup outcomes separate. There is no automatic transfer to the original
-project, no `--allow-dirty`, no arbitrary shell, and no Git push.
+`/fix` creates a detached disposable worktree, applies verified edits there,
+runs Maven or Gradle offline, captures exact snapshots and a Git diff, then
+cleans up. Review uses read-only `opticcode-base:` and
+`opticcode-proposed:` documents. Only a native modal can trigger the one-shot
+Policy approval and APPLY-001 transaction on the original project. There is no
+automatic transfer, `--allow-dirty`, arbitrary shell, Git commit, or Git push.
 
 ## First test
 
@@ -112,7 +113,9 @@ project, no `--allow-dirty`, no arbitrary shell, and no Git push.
 5. Select a precise range and run `@opticcode /ask Explain this code.`.
 6. Inspect references, context, token counts and the full report.
 7. Open a legacy fixture and run the existing read-only proposal command.
-8. Verify legacy proposals only in a clean disposable worktree.
+8. On a temporary clean Git fixture, run `@opticcode /fix <small change>`.
+9. Review `Show Diff`, verify that the original is unchanged, then test Apply
+   and Rollback through their native confirmation modals.
 
 ## Limitations
 
@@ -121,6 +124,6 @@ project, no `--allow-dirty`, no arbitrary shell, and no Git push.
 - Non-streaming long operations cannot claim provider-confirmed cancellation.
 - `compare` may produce a context comparison without model text unless double
   generation is explicitly authorized at the CLI level.
-- The extension has no automatic patch application to the original workspace.
-- `/fix`, `/verify`, `/diff`, `/apply` and `/rollback` remain inactive until
-  CHAT-EDIT-001 is fully validated.
+- Delete, rename, binary edits and autonomous multi-iteration remain disabled.
+- Apply and rollback require a clean main worktree, exact proposal state and a
+  native VS Code confirmation; typed Chat approval is deliberately ignored.
