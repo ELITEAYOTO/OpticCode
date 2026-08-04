@@ -1,0 +1,117 @@
+# VSCODE-001 - Experimental VS Code extension
+
+## Scope
+
+`extensions/vscode-opticcode` is an installable thin client for
+`opticcode.exe`. It uses native VS Code APIs only: TreeViews, diagnostics,
+CodeActions, OutputChannel, status bar, input/quick-pick controls, progress, and
+untitled Markdown/JSON documents. V1 intentionally has no webview.
+
+The ownership boundary is strict:
+
+```text
+VS Code UI
+  -> TypeScript protocol client (spawn, validation, bounds, cancellation)
+    -> opticcode.exe JSON / NDJSON
+      -> Rust Java/RAG/LLM/Git/worktree/apply implementations
+```
+
+No Java, Tree-sitter, RAG, LLM, Git, transaction, legacy rule, or evaluation
+algorithm is duplicated in the extension.
+
+## Discovery
+
+Every connection starts with:
+
+```powershell
+opticcode.exe version --json
+opticcode.exe capabilities --json
+```
+
+The client requires discovery, assistant, and LLM schema version 1 and rejects
+incompatible identifiers before invoking a feature. `doctor --json` supplies
+the Status view. See [`client-discovery.md`](client-discovery.md).
+
+The configured executable path is authoritative. Development detection is
+limited to `target/release/opticcode.exe` under an open OpticCode workspace or
+the extension's own repository root. There is no PATH fallback and no disk-wide
+search.
+
+## Process and protocol rules
+
+- `child_process.spawn` receives an executable and argument array;
+- `shell: false`, hidden Windows window, piped stdin/stdout/stderr;
+- stdout contains only JSON/NDJSON and stderr goes to `OpticCode` output;
+- JSON, line, total stream, stderr, and event counts are bounded;
+- UTF-8, schema, protocol, request ID, outer and nested sequences are validated;
+- one terminal event is mandatory; zero, two, or an event after terminal fails;
+- timeout, process interruption, confirmed cancellation, and forced termination
+  remain different outcomes.
+
+Ask/Plan cancellation writes the bounded stdin control command `cancel\n`.
+OpticCode forwards it to the provider token. A forced kill is never described as
+a clean provider cancellation.
+
+## Native interface
+
+Status renders executable/version/protocol, provider/model/profile, Git,
+Ollama, Java, Maven/Gradle, RAG, and worktree/lease checks.
+
+Findings renders file/range, symbol, rule, confidence, decision, reason, and
+verification result. Clicking opens the validated range. Java syntax errors,
+safe legacy proposals, controlled refusals, and selected context snippets map
+to distinct diagnostic severities. Document edits remove stale diagnostics.
+
+Runs retains up to 50 session entries with command, request ID, state, duration,
+context, tokens, model, build/worktree summary, and report path.
+
+## Security boundary
+
+The extension does not expose original-workspace apply, `--allow-dirty`, shell
+commands, package installation, Git push, or an autonomous loop. Worktree
+verification requires modal confirmation and reports edit, build, diff, and
+cleanup independently. Recovery is targeted by an explicit OpticCode lease ID.
+
+Reports are written outside the source workspace to VS Code global extension
+storage. The VSIX excludes dependencies, tests, local models, RAG indexes,
+benchmarks, personal documents, and build outputs.
+
+## Development and validation
+
+```powershell
+cargo build --workspace --release
+cd extensions\vscode-opticcode
+npm install
+npm run compile
+npm run lint
+npm test
+npm run test:integration
+npm run test:assistant
+npm run package
+```
+
+The 20-test deterministic suite uses a fake executable for spaces/Unicode
+arguments, JSON/NDJSON fragmentation, malformed output, request IDs, outer and
+nested sequences, terminal lifecycle, timeout, interruption, cancellation,
+compatibility, and size limits. Three real integration tests use version,
+capabilities, doctor, and Java context. The assistant smoke sends real streamed
+Ask and Plan calls to local Qwen.
+
+Run the Extension Development Host separately. It checks activation, all 13
+public commands, Status/doctor rendering, Runs rendering, and exact finding
+range opening:
+
+```powershell
+npm run test:vscode
+```
+
+The packaged extension is `artifacts/opticcode-vscode-0.1.0.vsix`.
+
+## Known limits
+
+- V1 is session-oriented and does not persist findings/runs across VS Code restarts.
+- Long non-streaming build commands have timeout protection but no stdin
+  cancellation contract yet, so their progress is not advertised as cancellable.
+- `compare` preserves the CLI rule that two model generations require explicit
+  authorization.
+- No fix is automatically applied to the original project.

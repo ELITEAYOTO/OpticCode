@@ -489,7 +489,7 @@ Acquis CONTEXT-002 :
 - Recall@k 0,833 -> 1,000, mais qualite 0,556 -> 0,333 ;
 - decision conservee : `legacy` reste le defaut.
 
-Suite : `LLM/PROTOCOL-001` est termine ; `POLICY-001` devient prioritaire.
+Suite : `LLM/PROTOCOL-001` et `VSCODE-001` sont termines ; `POLICY-001` devient prioritaire.
 RAG-002/Tantivy reste un prototype mesure distinct, sans embeddings dans sa
 premiere iteration.
 
@@ -527,6 +527,39 @@ Livrable :
 - `docs/profiles.md`
 - `docs/memory.md`
 - `docs/llm-protocol.md`
+
+## Phase 5.8 - Protocole client et extension VS Code
+
+Statut : `LLM/PROTOCOL-001` et `VSCODE-001` termines.
+
+Acquis protocole :
+
+- Ollama isole derriere `LlmProvider`, contrats versionnes et streaming NDJSON ;
+- annulation cooperative Windows, timeout et terminal machine non ambigu ;
+- commandes read-only `version --json`, `capabilities --json` et `doctor --json` ;
+- resume assistant terminal avec contexte, tokens, timings et avertissements.
+
+Acquis extension :
+
+- client TypeScript strict et borne, sans shell ni logique metier dupliquee ;
+- 13 commandes publiques, trois TreeViews natives, diagnostics et CodeAction ;
+- Ask/Plan streames avec progression, metriques et annulation confirmee ;
+- verification explicite en worktree, sans apply sur le projet original ;
+- 20 tests unitaires, 3 integrations CLI reelles, smoke Qwen et Extension Host ;
+- VSIX minimal versionne `0.1.0`, sans binaire, dependance ou donnee privee.
+
+Limites :
+
+- pas de LSP, daemon, boucle agent ou transfert automatique vers la source ;
+- rapports et runs limites a la session VS Code ;
+- `legacy` reste le contexte par defaut ; `symbol` et `compare` sont explicites.
+
+Suite : `POLICY-001` devient le prochain jalon. Il doit definir une politique
+deny-by-default avant toute boucle capable d'appeler des outils d'ecriture.
+
+References : [`llm-protocol.md`](llm-protocol.md),
+[`client-discovery.md`](client-discovery.md) et
+[`vscode-extension.md`](vscode-extension.md).
 
 ## Phase 6 - RAG local et donnees metier
 

@@ -1,0 +1,167 @@
+{
+  "name": "opticcode",
+  "displayName": "OpticCode",
+  "description": "Experimental thin VS Code client for the local OpticCode assistant.",
+  "version": "0.1.0",
+  "publisher": "opticcode-local",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ELITEAYOTO/OpticCode.git"
+  },
+  "engines": {
+    "vscode": "^1.125.0"
+  },
+  "categories": [
+    "Programming Languages",
+    "Machine Learning",
+    "Other"
+  ],
+  "keywords": [
+    "java",
+    "minecraft",
+    "bukkit",
+    "local-ai",
+    "qwen"
+  ],
+  "main": "./out/src/extension.js",
+  "activationEvents": [
+    "onView:opticcode.status",
+    "onView:opticcode.findings",
+    "onView:opticcode.runs"
+  ],
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p .",
+    "watch": "tsc -p . --watch",
+    "lint": "eslint .",
+    "test": "npm run compile && node --test out/test/unit/*.test.js",
+    "test:integration": "npm run compile && node --test out/test/integration/*.test.js",
+    "test:assistant": "npm run compile && node scripts/real-assistant-smoke.mjs",
+    "test:vscode": "npm run compile && node scripts/run-vscode-test.mjs",
+    "package": "npm run compile && vsce package --out ../../artifacts/opticcode-vscode-0.1.0.vsix"
+  },
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "opticcode",
+          "title": "OpticCode",
+          "icon": "media/opticcode.svg"
+        }
+      ]
+    },
+    "views": {
+      "opticcode": [
+        {
+          "id": "opticcode.status",
+          "name": "Status"
+        },
+        {
+          "id": "opticcode.findings",
+          "name": "Findings"
+        },
+        {
+          "id": "opticcode.runs",
+          "name": "Runs"
+        }
+      ]
+    },
+    "commands": [
+      { "command": "opticcode.checkInstallation", "title": "OpticCode: Check Installation", "icon": "$(check)" },
+      { "command": "opticcode.refreshStatus", "title": "OpticCode: Refresh Status", "icon": "$(refresh)" },
+      { "command": "opticcode.selectProfile", "title": "OpticCode: Select Profile" },
+      { "command": "opticcode.analyzeJavaProject", "title": "OpticCode: Analyze Current Java Project" },
+      { "command": "opticcode.buildJavaSymbolIndex", "title": "OpticCode: Build Java Symbol Index" },
+      { "command": "opticcode.buildSmartContext", "title": "OpticCode: Build Smart Context" },
+      { "command": "opticcode.proposeLegacyFixes", "title": "OpticCode: Propose Minecraft Legacy Fixes" },
+      { "command": "opticcode.verifyProposedFixes", "title": "OpticCode: Verify Proposed Fixes in Worktree" },
+      { "command": "opticcode.askQwen", "title": "OpticCode: Ask Qwen" },
+      { "command": "opticcode.planQwen", "title": "OpticCode: Plan with Qwen" },
+      { "command": "opticcode.showLastReport", "title": "OpticCode: Show Last Report" },
+      { "command": "opticcode.recoverWorktrees", "title": "OpticCode: Recover Abandoned Worktrees" },
+      { "command": "opticcode.openOutput", "title": "OpticCode: Open Output" }
+    ],
+    "menus": {
+      "view/title": [
+        {
+          "command": "opticcode.refreshStatus",
+          "when": "view == opticcode.status",
+          "group": "navigation"
+        },
+        {
+          "command": "opticcode.openOutput",
+          "when": "view == opticcode.runs",
+          "group": "navigation"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "opticcode.verifyProposedFixes",
+          "when": "view == opticcode.findings && viewItem == opticcodeFinding",
+          "group": "navigation"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "OpticCode",
+      "properties": {
+        "opticcode.executablePath": {
+          "type": "string",
+          "default": "",
+          "scope": "machine-overridable",
+          "description": "Absolute path to opticcode.exe. This takes priority over development detection."
+        },
+        "opticcode.profile": {
+          "type": "string",
+          "default": "minecraft-java-1.8",
+          "scope": "resource",
+          "description": "OpticCode profile passed to assistant and doctor commands."
+        },
+        "opticcode.model": {
+          "type": "string",
+          "default": "qwen2.5-coder:14b",
+          "scope": "resource",
+          "description": "Local model identifier passed to OpticCode."
+        },
+        "opticcode.contextMode": {
+          "type": "string",
+          "enum": ["legacy", "symbol", "compare"],
+          "default": "legacy",
+          "scope": "resource",
+          "description": "Context selection mode. Legacy remains the default."
+        },
+        "opticcode.defaultTimeoutSeconds": {
+          "type": "number",
+          "default": 300,
+          "minimum": 1,
+          "maximum": 3600,
+          "scope": "resource",
+          "description": "Maximum duration of an OpticCode child process."
+        },
+        "opticcode.showDebugOutput": {
+          "type": "boolean",
+          "default": false,
+          "scope": "window",
+          "description": "Write protocol lifecycle details to the OpticCode output channel."
+        },
+        "opticcode.autoCheckOnStartup": {
+          "type": "boolean",
+          "default": true,
+          "scope": "window",
+          "description": "Run read-only discovery checks after extension activation."
+        }
+      }
+    }
+  },
+  "devDependencies": {
+    "@eslint/js": "10.0.1",
+    "@types/node": "22.20.1",
+    "@types/vscode": "1.125.0",
+    "@vscode/test-electron": "3.1.0",
+    "@vscode/vsce": "3.9.2",
+    "eslint": "10.8.0",
+    "typescript": "5.9.3",
+    "typescript-eslint": "8.66.0"
+  }
+}
