@@ -13,6 +13,7 @@ use opticcode_llm::{
     HealthRequest, LlmProvider, OllamaProvider, ProviderCapabilities, LLM_PROTOCOL_ID,
     LLM_PROTOCOL_SCHEMA_VERSION,
 };
+use opticcode_policy::{PolicyEngine, POLICY_PROTOCOL_ID, POLICY_SCHEMA_VERSION, POLICY_VERSION};
 use opticcode_tools::apply_transaction::APPLY_TRANSACTION_SCHEMA_VERSION;
 use opticcode_tools::eval::EVAL_SCHEMA_VERSION;
 use opticcode_tools::git_state::capture_git_state;
@@ -83,11 +84,25 @@ pub struct MachineOutputCapabilities {
 #[derive(Debug, Clone, Serialize)]
 pub struct FeatureCapabilities {
     pub chat: bool,
+    pub policy: bool,
     pub rag: bool,
     pub java: bool,
     pub worktrees: bool,
     pub verified_edits: bool,
     pub evaluation: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct PolicyCapabilities {
+    pub schema_version: u32,
+    pub policy_version: &'static str,
+    pub engine: bool,
+    pub modes: Vec<&'static str>,
+    pub audit: bool,
+    pub approvals: bool,
+    pub cli: bool,
+    pub chat_read_only: bool,
+    pub chat_write: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -99,6 +114,7 @@ pub struct CapabilitiesReport {
     pub context_modes: Vec<&'static str>,
     pub machine_output: MachineOutputCapabilities,
     pub features: FeatureCapabilities,
+    pub policy_runtime: PolicyCapabilities,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
@@ -168,6 +184,13 @@ pub fn version_report() -> VersionReport {
         },
     );
     protocols.insert(
+        "policy",
+        ProtocolVersion {
+            id: POLICY_PROTOCOL_ID,
+            schema_version: POLICY_SCHEMA_VERSION,
+        },
+    );
+    protocols.insert(
         "llm",
         ProtocolVersion {
             id: LLM_PROTOCOL_ID,
@@ -193,6 +216,7 @@ pub fn version_report() -> VersionReport {
             ("java_edits", JAVA_EDIT_SCHEMA_VERSION),
             ("java_index", JAVA_INDEX_SCHEMA_VERSION),
             ("java_syntax", JAVA_SYNTAX_SCHEMA_VERSION),
+            ("policy", POLICY_SCHEMA_VERSION),
             ("rag_index", RAG_INDEX_SCHEMA_VERSION),
             ("version", DISCOVERY_SCHEMA_VERSION),
             ("worktree_lease", WORKTREE_LEASE_SCHEMA_VERSION),
@@ -243,6 +267,7 @@ pub fn capabilities_report() -> CapabilitiesReport {
             "pack-scan",
             "patch",
             "plan",
+            "policy",
             "profile",
             "rag-debug",
             "rag-index",
@@ -268,11 +293,23 @@ pub fn capabilities_report() -> CapabilitiesReport {
         },
         features: FeatureCapabilities {
             chat: true,
+            policy: true,
             rag: true,
             java: true,
             worktrees: true,
             verified_edits: true,
             evaluation: true,
+        },
+        policy_runtime: PolicyCapabilities {
+            schema_version: POLICY_SCHEMA_VERSION,
+            policy_version: POLICY_VERSION,
+            engine: true,
+            modes: vec!["read_only", "worktree_edit", "approved_apply"],
+            audit: true,
+            approvals: true,
+            cli: true,
+            chat_read_only: true,
+            chat_write: false,
         },
     }
 }
@@ -300,6 +337,22 @@ pub async fn doctor_report(options: DoctorOptions) -> DoctorReport {
             "opticcode_executable",
             true,
             format!("cannot resolve current executable: {error}"),
+        ),
+    });
+
+    checks.push(match PolicyEngine::default_engine() {
+        Ok(engine) => DoctorCheck {
+            id: "policy_engine",
+            status: DoctorStatus::Ok,
+            required: true,
+            summary: "Deny-by-default PolicyEngine state is available".to_string(),
+            version: Some(POLICY_VERSION.to_string()),
+            path: Some(engine.audit_store().state_root().to_path_buf()),
+        },
+        Err(error) => failed_check(
+            "policy_engine",
+            true,
+            format!("PolicyEngine state is unavailable: {error}"),
         ),
     });
 

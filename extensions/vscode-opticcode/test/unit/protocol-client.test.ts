@@ -12,7 +12,11 @@ import type {
   ChatProtocolRequest,
   JsonObject,
 } from '../../src/protocol/types';
-import { isRecord } from '../../src/protocol/validation';
+import {
+  isRecord,
+  validateCapabilitiesReport,
+  validateChatEvent,
+} from '../../src/protocol/validation';
 
 const fixture = path.resolve(__dirname, '../../../test/fixtures/fake-opticcode.mjs');
 
@@ -98,6 +102,41 @@ class TestCancellation implements CancellationLike {
 }
 
 describe('OpticCode protocol client', () => {
+  it('keeps pre-policy discovery and chat events compatible', () => {
+    const capabilities = validateCapabilitiesReport({
+      schema_version: 1,
+      protocol: 'opticcode.discovery',
+      commands: ['version', 'capabilities', 'doctor', 'ask', 'plan', 'chat'],
+      providers: [],
+      context_modes: ['legacy'],
+      machine_output: { json: true, ndjson: true, streaming: true, cancellation: true },
+      features: {
+        chat: true,
+        rag: true,
+        java: true,
+        worktrees: true,
+        verified_edits: true,
+        evaluation: true,
+      },
+    });
+    assert.equal(capabilities.policy_runtime, undefined);
+
+    const event = validateChatEvent(
+      {
+        schema_version: 1,
+        protocol: 'opticcode.chat',
+        request_id: 'historical-chat',
+        sequence: 0,
+        elapsed_ms: 0,
+        type: 'request_accepted',
+        command: 'ask',
+        security_mode: 'read_only',
+      },
+      'historical-chat',
+    );
+    assert.equal(event.type, 'request_accepted');
+  });
+
   it('uses shell false and preserves spaces and Unicode arguments', async () => {
     const values = ['C:\\Project With Spaces\\plugin', 'méthodeÉté'];
     const invocation = createSpawnInvocation('C:\\Optic Code\\opticcode.exe', values, 'C:\\Work Space');

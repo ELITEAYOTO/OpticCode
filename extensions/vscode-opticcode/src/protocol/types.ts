@@ -44,11 +44,23 @@ export interface CapabilitiesReport extends JsonObject {
   };
   features: {
     chat: boolean;
+    policy?: boolean;
     rag: boolean;
     java: boolean;
     worktrees: boolean;
     verified_edits: boolean;
     evaluation: boolean;
+  };
+  policy_runtime?: {
+    schema_version: number;
+    policy_version: string;
+    engine: boolean;
+    modes: Array<'read_only' | 'worktree_edit' | 'approved_apply'>;
+    audit: boolean;
+    approvals: boolean;
+    cli: boolean;
+    chat_read_only: boolean;
+    chat_write: boolean;
   };
 }
 
@@ -244,7 +256,16 @@ interface ChatEventBase extends JsonObject {
 
 export type ChatProtocolEvent = ChatEventBase &
   (
-    | { type: 'request_accepted'; command: ChatCommand; security_mode: ChatSecurityMode }
+    | {
+        type: 'request_accepted';
+        command: ChatCommand;
+        requested_security_mode?: ChatSecurityMode;
+        security_mode: ChatSecurityMode;
+        effective_security_mode?: ChatSecurityMode;
+        policy_version?: string;
+        policy_decision?: 'allow' | 'require_approval' | 'deny';
+        policy_rule_id?: string;
+      }
     | { type: 'references_resolving'; count: number }
     | {
         type: 'references_resolved';

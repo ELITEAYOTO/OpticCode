@@ -114,7 +114,12 @@ fn help_chat_is_versioned_sequenced_read_only_and_terminal_once() {
         assert_eq!(event["sequence"], sequence as u64);
     }
     assert_eq!(values[0]["type"], "request_accepted");
+    assert_eq!(values[0]["requested_security_mode"], "read_only");
     assert_eq!(values[0]["security_mode"], "read_only");
+    assert_eq!(values[0]["effective_security_mode"], "read_only");
+    assert_eq!(values[0]["policy_decision"], "allow");
+    assert_eq!(values[0]["policy_rule_id"], "analysis.context_read_only");
+    assert_eq!(values[0]["policy_version"], "opticcode.default.v1");
     assert_eq!(values.last().unwrap()["type"], "completed");
     assert_eq!(terminal_count(&values), 1);
     let rendered = values
@@ -123,7 +128,30 @@ fn help_chat_is_versioned_sequenced_read_only_and_terminal_once() {
         .filter_map(|event| event["text"].as_str())
         .collect::<String>();
     assert!(rendered.contains("/apply"));
-    assert!(rendered.contains("unavailable until POLICY-001/CHAT-EDIT-001"));
+    assert!(rendered.contains("unavailable until CHAT-EDIT-001"));
+}
+
+#[test]
+fn chat_cli_forces_read_only_when_client_requests_edit_mode() {
+    let mut value = request("chat-cli-policy-mode", "fix", json!([]));
+    value["security_mode"] = json!("approved_apply");
+    value["prompt"] = json!("Fix the selected code");
+    let output = run_chat(&value);
+    assert_eq!(output.status.code(), Some(2));
+    let values = events(&output);
+    assert_eq!(values[0]["type"], "request_accepted");
+    assert_eq!(values[0]["requested_security_mode"], "approved_apply");
+    assert_eq!(values[0]["effective_security_mode"], "read_only");
+    assert_eq!(values[0]["policy_decision"], "allow");
+    assert_eq!(values.last().unwrap()["type"], "failed");
+    assert_eq!(
+        values.last().unwrap()["error"]["code"],
+        "security_mode_unavailable"
+    );
+    assert!(!values
+        .iter()
+        .any(|event| event["type"] == "references_resolving"));
+    assert_eq!(terminal_count(&values), 1);
 }
 
 #[test]

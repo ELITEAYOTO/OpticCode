@@ -84,6 +84,12 @@ commands, package installation, Git push, or an autonomous loop. Worktree
 verification requires modal confirmation and reports edit, build, diff, and
 cleanup independently. Recovery is targeted by an explicit OpticCode lease ID.
 
+POLICY-001 is enforced in the Rust Chat runtime. Every command is evaluated by
+the deny-by-default engine, `request_accepted` reports its decision/rule and the
+effective mode is always `read_only`. TypeScript validates those fields but is
+not a second policy implementation. A client-supplied edit mode is rejected
+before references or tools are reached.
+
 Reports are written outside the source workspace to VS Code global extension
 storage. The VSIX excludes dependencies, tests, local models, RAG indexes,
 benchmarks, personal documents, and build outputs.
@@ -127,4 +133,5 @@ The packaged extension is `artifacts/opticcode-vscode-0.1.0.vsix`.
 - `compare` preserves the CLI rule that two model generations require explicit
   authorization.
 - No fix is automatically applied to the original project.
-- Chat edit commands remain fail-closed until POLICY-001 and CHAT-EDIT-001.
+- Chat edit commands remain fail-closed until CHAT-EDIT-001; POLICY-001 itself
+  is active and advertised by discovery.

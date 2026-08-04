@@ -1308,3 +1308,50 @@ Raison :
 - le mode read-only livre une interface utile avant d'ouvrir la surface apply.
 
 Reference : [`vscode-chat.md`](vscode-chat.md).
+
+### D-067 - Centraliser toute autorisation dans un moteur deny-by-default
+
+Statut : valide.
+
+Decision :
+
+- isoler `opticcode-policy` du LLM, du Chat, de VS Code et des executors ;
+- versionner `opticcode.policy` en schema 1 et refuser les champs critiques,
+  modes, origines et actions non reconnus ;
+- representer fichiers, Git, worktrees, processus, reseau et transactions par
+  des actions typees plutot que des commandes shell ;
+- limiter les decisions a `Allow`, `RequireApproval` et `Deny`, avec `rule_id`,
+  risque, raisons bornees, conditions et recommandation ;
+- definir `read_only`, `worktree_edit` et `approved_apply` sans elargissement
+  implicite entre les modes ;
+- exiger source propre, digest, HEAD, lease, workspace et request ID pour toute
+  mutation dans un worktree ;
+- reserver les mutations originales a un `ApplyPatch` verifie et a une
+  approbation native one-shot ;
+- lier cette approbation a l'ordre exact des fichiers et actions, ainsi qu'au
+  workspace, request, mode, HEAD, working tree, diff et transaction ;
+- utiliser un claim `create_new` persistant pour fermer replay, concurrence et
+  reprise apres crash ;
+- journaliser seulement des metadata hashees dans un audit atomique, borne,
+  hors workspace et namespace par workspace ;
+- forcer `read_only` dans le runtime Chat, publier la decision Policy dans le
+  protocole et garder toutes les commandes edit inactives ;
+- ne fournir aucune commande publique de creation d'approbation.
+
+Raison :
+
+- filtrer dans un prompt ou dans TypeScript ne constitue pas une frontiere de
+  securite ;
+- les anciens outils sont fiables individuellement mais avaient besoin d'une
+  autorite commune avant une boucle capable de les composer ;
+- une approbation textuelle vague ne prouve ni le diff ni l'etat Git approuve ;
+- les liens Windows, gitdirs, wrappers modifies et courses de consommation sont
+  des risques de corruption ou d'execution reels ;
+- garder Policy separe des executors permet de tester les decisions sans ecrire
+  et de reutiliser le meme contrat dans les futures interfaces.
+
+Limite assumee : Policy n'est pas un sandbox OS. Le futur executor doit encore
+honorer l'environnement et le reseau declares, revalider le preflight et passer
+par Process Runner, GIT-002 et APPLY-001.
+
+Reference : [`policy-engine.md`](policy-engine.md).

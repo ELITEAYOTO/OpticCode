@@ -35,6 +35,12 @@ fn version_and_capabilities_are_stable_pure_json_contracts() {
     assert_eq!(capabilities["protocol"], "opticcode.discovery");
     assert_eq!(capabilities["machine_output"]["ndjson"], true);
     assert_eq!(capabilities["features"]["worktrees"], true);
+    assert_eq!(capabilities["features"]["policy"], true);
+    assert_eq!(capabilities["policy_runtime"]["engine"], true);
+    assert_eq!(capabilities["policy_runtime"]["audit"], true);
+    assert_eq!(capabilities["policy_runtime"]["approvals"], true);
+    assert_eq!(capabilities["policy_runtime"]["chat_read_only"], true);
+    assert_eq!(capabilities["policy_runtime"]["chat_write"], false);
 }
 
 #[test]
@@ -63,4 +69,7 @@ fn doctor_returns_structured_json_when_ollama_is_unavailable() {
     assert!(checks
         .iter()
         .any(|check| check["id"] == "worktrees_and_leases"));
+    assert!(checks
+        .iter()
+        .any(|check| check["id"] == "policy_engine" && check["status"] == "ok"));
 }

@@ -42,6 +42,12 @@ optic-core
   |     +-- Java cross-file symbol index and conservative resolver
   |     +-- read-only AST-ranged Java edit proposals
   |
+  +-- opticcode-policy
+  |     +-- typed action model and deny-by-default engine
+  |     +-- path, Git and worktree boundaries
+  |     +-- one-shot state-bound approvals
+  |     +-- bounded workspace-namespaced audit
+  |
   +-- optic-rag
   |     +-- sqlite metadata
   |     +-- tantivy full-text
@@ -87,7 +93,8 @@ Les crates actuelles gardent le prefixe `opticcode-*`. Le decoupage ci-dessus re
 ## Regles de conception
 
 - Le modele ne modifie jamais directement les fichiers.
-- Le core Rust encadre les actions.
+- Le core Rust soumet chaque action a `opticcode-policy`.
+- Le LLM, le Chat et TypeScript ne sont jamais l'autorite de securite.
 - Les tools ont des schemas clairs.
 - Les editions passent par patches.
 - Toute ecriture prepare patch, manifeste et backups avant la premiere mutation.
@@ -285,15 +292,42 @@ affaiblir la restriction locale du chemin Ollama.
 
 Reference : [`llm-protocol.md`](llm-protocol.md).
 
+## Autorite Policy
+
+Etat POLICY-001 implemente :
+
+- crate independant `opticcode-policy` ;
+- protocole `opticcode.policy` schema 1 ;
+- actions typees et decisions `Allow`, `RequireApproval`, `Deny` ;
+- modes `read_only`, `worktree_edit` et `approved_apply` ;
+- canonicalisation, refus secrets/symlinks/jonctions/reparse et empreintes
+  TOCTOU ;
+- frontieres Git explicites pour worktree, gitdir, commondir, index et objects ;
+- worktree lie a sa lease, son workspace et son request ID ;
+- Maven/Gradle allowlistes avec wrapper source inchange, cwd confine, arguments,
+  environnement, timeout, sortie et reseau declares ;
+- approvals opaques one-shot lies a request/workspace/mode/HEAD/working tree/
+  diff/fichiers/actions/transaction ;
+- claim de consommation atomique et fail-closed apres crash ;
+- audit atomique, borne, hors source et namespace par workspace ;
+- CLI `policy check`, `policy explain`, `policy audit` et codes stables ;
+- discovery enrichi sans suppression de champs historiques.
+
+Le preflight expose une revalidation des chemins et une revalidation contre un
+nouvel etat observe. La politique ne remplace ni APPLY-001, ni GIT-002, ni le
+Process Runner : elle decide si leur invocation structuree peut avoir lieu.
+
+Reference : [`policy-engine.md`](policy-engine.md).
+
 ## Interface Chat VS Code
 
-Etat VSCODE-CHAT-001 implemente :
+Etat VSCODE-CHAT-001 + POLICY-001 implemente :
 
 ```text
 ChatRequest VS Code
   -> normalisation bornee et namespace workspace/session
   -> opticcode.chat schema 1 sur stdin
-  -> runtime Rust read-only
+  -> PolicyEngine Rust avec mode effectif read_only
   -> contexte/RAG/Java et LlmProvider existants
   -> evenements NDJSON sequences
   -> ChatResponseStream natif
@@ -305,7 +339,8 @@ ChatRequest VS Code
 - references fichiers/ranges/selections canonicalisees et relues par Rust ;
 - historique borne et metadata de session separees par workspace ;
 - un terminal unique et annulation structuree ;
-- commandes d'edition fermees jusqu'a la politique et au pipeline verifie.
+- decision, `rule_id` et mode Policy effectif dans l'evenement d'acceptation ;
+- commandes d'edition fermees jusqu'au pipeline CHAT-EDIT-001 verifie.
 
 La couche TypeScript ne devient pas une seconde implementation du core. Elle
 adapte uniquement les objets VS Code au protocole machine et les evenements aux

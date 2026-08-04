@@ -5,6 +5,10 @@ use std::pin::Pin;
 use std::time::Instant;
 
 use anyhow::Result;
+use opticcode_policy::{
+    ActionOrigin, ContextAction, GitReadAction, GitReadOperation, PolicyAction, PolicyClient,
+    PolicyEngine, PolicyMode, PolicyRequest, PolicyWorkspace,
+};
 use opticcode_tools::git_state::capture_git_state;
 use opticcode_tools::inspect_workspace;
 use opticcode_tools::java_edits::{propose_java_edits, JavaEditOptions};
@@ -42,6 +46,7 @@ const OUTPUT_CHUNK_BYTES: usize = 16 * 1024;
 pub struct ChatRuntimeOptions {
     pub rag_index: PathBuf,
     pub verify_model: bool,
+    pub policy_state_root: Option<PathBuf>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -125,6 +130,14 @@ struct CommandOutcome {
     used_context_mode: Option<ContextMode>,
     metrics: ChatMetrics,
     warnings: Vec<String>,
+}
+
+#[derive(Debug)]
+struct ChatPolicyAuthorization {
+    policy_version: String,
+    decision: String,
+    rule_id: String,
+    effective_security_mode: ChatSecurityMode,
 }
 
 pub async fn execute_chat(
@@ -222,13 +235,26 @@ async fn execute_chat_inner(
     started: Instant,
 ) -> std::result::Result<(PreparedRequest, CommandOutcome), RuntimeFailure> {
     validate_request(request)?;
+    let authorization = authorize_chat_request(request, options)?;
     emitter
         .send(ChatProtocolEventPayload::RequestAccepted {
             command: request.command,
-            security_mode: request.security_mode,
+            requested_security_mode: request.security_mode,
+            security_mode: authorization.effective_security_mode,
+            effective_security_mode: authorization.effective_security_mode,
+            policy_version: authorization.policy_version,
+            policy_decision: authorization.decision,
+            policy_rule_id: authorization.rule_id,
         })
         .await
         .map_err(event_failure)?;
+    if request.security_mode != ChatSecurityMode::ReadOnly {
+        return Err(RuntimeFailure::new(
+            "security_mode_unavailable",
+            "policy",
+            "the Rust policy authority forced read_only; chat edit modes remain unavailable until CHAT-EDIT-001",
+        ));
+    }
     if cancellation.is_cancelled() {
         return Err(RuntimeFailure::new(
             "request_cancelled",
@@ -288,6 +314,95 @@ async fn execute_chat_inner(
     Ok((prepared, outcome))
 }
 
+fn authorize_chat_request(
+    request: &ChatRequest,
+    options: &ChatRuntimeOptions,
+) -> std::result::Result<ChatPolicyAuthorization, RuntimeFailure> {
+    let engine = match options.policy_state_root.as_ref() {
+        Some(root) => PolicyEngine::open(root),
+        None => PolicyEngine::default_engine(),
+    }
+    .map_err(|error| {
+        RuntimeFailure::new(
+            "policy_unavailable",
+            "policy",
+            format!("deny-by-default policy runtime is unavailable: {error}"),
+        )
+    })?;
+    let workspace_root = PathBuf::from(&request.workspace_root);
+    let action = if request.command == ChatCommand::Status {
+        PolicyAction::GitRead(GitReadAction {
+            repository_root: workspace_root.clone(),
+            operation: GitReadOperation::Status,
+            paths: Vec::new(),
+        })
+    } else {
+        PolicyAction::BuildContext(ContextAction {
+            root: workspace_root.clone(),
+            task_hash: blake3::hash(
+                format!("{}:{}", request.command.as_str(), request.prompt).as_bytes(),
+            )
+            .to_hex()
+            .to_string(),
+            candidate_paths: Vec::new(),
+        })
+    };
+    let policy_request = PolicyRequest {
+        schema_version: opticcode_policy::POLICY_SCHEMA_VERSION,
+        protocol: opticcode_policy::POLICY_PROTOCOL_ID.to_string(),
+        request_id: request.request_id.clone(),
+        action_id: format!("{}:chat_context", request.request_id),
+        origin: ActionOrigin::Chat,
+        profile: request.profile.clone(),
+        client: PolicyClient {
+            name: request.client.name.clone(),
+            version: request.client.version.clone(),
+        },
+        mode: PolicyMode::ReadOnly,
+        workspace: PolicyWorkspace {
+            workspace_id: request.workspace_id.clone(),
+            root: workspace_root,
+            repository: None,
+            active_worktree: None,
+            working_tree_digest: None,
+            repository_clean: None,
+        },
+        action,
+        approval_id: None,
+    };
+    let preflight = engine.check(&policy_request).map_err(|error| {
+        RuntimeFailure::new(
+            "policy_check_failed",
+            "policy",
+            format!("policy could not authorize chat context: {error}"),
+        )
+    })?;
+    if !preflight.report.allowed() {
+        return Err(RuntimeFailure::new(
+            "policy_denied",
+            "policy",
+            format!(
+                "{}: {}",
+                preflight.report.decision.rule_id(),
+                preflight.report.user_reason
+            ),
+        ));
+    }
+    preflight.revalidate().map_err(|error| {
+        RuntimeFailure::new(
+            "policy_revalidation_failed",
+            "policy",
+            format!("chat context changed after policy authorization: {error}"),
+        )
+    })?;
+    Ok(ChatPolicyAuthorization {
+        policy_version: preflight.report.policy_version,
+        decision: preflight.report.decision.kind().to_string(),
+        rule_id: preflight.report.decision.rule_id().to_string(),
+        effective_security_mode: ChatSecurityMode::ReadOnly,
+    })
+}
+
 fn validate_request(request: &ChatRequest) -> std::result::Result<(), RuntimeFailure> {
     if request.schema_version != CHAT_PROTOCOL_SCHEMA_VERSION
         || request.protocol != CHAT_PROTOCOL_ID
@@ -312,13 +427,6 @@ fn validate_request(request: &ChatRequest) -> std::result::Result<(), RuntimeFai
             "unknown_command",
             "request_validation",
             "the requested chat command is not supported",
-        ));
-    }
-    if request.security_mode != ChatSecurityMode::ReadOnly {
-        return Err(RuntimeFailure::new(
-            "security_mode_unavailable",
-            "request_validation",
-            "VSCODE-CHAT-001 accepts only read_only requests until POLICY-001 is active",
         ));
     }
     if request.expected_protocols.chat != CHAT_PROTOCOL_SCHEMA_VERSION
@@ -1340,7 +1448,8 @@ async fn run_status_command(
             "- context: `{}`\n",
             "- repository state: `{}`\n",
             "- Git changes: {}\n",
-            "- write/apply: unavailable until POLICY-001/CHAT-EDIT-001"
+            "- policy: deny-by-default POLICY-001 active\n",
+            "- write/apply: unavailable until CHAT-EDIT-001"
         ),
         request.provider,
         request.model,
@@ -1387,13 +1496,13 @@ async fn run_help_command(
     started: Instant,
 ) -> std::result::Result<CommandOutcome, RuntimeFailure> {
     let markdown = concat!(
-        "OpticCode Local is a read-only project assistant in this milestone.\n\n",
+        "OpticCode Local is protected by the deny-by-default POLICY-001 runtime.\n\n",
         "- `/ask`: answer with bounded project, RAG, history, and explicit references\n",
         "- `/plan`: produce a plan without writing\n",
         "- `/context`: inspect legacy/symbol context\n",
         "- `/analyze`, `/index`, `/legacy`: run read-only Java analysis\n",
         "- `/status`, `/runs`: inspect local state\n",
-        "- `/fix`, `/verify`, `/diff`, `/apply`, `/rollback`: unavailable until POLICY-001/CHAT-EDIT-001\n\n",
+        "- `/fix`, `/verify`, `/diff`, `/apply`, `/rollback`: unavailable until CHAT-EDIT-001\n\n",
         "Attached files are never implicit write permission. Sensitive files, paths outside the workspace, and symlinks/junctions are refused."
     );
     emit_text(emitter, markdown).await?;
@@ -1408,16 +1517,14 @@ async fn run_unavailable_command(
     emitter
         .send(ChatProtocolEventPayload::Warning {
             code: "feature_unavailable".to_string(),
-            message: format!(
-                "/{command} is unavailable until POLICY-001/CHAT-EDIT-001 is fully active"
-            ),
+            message: format!("/{command} is unavailable until CHAT-EDIT-001 is fully active"),
         })
         .await
         .map_err(event_failure)?;
     emit_text(
         emitter,
         &format!(
-            "`/{command}` is unavailable until POLICY-001/CHAT-EDIT-001. No file, worktree, process, or Git state was changed."
+            "`/{command}` is unavailable until CHAT-EDIT-001. No file, worktree, process, or Git state was changed."
         ),
     )
     .await?;
@@ -1815,6 +1922,7 @@ mod tests {
             events,
             cancellation: opticcode_llm::CancellationToken::new(),
         };
+        let policy_state = tempfile::tempdir().unwrap();
         let report = execute_chat(
             app,
             request,
@@ -1822,6 +1930,7 @@ mod tests {
             ChatRuntimeOptions {
                 rag_index: PathBuf::from("missing-index"),
                 verify_model: true,
+                policy_state_root: Some(policy_state.path().to_path_buf()),
             },
         )
         .await
@@ -1848,6 +1957,82 @@ mod tests {
             .filter_map(|event| event.output_delta())
             .collect::<String>()
             .contains("POLICY-001"));
+        assert!(events.iter().any(|event| matches!(
+            &event.payload,
+            ChatProtocolEventPayload::RequestAccepted {
+                requested_security_mode: ChatSecurityMode::ReadOnly,
+                effective_security_mode: ChatSecurityMode::ReadOnly,
+                policy_decision,
+                policy_rule_id,
+                ..
+            } if policy_decision == "allow" && policy_rule_id == "analysis.context_read_only"
+        )));
+    }
+
+    #[test]
+    fn every_read_only_chat_command_is_evaluated_by_the_rust_policy_engine() {
+        let temp = fixture();
+        let policy_state = tempfile::tempdir().unwrap();
+        let options = ChatRuntimeOptions {
+            rag_index: PathBuf::from("missing-index"),
+            verify_model: true,
+            policy_state_root: Some(policy_state.path().to_path_buf()),
+        };
+        for command in [
+            ChatCommand::Ask,
+            ChatCommand::Plan,
+            ChatCommand::Context,
+            ChatCommand::Analyze,
+            ChatCommand::Index,
+            ChatCommand::Legacy,
+            ChatCommand::Status,
+            ChatCommand::Runs,
+            ChatCommand::Help,
+        ] {
+            let authorization = authorize_chat_request(&request(temp.path(), command), &options)
+                .unwrap_or_else(|error| panic!("/{command} was not policy-authorized: {error}"));
+            assert_eq!(authorization.decision, "allow");
+            assert_eq!(
+                authorization.effective_security_mode,
+                ChatSecurityMode::ReadOnly
+            );
+            assert!(matches!(
+                authorization.rule_id.as_str(),
+                "analysis.context_read_only" | "git.read_allowlist"
+            ));
+        }
+    }
+
+    #[tokio::test]
+    async fn client_cannot_raise_chat_security_mode() {
+        let temp = fixture();
+        for mode in [
+            ChatSecurityMode::WorktreeEdit,
+            ChatSecurityMode::ApprovedApply,
+        ] {
+            let mut chat = request(temp.path(), ChatCommand::Fix);
+            chat.security_mode = mode;
+            let (report, events) = run(None, chat).await;
+            assert_eq!(report.status, ChatExecutionStatus::Failed);
+            assert!(events.iter().any(|event| matches!(
+                &event.payload,
+                ChatProtocolEventPayload::RequestAccepted {
+                    requested_security_mode,
+                    effective_security_mode: ChatSecurityMode::ReadOnly,
+                    policy_decision,
+                    ..
+                } if *requested_security_mode == mode && policy_decision == "allow"
+            )));
+            assert!(events.iter().any(|event| matches!(
+                &event.payload,
+                ChatProtocolEventPayload::Failed { error }
+                    if error.code == "security_mode_unavailable" && error.stage == "policy"
+            )));
+            assert!(!events.iter().any(|event| matches!(
+                event.payload,
+                ChatProtocolEventPayload::ReferencesResolving { .. }
+            )));
+        }
     }
 
     #[tokio::test]
@@ -1955,13 +2140,27 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn edit_commands_are_explicitly_unavailable_before_policy() {
+    async fn edit_commands_are_explicitly_unavailable_before_chat_edit() {
         let temp = fixture();
-        let (report, events) = run(None, request(temp.path(), ChatCommand::Apply)).await;
-        assert_eq!(report.status, ChatExecutionStatus::Completed);
-        assert!(events.iter().any(|event| matches!(
-            &event.payload,
-            ChatProtocolEventPayload::Warning { code, .. } if code == "feature_unavailable"
-        )));
+        for command in [
+            ChatCommand::Fix,
+            ChatCommand::Verify,
+            ChatCommand::Diff,
+            ChatCommand::Apply,
+            ChatCommand::Rollback,
+        ] {
+            let source_before =
+                fs::read(temp.path().join("src/main/java/test/Plugin.java")).unwrap();
+            let (report, events) = run(None, request(temp.path(), command)).await;
+            assert_eq!(report.status, ChatExecutionStatus::Completed);
+            assert!(events.iter().any(|event| matches!(
+                &event.payload,
+                ChatProtocolEventPayload::Warning { code, .. } if code == "feature_unavailable"
+            )));
+            assert_eq!(
+                fs::read(temp.path().join("src/main/java/test/Plugin.java")).unwrap(),
+                source_before
+            );
+        }
     }
 }

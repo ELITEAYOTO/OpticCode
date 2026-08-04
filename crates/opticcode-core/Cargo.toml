@@ -11,6 +11,7 @@ blake3.workspace = true
 serde.workspace = true
 tokio.workspace = true
 opticcode-llm.workspace = true
+opticcode-policy.workspace = true
 opticcode-tools.workspace = true
 
 [target.'cfg(windows)'.dependencies]

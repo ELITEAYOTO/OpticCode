@@ -9,9 +9,9 @@ reste un client mince : il ne parse pas Java, ne construit pas le RAG et ne
 manipule ni Git ni les fichiers. Toutes ces decisions restent dans le runtime
 Rust.
 
-Le jalon livre la conversation read-only. Les commandes d'edition repondent
-explicitement qu'elles sont indisponibles jusqu'a `POLICY-001` et
-`CHAT-EDIT-001`.
+Le jalon livre la conversation read-only. POLICY-001 est maintenant actif dans
+le runtime Rust ; les commandes d'edition repondent explicitement qu'elles sont
+indisponibles jusqu'a `CHAT-EDIT-001`.
 
 ## Ouvrir et invoquer
 
@@ -46,11 +46,13 @@ API et aucune installation VS Code Insiders ne sont requises.
 | `/fix` | indisponible avant CHAT-EDIT-001 | aucune |
 | `/verify` | indisponible avant CHAT-EDIT-001 | aucune |
 | `/diff` | indisponible avant CHAT-EDIT-001 | aucune |
-| `/apply` | indisponible avant POLICY-001/CHAT-EDIT-001 | aucune |
+| `/apply` | indisponible avant CHAT-EDIT-001 | aucune |
 | `/rollback` | indisponible avant une transaction appliquee | aucune |
 
 Une commande inconnue est refusee dans l'extension avant de lancer le CLI.
-Le Chat demarre toujours en mode `read_only`.
+Le Chat demarre toujours en mode `read_only`. Si un client fabrique une requete
+`worktree_edit` ou `approved_apply`, Rust force le mode effectif read-only puis
+refuse la requete avant de resoudre les references.
 
 ## Architecture
 
@@ -59,6 +61,7 @@ VS Code ChatRequest
   -> normalisation TypeScript bornee
   -> une requete opticcode.chat schema 1 sur stdin
   -> opticcode.exe chat --protocol-jsonl
+  -> PolicyEngine Rust deny-by-default
   -> resolution sure des references dans Rust
   -> contexte/RAG/Java existants
   -> LlmProvider existant pour Ask/Plan
@@ -93,6 +96,11 @@ Le contrat `opticcode.chat` schema 1 contient notamment :
 Les commandes `/ask` et `/plan` passent encore par le protocole Assistant et le
 provider Ollama existants cote Rust. Il n'existe pas de second client Ollama
 dans l'extension.
+
+Chaque commande passe d'abord par `opticcode-policy`. L'evenement
+`request_accepted` contient le mode demande, le mode effectif, la version de
+politique, la decision et le `rule_id`. TypeScript valide ces champs mais ne
+reimplemente aucune regle.
 
 ## References
 
@@ -227,6 +235,9 @@ Elle couvre notamment :
 - isolation de sessions/workspaces ;
 - enregistrement du participant dans un vrai Extension Host ;
 - handlers deterministes `/help`, `/status`, `/context` et Ask.
+- decision Policy et mode effectif read-only pour chaque commande ;
+- refus d'un client demandant un mode plus permissif avant toute reference ;
+- absence d'ecriture pour les cinq commandes edit indisponibles.
 
 L'API de test VS Code ne permet pas de saisir de facon stable une requete dans
 la vue Chat comme un utilisateur. Le test Extension Host active donc le vrai
@@ -251,7 +262,7 @@ deterministe du runtime. Le transport reel est teste separement contre le vrai
 ## Limites actuelles
 
 - `/fix`, `/verify`, `/diff`, `/apply` et `/rollback` sont volontairement
-  inactifs dans ce commit ;
+  inactifs jusqu'a CHAT-EDIT-001 ;
 - aucun shell arbitraire, package install, Git push ou publication ;
 - pas de boucle autonome ;
 - pas de daemon reseau ;

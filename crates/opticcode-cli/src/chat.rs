@@ -134,6 +134,7 @@ pub async fn run_chat(args: ChatArgs) -> Result<i32> {
         ChatRuntimeOptions {
             rag_index: args.rag_index,
             verify_model: true,
+            policy_state_root: None,
         },
     );
     tokio::pin!(execution);

@@ -112,9 +112,10 @@ impl std::fmt::Display for ChatCommand {
     }
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum ChatSecurityMode {
+    #[default]
     ReadOnly,
     WorktreeEdit,
     ApprovedApply,
@@ -520,7 +521,17 @@ impl ChatProtocolEvent {
 pub enum ChatProtocolEventPayload {
     RequestAccepted {
         command: ChatCommand,
+        #[serde(default)]
+        requested_security_mode: ChatSecurityMode,
         security_mode: ChatSecurityMode,
+        #[serde(default)]
+        effective_security_mode: ChatSecurityMode,
+        #[serde(default)]
+        policy_version: String,
+        #[serde(default)]
+        policy_decision: String,
+        #[serde(default)]
+        policy_rule_id: String,
     },
     ReferencesResolving {
         count: usize,
@@ -840,6 +851,29 @@ mod tests {
     }
 
     #[test]
+    fn pre_policy_acceptance_events_remain_decodable() {
+        let payload: ChatProtocolEventPayload = serde_json::from_value(serde_json::json!({
+            "type": "request_accepted",
+            "command": "ask",
+            "security_mode": "read_only"
+        }))
+        .unwrap();
+        assert!(matches!(
+            payload,
+            ChatProtocolEventPayload::RequestAccepted {
+                requested_security_mode: ChatSecurityMode::ReadOnly,
+                effective_security_mode: ChatSecurityMode::ReadOnly,
+                ref policy_version,
+                ref policy_decision,
+                ref policy_rule_id,
+                ..
+            } if policy_version.is_empty()
+                && policy_decision.is_empty()
+                && policy_rule_id.is_empty()
+        ));
+    }
+
+    #[test]
     fn flattened_references_decode_strictly() {
         let mut encoded = serde_json::to_value(request()).unwrap();
         encoded["references"] = serde_json::json!([{
@@ -874,7 +908,12 @@ mod tests {
         emitter
             .send(ChatProtocolEventPayload::RequestAccepted {
                 command: ChatCommand::Help,
+                requested_security_mode: ChatSecurityMode::ReadOnly,
                 security_mode: ChatSecurityMode::ReadOnly,
+                effective_security_mode: ChatSecurityMode::ReadOnly,
+                policy_version: "opticcode.default.v1".to_string(),
+                policy_decision: "allow".to_string(),
+                policy_rule_id: "analysis.context_read_only".to_string(),
             })
             .await
             .unwrap();

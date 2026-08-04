@@ -6,7 +6,7 @@ Etat audite et roadmap consolidee au 2026-07-11 :
 Ce document conserve l'historique detaille des phases. L'audit consolide fait
 foi pour les priorites et les criteres de sortie actuels.
 
-Derniere mise a jour : 2026-08-03
+Derniere mise a jour : 2026-08-04
 
 ## Vision courte
 
@@ -453,9 +453,9 @@ Limites :
 - estimation de tokens non specifique au tokenizer Qwen ;
 - le mode symbolique reste volontairement optionnel dans `ask` et `plan`.
 
-Suite : LLM/PROTOCOL-001 est termine. Ajouter POLICY-001 avant toute boucle
-agent ; ne promouvoir `symbol` qu'apres davantage de repetitions et de revues
-humaines.
+Suite : LLM/PROTOCOL-001 et POLICY-001 sont termines. Integrer ensuite la
+premiere proposition Chat sans promouvoir `symbol` avant davantage de
+repetitions et de revues humaines.
 
 References : [`java-syntax.md`](java-syntax.md), [`java-index.md`](java-index.md),
 [`java-edits.md`](java-edits.md) et
@@ -489,9 +489,9 @@ Acquis CONTEXT-002 :
 - Recall@k 0,833 -> 1,000, mais qualite 0,556 -> 0,333 ;
 - decision conservee : `legacy` reste le defaut.
 
-Suite : `LLM/PROTOCOL-001` et `VSCODE-001` sont termines ; `POLICY-001` devient prioritaire.
-RAG-002/Tantivy reste un prototype mesure distinct, sans embeddings dans sa
-premiere iteration.
+Suite : `LLM/PROTOCOL-001`, `VSCODE-001` et `POLICY-001` sont termines ;
+`CHAT-EDIT-001` devient prioritaire. RAG-002/Tantivy reste un prototype mesure
+distinct, sans embeddings dans sa premiere iteration.
 
 Reference : [`evaluation.md`](evaluation.md).
 
@@ -508,8 +508,8 @@ Objectif :
 Priorites :
 
 1. Streaming, abstraction provider, annulation et protocole LLM. Fait.
-2. Politique deny-by-default avant agent ecrivant.
-3. Contrats d'outils structures apres la politique.
+2. Politique deny-by-default avant agent ecrivant. Fait.
+3. Contrats d'outils structures et premiere proposition Chat.
 4. Packs RAG lies aux profils.
 5. Feedback accepted/rejected.
 6. Benchmark Q4/Q5 plus tard.
@@ -530,7 +530,8 @@ Livrable :
 
 ## Phase 5.8 - Protocole client, extension et Chat VS Code
 
-Statut : `LLM/PROTOCOL-001`, `VSCODE-001` et `VSCODE-CHAT-001` termines.
+Statut : `LLM/PROTOCOL-001`, `VSCODE-001`, `VSCODE-CHAT-001` et
+`POLICY-001` termines.
 
 Acquis protocole :
 
@@ -559,8 +560,9 @@ Acquis Chat :
 - Markdown streame, ancres, file tree, metriques et boutons natifs ;
 - annulation structuree, kill force distinct et terminal unique ;
 - `/fix`, `/verify`, `/diff`, `/apply` et `/rollback` fermes explicitement.
-- validation apres VSCODE-CHAT-001 : 253 tests Rust, 35 tests TypeScript,
-  3 integrations CLI et quatre flux Chat dans l'Extension Host.
+- chaque commande est evaluee par PolicyEngine dans Rust ;
+- mode effectif `read_only`, decision et `rule_id` exposes dans le protocole ;
+- un mode plus permissif demande par le client est refuse avant les references.
 
 Limites :
 
@@ -568,13 +570,45 @@ Limites :
 - rapports et runs limites a la session VS Code ;
 - `legacy` reste le contexte par defaut ; `symbol` et `compare` sont explicites.
 
-Suite : `POLICY-001` est le prochain jalon. Il doit definir une politique
-deny-by-default avant toute boucle capable d'appeler des outils d'ecriture.
+Suite : `CHAT-EDIT-001` est le prochain jalon. Il doit produire et stocker une
+proposition, creer une lease liee a la requete, verifier dans GIT-002 et afficher
+le diff sans encore automatiser le transfert vers la source.
 
 References : [`llm-protocol.md`](llm-protocol.md),
 [`client-discovery.md`](client-discovery.md) et
 [`vscode-extension.md`](vscode-extension.md), puis
 [`vscode-chat.md`](vscode-chat.md).
+
+## Phase 5.9 - Politique centrale d'actions
+
+Statut : `POLICY-001` termine.
+
+Acquis :
+
+- crate independant `opticcode-policy` et protocole machine schema 1 ;
+- modele ferme d'actions, decisions explicables et trois modes ;
+- chemins, secrets, liens Windows, frontieres Git et TOCTOU verifies ;
+- worktree lie a la source, au workspace, au request ID et a sa lease ;
+- Maven/Gradle bornes, wrapper source inchange et options dangereuses refusees ;
+- approbations natives opaques, expirees, one-shot et liees a tout l'etat ;
+- claim atomique resistant a la consommation concurrente Windows ;
+- audit hors source, namespace, atomique et soumis a rotation ;
+- CLI `check`, `explain`, `audit` avec JSON pur et codes stables ;
+- discovery et protocole Chat enrichis, sans logique Policy en TypeScript ;
+- gate `scripts/run-policy-quality.ps1`.
+
+Limites :
+
+- le Chat ne cree encore ni proposition, ni worktree, ni approval ;
+- Policy ne remplace pas un sandbox OS pour le reseau et les processus ;
+- les anciennes leases GIT-002 doivent etre enrichies par le futur adaptateur
+  avant de pouvoir servir a une action Chat ;
+- aucune application originale n'est exposee au participant.
+
+Suite stricte : `CHAT-EDIT-001`, sans AGENT-001, Tantivy, embeddings, llama.cpp
+ou changement du contexte par defaut.
+
+Reference : [`policy-engine.md`](policy-engine.md).
 
 ## Phase 6 - RAG local et donnees metier
 

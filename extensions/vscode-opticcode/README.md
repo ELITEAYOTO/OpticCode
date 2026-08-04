@@ -66,8 +66,9 @@ and Plan, report viewing, lease recovery, and the OutputChannel.
 The native Chat view also exposes `@opticcode`. With no slash command it runs
 Ask. Available read-only commands are `/ask`, `/plan`, `/context`, `/analyze`,
 `/index`, `/legacy`, `/status`, `/runs`, and `/help`. The edit commands are
-discoverable but return an explicit unavailable response until the policy and
-verified edit milestones are installed.
+discoverable but return an explicit unavailable response until CHAT-EDIT-001.
+The Rust POLICY-001 engine already evaluates every command and forces the
+effective mode to `read_only`.
 
 Attach files or precise selections with the Chat context controls. OpticCode
 keeps paths workspace-relative, validates them again in Rust, refuses sensitive
@@ -89,6 +90,10 @@ process termination is reported as an interruption.
 Chat uses the versioned `opticcode.chat` stdin/NDJSON protocol. History is
 bounded to recent turns and no prompt/source content is persisted in session
 metadata. Connections and run IDs are isolated per workspace.
+
+The first `request_accepted` event includes the Policy version, decision,
+stable rule ID, requested mode and effective mode. These values come from Rust;
+the extension only validates and presents them.
 
 ## Worktree safety
 
@@ -117,5 +122,5 @@ project, no `--allow-dirty`, no arbitrary shell, and no Git push.
 - `compare` may produce a context comparison without model text unless double
   generation is explicitly authorized at the CLI level.
 - The extension has no automatic patch application to the original workspace.
-- `/fix`, `/apply` and `/rollback` remain inactive until POLICY-001 and
-  CHAT-EDIT-001 are fully validated.
+- `/fix`, `/verify`, `/diff`, `/apply` and `/rollback` remain inactive until
+  CHAT-EDIT-001 is fully validated.

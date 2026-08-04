@@ -17,7 +17,7 @@ All three documents use protocol `opticcode.discovery` and schema version `1`.
 A client must reject a different protocol identifier or an unsupported schema
 version before using any payload fields.
 
-`version` reports the OpticCode version, assistant and LLM protocol versions,
+`version` reports the OpticCode version, assistant, Chat, LLM and Policy protocol versions,
 the schemas consumed by clients, the target OS/architecture, the build kind,
 and an optional build commit. Set `OPTICCODE_GIT_COMMIT` while compiling when a
 distribution needs the commit embedded in the binary.
@@ -26,9 +26,14 @@ distribution needs the commit embedded in the binary.
 machine output formats, streaming/cancellation support, and major feature
 families. It does not contact Ollama.
 
+POLICY-001 adds the compatible `policy_runtime` block: schema/version, the
+`read_only`, `worktree_edit`, and `approved_apply` modes, engine/audit/approval/
+CLI availability, plus `chat_read_only: true` and `chat_write: false`.
+
 `doctor` performs bounded, read-only checks for the executable, Git, Java,
 Maven, Gradle, the Ollama CLI/provider, the configured model, RAG v2, the active
-profile, workspace Git state, Git worktrees, and OpticCode leases. It never
+profile, workspace Git state, Git worktrees, OpticCode leases, and PolicyEngine
+state. It never
 installs software, downloads a model, starts Ollama, builds a project, creates a
 worktree, or repairs a lease.
 

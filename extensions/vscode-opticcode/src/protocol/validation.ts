@@ -147,6 +147,27 @@ export function validateCapabilitiesReport(value: unknown): CapabilitiesReport {
   if (features.chat !== true) {
     incompatible('Required chat capability is disabled.');
   }
+  if (features.policy !== undefined) {
+    requireBoolean(features.policy, 'features.policy');
+  }
+  if (report.policy_runtime !== undefined) {
+    if (features.policy !== true) {
+      incompatible('Policy runtime is advertised without the matching feature capability.');
+    }
+    const policy = requireRecord(report.policy_runtime, 'policy_runtime');
+    requireInteger(policy.schema_version, 'policy_runtime.schema_version');
+    requireString(policy.policy_version, 'policy_runtime.policy_version');
+    requireBoolean(policy.engine, 'policy_runtime.engine');
+    requireStringArray(policy.modes, 'policy_runtime.modes');
+    for (const field of ['audit', 'approvals', 'cli', 'chat_read_only', 'chat_write']) {
+      requireBoolean(policy[field], `policy_runtime.${field}`);
+    }
+    if (policy.chat_write !== false) {
+      incompatible('Chat write must remain disabled before CHAT-EDIT-001.');
+    }
+  } else if (features.policy === true) {
+    incompatible('Policy feature is enabled without policy_runtime capabilities.');
+  }
   return report as CapabilitiesReport;
 }
 
@@ -318,6 +339,23 @@ export function validateChatEvent(
     case 'request_accepted':
       chatCommand(event.command, 'command');
       chatSecurityMode(event.security_mode, 'security_mode');
+      if (event.requested_security_mode !== undefined) {
+        chatSecurityMode(event.requested_security_mode, 'requested_security_mode');
+      }
+      if (event.effective_security_mode !== undefined) {
+        chatSecurityMode(event.effective_security_mode, 'effective_security_mode');
+      }
+      if (
+        event.policy_version !== undefined ||
+        event.policy_decision !== undefined ||
+        event.policy_rule_id !== undefined
+      ) {
+        requireString(event.policy_version, 'policy_version');
+        if (!['allow', 'require_approval', 'deny'].includes(requireString(event.policy_decision, 'policy_decision'))) {
+          incompatible('Unknown policy decision in chat acceptance event.');
+        }
+        requireString(event.policy_rule_id, 'policy_rule_id');
+      }
       break;
     case 'references_resolving':
       requireInteger(event.count, 'count');

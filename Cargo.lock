@@ -813,9 +813,11 @@ dependencies = [
  "clap",
  "opticcode-core",
  "opticcode-llm",
+ "opticcode-policy",
  "opticcode-tools",
  "serde",
  "serde_json",
+ "tempfile",
  "tokio",
 ]
 
@@ -827,6 +829,7 @@ dependencies = [
  "async-trait",
  "blake3",
  "opticcode-llm",
+ "opticcode-policy",
  "opticcode-tools",
  "serde",
  "serde_json",
@@ -846,6 +849,18 @@ dependencies = [
  "serde_json",
  "tokio",
  "tokio-util",
+]
+
+[[package]]
+name = "opticcode-policy"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "blake3",
+ "getrandom 0.4.3",
+ "serde",
+ "serde_json",
+ "tempfile",
 ]
 
 [[package]]

@@ -74,12 +74,14 @@ use std::io::{self, Read, Write};
 
 mod chat;
 mod discovery;
+mod policy;
 
 use chat::{parse_isolated_chat, run_chat};
 use discovery::{
     capabilities_report, doctor_report, render_capabilities, render_doctor, render_version,
     version_report, DoctorOptions,
 };
+use policy::{parse_isolated_policy, run_policy};
 
 #[derive(Debug, Parser)]
 #[command(name = "opticcode")]
@@ -554,9 +556,18 @@ enum Command {
     Plan,
     /// Run the versioned machine chat protocol over stdin/stdout.
     Chat,
+    /// Inspect the central deny-by-default runtime policy.
+    Policy,
 }
 
 fn main() -> Result<()> {
+    if let Some(args) = parse_isolated_policy() {
+        let exit_code = run_policy(args)?;
+        if exit_code != 0 {
+            std::process::exit(exit_code);
+        }
+        return Ok(());
+    }
     if let Some(args) = parse_isolated_chat() {
         let runtime = tokio::runtime::Builder::new_multi_thread()
             .enable_all()
@@ -1908,8 +1919,8 @@ async fn run_command(command: Command) -> Result<()> {
                 }
             }
         }
-        Command::Ask | Command::Plan | Command::Chat => {
-            bail!("ask, plan, and chat must be parsed by their isolated command parsers")
+        Command::Ask | Command::Plan | Command::Chat | Command::Policy => {
+            bail!("ask, plan, chat, and policy must be parsed by their isolated command parsers")
         }
     }
 

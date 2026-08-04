@@ -26,6 +26,18 @@ function chat(id, sequence, type, extra = {}) {
   };
 }
 
+function accepted(command, requestedSecurityMode = 'read_only') {
+  return {
+    command,
+    requested_security_mode: requestedSecurityMode,
+    security_mode: 'read_only',
+    effective_security_mode: 'read_only',
+    policy_version: 'opticcode.default.v1',
+    policy_decision: 'allow',
+    policy_rule_id: command === 'status' ? 'git.read_allowlist' : 'analysis.context_read_only',
+  };
+}
+
 function validChatEvents(id) {
   const metrics = {
     preparation_ms: 12,
@@ -46,7 +58,7 @@ function validChatEvents(id) {
     content_hash: 'fixture-hash',
   };
   return [
-    chat(id, 0, 'request_accepted', { command: 'ask', security_mode: 'read_only' }),
+    chat(id, 0, 'request_accepted', accepted('ask')),
     chat(id, 1, 'references_resolving', { count: 1 }),
     chat(id, 2, 'references_resolved', { accepted: [reference], rejected: [] }),
     chat(id, 3, 'context_started', { requested_mode: 'symbol' }),
@@ -302,28 +314,25 @@ switch (scenario) {
   }
   case 'chat-bad-sequence': {
     const input = await initialChatRequest();
-    writeEvents([chat(input.request.request_id, 1, 'request_accepted', {
-      command: input.request.command,
-      security_mode: 'read_only',
-    })]);
+    writeEvents([
+      chat(input.request.request_id, 1, 'request_accepted', accepted(input.request.command)),
+    ]);
     input.lines.close();
     break;
   }
   case 'chat-request-mismatch': {
     const input = await initialChatRequest();
-    writeEvents([chat('another-chat-request', 0, 'request_accepted', {
-      command: input.request.command,
-      security_mode: 'read_only',
-    })]);
+    writeEvents([
+      chat('another-chat-request', 0, 'request_accepted', accepted(input.request.command)),
+    ]);
     input.lines.close();
     break;
   }
   case 'chat-missing-terminal': {
     const input = await initialChatRequest();
-    writeEvents([chat(input.request.request_id, 0, 'request_accepted', {
-      command: input.request.command,
-      security_mode: 'read_only',
-    })]);
+    writeEvents([
+      chat(input.request.request_id, 0, 'request_accepted', accepted(input.request.command)),
+    ]);
     input.lines.close();
     break;
   }
@@ -349,10 +358,7 @@ switch (scenario) {
     const input = await initialChatRequest();
     const id = input.request.request_id;
     writeEvents([
-      chat(id, 0, 'request_accepted', {
-        command: input.request.command,
-        security_mode: 'read_only',
-      }),
+      chat(id, 0, 'request_accepted', accepted(input.request.command)),
     ]);
     const control = await input.iterator.next();
     const message = control.done ? undefined : JSON.parse(control.value);
@@ -366,10 +372,12 @@ switch (scenario) {
   case 'chat-ignore-cancel': {
     const input = await initialChatRequest();
     writeEvents([
-      chat(input.request.request_id, 0, 'request_accepted', {
-        command: input.request.command,
-        security_mode: 'read_only',
-      }),
+      chat(
+        input.request.request_id,
+        0,
+        'request_accepted',
+        accepted(input.request.command),
+      ),
     ]);
     await input.iterator.next();
     setTimeout(() => {}, 10_000);
