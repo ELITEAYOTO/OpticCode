@@ -6,17 +6,25 @@ import type {
   AssistantProtocolEvent,
   AssistantStreamResult,
   CancellationLike,
+  ChatProtocolEvent,
+  ChatProtocolRequest,
+  ChatStreamResult,
   GenerationResult,
   JsonObject,
 } from './types';
-import { isRecord, validateAssistantEvent } from './validation';
+import { isRecord, validateAssistantEvent, validateChatEvent } from './validation';
 
 const DEFAULT_JSON_LIMIT = 16 * 1024 * 1024;
 const DEFAULT_NDJSON_LINE_LIMIT = 18 * 1024 * 1024;
 const DEFAULT_NDJSON_TOTAL_LIMIT = 64 * 1024 * 1024;
 const DEFAULT_STDERR_LIMIT = 1024 * 1024;
 const DEFAULT_EVENT_LIMIT = 16_384;
+const CHAT_REQUEST_LIMIT = 2 * 1024 * 1024;
 const CANCELLATION_GRACE_MS = 1_000;
+
+function isTerminalType(type: string): type is 'completed' | 'failed' | 'cancelled' {
+  return type === 'completed' || type === 'failed' || type === 'cancelled';
+}
 
 export interface ClientLogger {
   append(value: string): void;
@@ -59,6 +67,31 @@ interface RawProcessResult {
   exitCode: number | null;
   signal: NodeJS.Signals | null;
   durationMs: number;
+}
+
+interface SequencedProtocolEvent extends JsonObject {
+  sequence: number;
+  type: string;
+}
+
+interface SequencedStreamResult<TEvent extends SequencedProtocolEvent> {
+  events: TEvent[];
+  terminal: TEvent;
+  durationMs: number;
+  exitCode: number | null;
+  stderr: string;
+  cancellationConfirmed: boolean;
+}
+
+interface SequencedStreamOptions<TEvent extends SequencedProtocolEvent> {
+  arguments: readonly string[];
+  requestId: string;
+  protocolName: string;
+  validate(value: unknown): TEvent;
+  inspect?(event: TEvent): void;
+  onEvent?(event: TEvent): void;
+  initialInput?: string;
+  cancellationInput: string;
 }
 
 export function createSpawnInvocation(
@@ -157,19 +190,171 @@ export class OpticCodeProtocolClient {
     onEvent?: (event: AssistantProtocolEvent) => void,
     cancellation?: CancellationLike,
   ): Promise<AssistantStreamResult> {
-    const fullArguments = [
-      ...(this.options.prefixArguments ?? []),
-      ...args,
-      '--protocol-jsonl',
-      '--request-id',
+    let response = '';
+    let generation: GenerationResult | undefined;
+    const nestedSequences = new Map<string, number>();
+    const nestedRequestsByContext = new Map<string, string>();
+    const nestedTerminals = new Set<string>();
+    const stream = await this.runSequencedStream<AssistantProtocolEvent>(
+      {
+        arguments: [
+          ...(this.options.prefixArguments ?? []),
+          ...args,
+          '--protocol-jsonl',
+          '--request-id',
+          requestId,
+        ],
+        requestId,
+        protocolName: 'assistant',
+        validate: (value) => validateAssistantEvent(value, requestId),
+        inspect: (event) => {
+          if (event.event === undefined) {
+            return;
+          }
+          const context = event.context_mode ?? 'unknown';
+          const activeRequest = nestedRequestsByContext.get(context);
+          if (activeRequest !== undefined && activeRequest !== event.event.request_id) {
+            throw new OpticCodeClientError(
+              'request_mismatch',
+              `LLM request ID changed within ${context} context.`,
+            );
+          }
+          nestedRequestsByContext.set(context, event.event.request_id);
+          if (nestedTerminals.has(event.event.request_id)) {
+            throw new OpticCodeClientError(
+              'terminal_duplicate',
+              'LLM event received after its terminal event.',
+            );
+          }
+          const expectedNested = nestedSequences.get(event.event.request_id) ?? 0;
+          if (event.event.sequence !== expectedNested) {
+            throw new OpticCodeClientError(
+              'sequence_mismatch',
+              `Expected LLM sequence ${expectedNested}, received ${event.event.sequence}.`,
+            );
+          }
+          nestedSequences.set(event.event.request_id, expectedNested + 1);
+          if (event.event.type === 'delta') {
+            response += event.event.text ?? '';
+          } else if (event.event.type === 'completed') {
+            generation = event.event.result;
+          }
+          if (isTerminalType(event.event.type)) {
+            nestedTerminals.add(event.event.request_id);
+          }
+        },
+        ...(onEvent === undefined ? {} : { onEvent }),
+        cancellationInput: 'cancel\n',
+      },
+      cancellation,
+    );
+    const incompleteNested = [...nestedSequences.keys()].filter(
+      (nestedRequest) => !nestedTerminals.has(nestedRequest),
+    );
+    if (incompleteNested.length !== 0) {
+      throw new OpticCodeClientError(
+        'terminal_missing',
+        'One or more nested LLM streams ended without a terminal event.',
+        { requestIds: incompleteNested },
+      );
+    }
+    if (!isTerminalType(stream.terminal.type)) {
+      throw new OpticCodeClientError('terminal_missing', 'Invalid assistant terminal state.');
+    }
+    return {
       requestId,
-    ];
+      status: stream.terminal.type,
+      response,
+      events: stream.events,
+      terminal: stream.terminal,
+      summary: stream.terminal.summary,
+      generation,
+      durationMs: stream.durationMs,
+      exitCode: stream.exitCode,
+      stderr: stream.stderr,
+      cancellationConfirmed: stream.cancellationConfirmed,
+    };
+  }
+
+  public async runChatStream(
+    args: readonly string[],
+    request: ChatProtocolRequest,
+    onEvent?: (event: ChatProtocolEvent) => void,
+    cancellation?: CancellationLike,
+  ): Promise<ChatStreamResult> {
+    let response = '';
+    let serialized: string | undefined;
+    try {
+      serialized = JSON.stringify(request);
+    } catch (error) {
+      throw new OpticCodeClientError('invalid_json', 'Chat request cannot be serialized.', {
+        cause: String(error),
+      });
+    }
+    if (serialized === undefined) {
+      throw new OpticCodeClientError('invalid_json', 'Chat request cannot be serialized.');
+    }
+    const control = JSON.stringify({
+      schema_version: 1,
+      protocol: 'opticcode.chat.control',
+      request_id: request.request_id,
+      type: 'cancel',
+    });
+    const stream = await this.runSequencedStream<ChatProtocolEvent>(
+      {
+        arguments: [
+          ...(this.options.prefixArguments ?? []),
+          ...args,
+          '--protocol-jsonl',
+        ],
+        requestId: request.request_id,
+        protocolName: 'chat',
+        validate: (value) => validateChatEvent(value, request.request_id),
+        inspect: (event) => {
+          if (event.type === 'token_delta') {
+            response += event.text;
+          }
+        },
+        ...(onEvent === undefined ? {} : { onEvent }),
+        initialInput: `${serialized}\n`,
+        cancellationInput: `${control}\n`,
+      },
+      cancellation,
+    );
+    if (!isTerminalType(stream.terminal.type)) {
+      throw new OpticCodeClientError('terminal_missing', 'Invalid chat terminal state.');
+    }
+    return {
+      requestId: request.request_id,
+      status: stream.terminal.type,
+      response,
+      events: stream.events,
+      terminal: stream.terminal,
+      summary: stream.terminal.type === 'completed' ? stream.terminal.summary : undefined,
+      durationMs: stream.durationMs,
+      exitCode: stream.exitCode,
+      stderr: stream.stderr,
+      cancellationConfirmed: stream.cancellationConfirmed,
+    };
+  }
+
+  private async runSequencedStream<TEvent extends SequencedProtocolEvent>(
+    stream: SequencedStreamOptions<TEvent>,
+    cancellation?: CancellationLike,
+  ): Promise<SequencedStreamResult<TEvent>> {
+    if (
+      stream.initialInput !== undefined &&
+      Buffer.byteLength(stream.initialInput, 'utf8') >
+        Math.min(this.limits.ndjsonLineBytes, CHAT_REQUEST_LIMIT)
+    ) {
+      throw new OpticCodeClientError('input_limit', 'Initial protocol request exceeded its byte limit.');
+    }
     const invocation = createSpawnInvocation(
       this.options.executablePath,
-      fullArguments,
+      stream.arguments,
       this.options.workingDirectory,
     );
-    this.debug(`spawn ${JSON.stringify(fullArguments)}`);
+    this.debug(`spawn ${JSON.stringify(stream.arguments)}`);
     const started = Date.now();
     let child: ChildProcessWithoutNullStreams;
     try {
@@ -184,53 +369,51 @@ export class OpticCodeProtocolClient {
       });
     }
 
-    return await new Promise<AssistantStreamResult>((resolve, reject) => {
+    return await new Promise<SequencedStreamResult<TEvent>>((resolve, reject) => {
       let stdoutBuffer = Buffer.alloc(0);
       let totalStdout = 0;
       let stderr = '';
       let stderrBytes = 0;
       let expectedSequence = 0;
-      let terminal: AssistantProtocolEvent | undefined;
-      let generation: GenerationResult | undefined;
-      let response = '';
+      let terminal: TEvent | undefined;
       let parserError: OpticCodeClientError | undefined;
       let timedOut = false;
       let cancellationRequested = cancellation?.isCancellationRequested ?? false;
+      let cancellationSent = false;
       let forcedTermination = false;
-      const events: AssistantProtocolEvent[] = [];
-      const nestedSequences = new Map<string, number>();
-      const nestedRequestsByContext = new Map<string, string>();
-      const nestedTerminals = new Set<string>();
+      let forceTimer: NodeJS.Timeout | undefined;
+      const events: TEvent[] = [];
 
       const forceTerminate = (): void => {
         if (child.exitCode === null && child.signalCode === null) {
-          forcedTermination = child.kill();
+          forcedTermination = child.kill() || forcedTermination;
+        }
+      };
+      const scheduleForcedTermination = (): void => {
+        if (forceTimer === undefined) {
+          forceTimer = setTimeout(forceTerminate, CANCELLATION_GRACE_MS);
+          forceTimer.unref();
         }
       };
       const requestCleanCancellation = (): void => {
         cancellationRequested = true;
-        if (child.stdin.writable) {
-          child.stdin.end('cancel\n');
+        if (!cancellationSent && child.stdin.writable) {
+          cancellationSent = true;
+          child.stdin.end(stream.cancellationInput);
         }
       };
-      if (cancellationRequested) {
-        requestCleanCancellation();
-      }
-      const cancellationDisposable = cancellation?.onCancellationRequested(() => {
-        requestCleanCancellation();
-        setTimeout(forceTerminate, CANCELLATION_GRACE_MS).unref();
-      });
-      const timeout = setTimeout(() => {
-        timedOut = true;
-        requestCleanCancellation();
-        setTimeout(forceTerminate, CANCELLATION_GRACE_MS).unref();
-      }, this.options.timeoutMs);
-
       const failParser = (error: OpticCodeClientError): void => {
         if (parserError === undefined) {
           parserError = error;
           forceTerminate();
         }
+      };
+      const cleanup = (): void => {
+        clearTimeout(timeout);
+        if (forceTimer !== undefined) {
+          clearTimeout(forceTimer);
+        }
+        cancellationDisposable?.dispose();
       };
       const acceptLine = (line: Buffer): void => {
         if (line.length === 0) {
@@ -241,9 +424,9 @@ export class OpticCodeProtocolClient {
           failParser(new OpticCodeClientError('output_limit', 'NDJSON line exceeded its byte limit.'));
           return;
         }
-        let text: string;
+        let decoded: string;
         try {
-          text = new TextDecoder('utf-8', { fatal: true }).decode(line);
+          decoded = new TextDecoder('utf-8', { fatal: true }).decode(line);
         } catch (error) {
           failParser(
             new OpticCodeClientError('invalid_ndjson', 'NDJSON line is not valid UTF-8.', {
@@ -254,7 +437,7 @@ export class OpticCodeProtocolClient {
         }
         let raw: unknown;
         try {
-          raw = JSON.parse(text);
+          raw = JSON.parse(decoded);
         } catch (error) {
           failParser(
             new OpticCodeClientError('invalid_ndjson', 'NDJSON line is not valid JSON.', {
@@ -263,9 +446,9 @@ export class OpticCodeProtocolClient {
           );
           return;
         }
-        let event: AssistantProtocolEvent;
+        let event: TEvent;
         try {
-          event = validateAssistantEvent(raw, requestId);
+          event = stream.validate(raw);
         } catch (error) {
           failParser(
             error instanceof OpticCodeClientError
@@ -284,63 +467,49 @@ export class OpticCodeProtocolClient {
           failParser(
             new OpticCodeClientError(
               'sequence_mismatch',
-              `Expected assistant sequence ${expectedSequence}, received ${event.sequence}.`,
+              `Expected ${stream.protocolName} sequence ${expectedSequence}, received ${event.sequence}.`,
             ),
           );
           return;
         }
-        expectedSequence += 1;
         if (events.length >= this.limits.events) {
-          failParser(new OpticCodeClientError('output_limit', 'Assistant event limit exceeded.'));
+          failParser(
+            new OpticCodeClientError(
+              'output_limit',
+              `${stream.protocolName} event limit exceeded.`,
+            ),
+          );
           return;
         }
+        try {
+          stream.inspect?.(event);
+        } catch (error) {
+          failParser(
+            error instanceof OpticCodeClientError
+              ? error
+              : new OpticCodeClientError('invalid_ndjson', 'Protocol event inspection failed.', {
+                  cause: String(error),
+                }),
+          );
+          return;
+        }
+        expectedSequence += 1;
         events.push(event);
-        if (event.event !== undefined) {
-          const context = event.context_mode ?? 'unknown';
-          const activeRequest = nestedRequestsByContext.get(context);
-          if (activeRequest !== undefined && activeRequest !== event.event.request_id) {
-            failParser(
-              new OpticCodeClientError(
-                'request_mismatch',
-                `LLM request ID changed within ${context} context.`,
-              ),
-            );
-            return;
-          }
-          nestedRequestsByContext.set(context, event.event.request_id);
-          if (nestedTerminals.has(event.event.request_id)) {
-            failParser(
-              new OpticCodeClientError(
-                'terminal_duplicate',
-                'LLM event received after its terminal event.',
-              ),
-            );
-            return;
-          }
-          const expectedNested = nestedSequences.get(event.event.request_id) ?? 0;
-          if (event.event.sequence !== expectedNested) {
-            failParser(
-              new OpticCodeClientError(
-                'sequence_mismatch',
-                `Expected LLM sequence ${expectedNested}, received ${event.event.sequence}.`,
-              ),
-            );
-            return;
-          }
-          nestedSequences.set(event.event.request_id, expectedNested + 1);
-          if (event.event.type === 'delta') {
-            response += event.event.text ?? '';
-          } else if (event.event.type === 'completed') {
-            generation = event.event.result;
-          }
-          if (['completed', 'failed', 'cancelled'].includes(event.event.type)) {
-            nestedTerminals.add(event.event.request_id);
-          }
-        }
-        if (['completed', 'failed', 'cancelled'].includes(event.type)) {
+        if (isTerminalType(event.type)) {
           terminal = event;
+          if (child.stdin.writable) {
+            child.stdin.end();
+          }
         }
-        onEvent?.(event);
+        try {
+          stream.onEvent?.(event);
+        } catch (error) {
+          failParser(
+            new OpticCodeClientError('process_interrupted', 'Protocol event consumer failed.', {
+              cause: String(error),
+            }),
+          );
+        }
       };
 
       child.stdout.on('data', (chunk: Buffer) => {
@@ -349,7 +518,9 @@ export class OpticCodeProtocolClient {
         }
         totalStdout += chunk.length;
         if (totalStdout > this.limits.ndjsonTotalBytes) {
-          failParser(new OpticCodeClientError('output_limit', 'NDJSON output exceeded its byte limit.'));
+          failParser(
+            new OpticCodeClientError('output_limit', 'NDJSON output exceeded its byte limit.'),
+          );
           return;
         }
         stdoutBuffer = Buffer.concat([stdoutBuffer, chunk]);
@@ -378,9 +549,22 @@ export class OpticCodeProtocolClient {
           stderrBytes += retained.length;
         }
       });
+      child.stdin.on('error', (error) => {
+        if (
+          parserError === undefined &&
+          terminal === undefined &&
+          !cancellationRequested &&
+          child.exitCode === null
+        ) {
+          failParser(
+            new OpticCodeClientError('process_interrupted', 'Failed to write protocol stdin.', {
+              cause: String(error),
+            }),
+          );
+        }
+      });
       child.on('error', (error) => {
-        clearTimeout(timeout);
-        cancellationDisposable?.dispose();
+        cleanup();
         reject(
           new OpticCodeClientError('spawn_failed', 'Failed to start OpticCode.', {
             cause: String(error),
@@ -388,8 +572,7 @@ export class OpticCodeProtocolClient {
         );
       });
       child.on('close', (exitCode, signal) => {
-        clearTimeout(timeout);
-        cancellationDisposable?.dispose();
+        cleanup();
         if (parserError !== undefined) {
           reject(parserError);
           return;
@@ -411,7 +594,9 @@ export class OpticCodeProtocolClient {
         }
         if (terminal === undefined) {
           const code = cancellationRequested
-            ? 'cancellation_unconfirmed'
+            ? forcedTermination
+              ? 'cancellation_forced'
+              : 'cancellation_unconfirmed'
             : signal !== null || forcedTermination || (exitCode !== null && exitCode !== 0)
               ? 'process_interrupted'
               : 'terminal_missing';
@@ -419,34 +604,16 @@ export class OpticCodeProtocolClient {
             new OpticCodeClientError(
               code,
               cancellationRequested
-                ? 'OpticCode stopped without confirming cancellation.'
+                ? forcedTermination
+                  ? 'OpticCode required forced termination after cancellation.'
+                  : 'OpticCode stopped without confirming cancellation.'
                 : 'OpticCode stopped without a terminal protocol event.',
               { exitCode, signal },
             ),
           );
           return;
         }
-        const incompleteNested = [...nestedSequences.keys()].filter(
-          (nestedRequest) => !nestedTerminals.has(nestedRequest),
-        );
-        if (incompleteNested.length !== 0) {
-          reject(
-            new OpticCodeClientError(
-              'terminal_missing',
-              'One or more nested LLM streams ended without a terminal event.',
-              { requestIds: incompleteNested },
-            ),
-          );
-          return;
-        }
-        const status = terminal.type;
-        if (status !== 'completed' && status !== 'failed' && status !== 'cancelled') {
-          reject(
-            new OpticCodeClientError('terminal_missing', 'Invalid terminal event state.'),
-          );
-          return;
-        }
-        if (status === 'completed' && exitCode !== 0) {
+        if (terminal.type === 'completed' && exitCode !== 0) {
           reject(
             new OpticCodeClientError(
               'process_failed',
@@ -456,19 +623,31 @@ export class OpticCodeProtocolClient {
           return;
         }
         resolve({
-          requestId,
-          status,
-          response,
           events,
           terminal,
-          summary: terminal.summary,
-          generation,
           durationMs: Date.now() - started,
           exitCode,
           stderr,
-          cancellationConfirmed: status === 'cancelled' && cancellationRequested,
+          cancellationConfirmed: terminal.type === 'cancelled' && cancellationRequested,
         });
       });
+
+      if (stream.initialInput !== undefined) {
+        child.stdin.write(stream.initialInput);
+      }
+      if (cancellationRequested) {
+        requestCleanCancellation();
+        scheduleForcedTermination();
+      }
+      const cancellationDisposable = cancellation?.onCancellationRequested(() => {
+        requestCleanCancellation();
+        scheduleForcedTermination();
+      });
+      const timeout = setTimeout(() => {
+        timedOut = true;
+        requestCleanCancellation();
+        scheduleForcedTermination();
+      }, this.options.timeoutMs);
     });
   }
 

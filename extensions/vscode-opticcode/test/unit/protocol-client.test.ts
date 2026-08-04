@@ -7,7 +7,11 @@ import {
   OpticCodeProtocolClient,
 } from '../../src/protocol/client';
 import { OpticCodeClientError } from '../../src/protocol/errors';
-import type { CancellationLike, JsonObject } from '../../src/protocol/types';
+import type {
+  CancellationLike,
+  ChatProtocolRequest,
+  JsonObject,
+} from '../../src/protocol/types';
 import { isRecord } from '../../src/protocol/validation';
 
 const fixture = path.resolve(__dirname, '../../../test/fixtures/fake-opticcode.mjs');
@@ -25,6 +29,51 @@ function client(timeoutMs = 2_000, limits: Record<string, number> = {}): OpticCo
 function object(value: unknown): JsonObject {
   assert.ok(isRecord(value));
   return value;
+}
+
+function chatRequest(requestId: string): ChatProtocolRequest {
+  return {
+    schema_version: 1,
+    protocol: 'opticcode.chat',
+    request_id: requestId,
+    workspace_id: 'fixture-workspace',
+    workspace_root: process.cwd(),
+    command: 'ask',
+    prompt: 'Explain Plugin.java.',
+    profile: 'minecraft-java-1.8',
+    provider: 'ollama',
+    model: 'fixture-model',
+    context_mode: 'symbol',
+    references: [],
+    history: [],
+    budgets: {
+      max_history_turns: 12,
+      max_history_chars: 32768,
+      max_history_tokens: 8192,
+      max_references: 24,
+      max_reference_bytes: 1048576,
+      max_prompt_tokens: 32768,
+      rag_hits: 6,
+    },
+    generation: {
+      max_output_tokens: 1024,
+      temperature: null,
+      seed: null,
+      brief: false,
+      compare_generate: false,
+    },
+    security_mode: 'read_only',
+    client: {
+      name: 'test',
+      version: '0.1.0',
+      vscode_version: '1.125.0',
+      session_id: 'fixture-session',
+      locale: 'en',
+      recent_run_ids: [],
+      previous_repository_state: null,
+    },
+    expected_protocols: { chat: 1, assistant: 1, discovery: 1, llm: 1 },
+  };
 }
 
 async function rejectsCode(promise: Promise<unknown>, code: string): Promise<void> {
@@ -161,5 +210,75 @@ describe('OpticCode protocol client', () => {
     assert.equal(result.status, 'cancelled');
     assert.equal(result.cancellationConfirmed, true);
     assert.equal(result.terminal.type, 'cancelled');
+  });
+
+  it('streams fragmented chat NDJSON with references, markdown, and metrics', async () => {
+    const request = chatRequest('chat-fragmented-request');
+    const result = await client().runChatStream(['chat-fragmented'], request);
+    assert.equal(result.status, 'completed');
+    assert.equal(result.response, 'hello **chat**');
+    assert.equal(result.events.length, 11);
+    assert.equal(result.summary?.references[0]?.path, 'src/main/java/Plugin.java');
+    assert.equal(result.summary?.metrics.prompt_tokens, 40);
+  });
+
+  it('validates chat request IDs and outer sequences', async () => {
+    await rejectsCode(
+      client().runChatStream(['chat-bad-sequence'], chatRequest('chat-sequence')),
+      'sequence_mismatch',
+    );
+    await rejectsCode(
+      client().runChatStream(['chat-request-mismatch'], chatRequest('chat-request-id')),
+      'request_mismatch',
+    );
+  });
+
+  it('rejects missing and duplicate chat terminals', async () => {
+    await rejectsCode(
+      client().runChatStream(['chat-missing-terminal'], chatRequest('chat-missing')),
+      'terminal_missing',
+    );
+    await rejectsCode(
+      client().runChatStream(['chat-double-terminal'], chatRequest('chat-double')),
+      'terminal_duplicate',
+    );
+  });
+
+  it('distinguishes chat timeout, confirmed cancellation, and forced kill', async () => {
+    await rejectsCode(
+      client(100).runChatStream(['chat-timeout'], chatRequest('chat-timeout')),
+      'timeout',
+    );
+
+    const cleanCancellation = new TestCancellation();
+    const cleanPromise = client().runChatStream(
+      ['chat-cancel'],
+      chatRequest('chat-clean-cancel'),
+      undefined,
+      cleanCancellation,
+    );
+    setTimeout(() => cleanCancellation.cancel(), 50);
+    const cleanResult = await cleanPromise;
+    assert.equal(cleanResult.status, 'cancelled');
+    assert.equal(cleanResult.cancellationConfirmed, true);
+
+    const forcedCancellation = new TestCancellation();
+    const forcedPromise = client(5_000).runChatStream(
+      ['chat-ignore-cancel'],
+      chatRequest('chat-forced-cancel'),
+      undefined,
+      forcedCancellation,
+    );
+    setTimeout(() => forcedCancellation.cancel(), 50);
+    await rejectsCode(forcedPromise, 'cancellation_forced');
+  });
+
+  it('bounds the initial structured chat request', async () => {
+    const request = chatRequest('chat-input-limit');
+    request.prompt = 'x'.repeat(4096);
+    await rejectsCode(
+      client(2_000, { ndjsonLineBytes: 512 }).runChatStream(['chat-valid'], request),
+      'input_limit',
+    );
   });
 });

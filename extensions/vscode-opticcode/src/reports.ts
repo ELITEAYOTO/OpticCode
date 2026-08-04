@@ -1,3 +1,4 @@
+import * as path from 'node:path';
 import * as vscode from 'vscode';
 
 export class ReportStore {
@@ -25,6 +26,20 @@ export class ReportStore {
       language: 'json',
       content: `${JSON.stringify(value, null, 2)}\n`,
     });
+    await vscode.window.showTextDocument(document, { preview: true });
+  }
+
+  public async showPath(file: string): Promise<void> {
+    if (this.root.scheme !== 'file') {
+      throw new Error('OpticCode report storage is not a local file location.');
+    }
+    const reportsRoot = path.resolve(this.root.fsPath, 'reports');
+    const target = path.resolve(file);
+    const relative = path.relative(reportsRoot, target);
+    if (relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) {
+      throw new Error('OpticCode refused a report path outside its report storage.');
+    }
+    const document = await vscode.workspace.openTextDocument(vscode.Uri.file(target));
     await vscode.window.showTextDocument(document, { preview: true });
   }
 }

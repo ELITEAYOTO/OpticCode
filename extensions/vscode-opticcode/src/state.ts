@@ -41,6 +41,10 @@ export class SessionState implements vscode.Disposable {
     return this.runs;
   }
 
+  public getRunsForWorkspace(workspaceId: string): readonly RunRecord[] {
+    return this.runs.filter((run) => run.workspaceId === workspaceId);
+  }
+
   public addRun(run: RunRecord): void {
     this.runs.unshift(run);
     this.runs.splice(50);

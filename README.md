@@ -35,6 +35,10 @@ LLM/PROTOCOL-001 isole maintenant Ollama derriere un trait provider, diffuse les
 deltas avec annulation et expose un protocole JSONL versionne pour les futures
 interfaces. VSCODE-001 ajoute un client TypeScript strict installable, trois vues
 natives, diagnostics, Ask/Plan streames et verification explicite en worktree.
+VSCODE-CHAT-001 ajoute maintenant le participant natif `@opticcode`, un protocole
+`opticcode.chat` structure sur stdin/NDJSON, les 14 slash commands, les references
+fichier/range, un historique borne et un rendu progressif. Le Chat reste
+`read_only` tant que POLICY-001 et CHAT-EDIT-001 ne sont pas termines.
 
 - Phase 0 : audit environnement Windows 10 termine.
 - Phase 1 : documentation de cadrage terminee.
@@ -43,8 +47,8 @@ natives, diagnostics, Ask/Plan streames et verification explicite en worktree.
 - Phase 3 : recherche depots externes et analyse Qwen Code terminees.
 - Phase 4 : MVP Rust fonctionnel.
 - Phase 5 : apply/worktree, Tree-sitter, index B1, edits B2/B3, LEGACY-002, CONTEXT-001, EVAL-001 et CONTEXT-002 termines.
-- Qualite courante : 236 tests Rust, 20 tests unitaires TypeScript, 3 tests
-  d'integration CLI et un scenario Extension Host, Clippy/lint stricts, build
+- Qualite courante : 253 tests Rust, 35 tests unitaires TypeScript, 3 tests
+  d'integration CLI et un scenario Extension Host avec quatre flux Chat, Clippy/lint stricts, build
   release et gates specialisees valides.
 - Phase 6 : RAG-SAFE-001 termine ; le passage a Tantivy reste conditionne par un prototype mesure.
 - Qwen A/B : `symbol` reduit le prompt reel, mais reste optionnel car la qualite n'est pas encore superieure.
@@ -68,6 +72,7 @@ natives, diagnostics, Ask/Plan streames et verification explicite en worktree.
 - [Provider LLM et protocole machine](docs/llm-protocol.md)
 - [Protocole de decouverte client](docs/client-discovery.md)
 - [Extension VS Code experimentale](docs/vscode-extension.md)
+- [Participant Chat natif VS Code](docs/vscode-chat.md)
 - [Backlog canonique d'optimisation](docs/optimization-backlog.md)
 - [Etat environnement](docs/environment-audit.md)
 - [Roadmap](docs/roadmap.md)
@@ -164,6 +169,7 @@ cargo run -q -- inspect --path benchmarks/mini-bukkit-plugin
 cargo run -q -- version --json
 cargo run -q -- capabilities --json
 cargo run -q -- doctor --json --path benchmarks/java-index-mini
+.\target\release\opticcode.exe chat --help
 .\scripts\run-rag-comparison.ps1
 .\scripts\run-rag-safe-quality.ps1
 .\scripts\run-build-git-guard-quality.ps1
@@ -191,6 +197,7 @@ cargo run -q -- doctor --json --path benchmarks/java-index-mini
 .\scripts\run-llm-protocol-quality.ps1 -WithLlm
 .\scripts\run-vscode-quality.ps1
 .\scripts\run-vscode-quality.ps1 -WithLlm -WithExtensionHost
+.\scripts\run-vscode-chat-quality.ps1 -WithExtensionHost
 ```
 
 ## Prochaine etape
@@ -201,8 +208,8 @@ prompt Ollama moyen de 1 902 a 1 188 tokens (-37,5 %) et porte Recall@k de
 0,333. `legacy` reste donc le mode par defaut ; `symbol` est opt-in et refuse ou
 fallback explicitement lorsqu'il n'est pas fiable.
 
-`LLM/PROTOCOL-001` et `VSCODE-001` sont termines : decouverte machine, streaming
-Ollama reel, annulation cooperative et extension VS Code native installable.
-Le prochain chantier recommande reste `POLICY-001`, une politique deny-by-default
+`LLM/PROTOCOL-001`, `VSCODE-001` et `VSCODE-CHAT-001` sont termines : decouverte
+machine, streaming Ollama, annulation cooperative et participant Chat natif.
+Le prochain chantier est `POLICY-001`, une politique deny-by-default
 pour les outils et approbations avant toute boucle agent capable d'ecrire. Un
 prototype `RAG-002` Tantivy reste ensuite soumis aux mesures EVAL-001.

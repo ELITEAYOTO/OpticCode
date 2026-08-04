@@ -528,9 +528,9 @@ Livrable :
 - `docs/memory.md`
 - `docs/llm-protocol.md`
 
-## Phase 5.8 - Protocole client et extension VS Code
+## Phase 5.8 - Protocole client, extension et Chat VS Code
 
-Statut : `LLM/PROTOCOL-001` et `VSCODE-001` termines.
+Statut : `LLM/PROTOCOL-001`, `VSCODE-001` et `VSCODE-CHAT-001` termines.
 
 Acquis protocole :
 
@@ -545,8 +545,22 @@ Acquis extension :
 - 13 commandes publiques, trois TreeViews natives, diagnostics et CodeAction ;
 - Ask/Plan streames avec progression, metriques et annulation confirmee ;
 - verification explicite en worktree, sans apply sur le projet original ;
-- 20 tests unitaires, 3 integrations CLI reelles, smoke Qwen et Extension Host ;
+- baseline VSCODE-001 : 20 tests unitaires, 3 integrations CLI reelles,
+  smoke Qwen et Extension Host ;
 - VSIX minimal versionne `0.1.0`, sans binaire, dependance ou donnee privee.
+
+Acquis Chat :
+
+- participant natif sticky `@opticcode` avec 14 slash commands ;
+- protocole `opticcode.chat` schema 1, requete stdin et evenements NDJSON ;
+- transport partage avec Assistant, sans second parseur ni client Ollama ;
+- references fichier/range/selection et revalidation RAG-SAFE dans Rust ;
+- historique et session bornes, namespaces distincts par workspace ;
+- Markdown streame, ancres, file tree, metriques et boutons natifs ;
+- annulation structuree, kill force distinct et terminal unique ;
+- `/fix`, `/verify`, `/diff`, `/apply` et `/rollback` fermes explicitement.
+- validation apres VSCODE-CHAT-001 : 253 tests Rust, 35 tests TypeScript,
+  3 integrations CLI et quatre flux Chat dans l'Extension Host.
 
 Limites :
 
@@ -554,12 +568,13 @@ Limites :
 - rapports et runs limites a la session VS Code ;
 - `legacy` reste le contexte par defaut ; `symbol` et `compare` sont explicites.
 
-Suite : `POLICY-001` devient le prochain jalon. Il doit definir une politique
+Suite : `POLICY-001` est le prochain jalon. Il doit definir une politique
 deny-by-default avant toute boucle capable d'appeler des outils d'ecriture.
 
 References : [`llm-protocol.md`](llm-protocol.md),
 [`client-discovery.md`](client-discovery.md) et
-[`vscode-extension.md`](vscode-extension.md).
+[`vscode-extension.md`](vscode-extension.md), puis
+[`vscode-chat.md`](vscode-chat.md).
 
 ## Phase 6 - RAG local et donnees metier
 

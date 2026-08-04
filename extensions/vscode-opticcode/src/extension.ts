@@ -1,12 +1,17 @@
 import * as vscode from 'vscode';
 
+import { registerOpticCodeChat } from './chat/participant';
 import { readSettings } from './configuration';
 import { OpticCodeController } from './controller';
 import { OpticCodeService } from './service';
 import { SessionState } from './state';
 import { FindingsProvider, RunsProvider, StatusProvider } from './views';
 
-export function activate(context: vscode.ExtensionContext): void {
+export interface OpticCodeExtensionApi {
+  chatParticipantId: string;
+}
+
+export function activate(context: vscode.ExtensionContext): OpticCodeExtensionApi {
   const output = vscode.window.createOutputChannel('OpticCode');
   const statusBar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 50);
   const state = new SessionState();
@@ -21,6 +26,7 @@ export function activate(context: vscode.ExtensionContext): void {
   const statusProvider = new StatusProvider(state);
   const findingsProvider = new FindingsProvider(state);
   const runsProvider = new RunsProvider(state);
+  const chat = registerOpticCodeChat(context, service, state, output);
 
   context.subscriptions.push(
     output,
@@ -30,6 +36,7 @@ export function activate(context: vscode.ExtensionContext): void {
     statusProvider,
     findingsProvider,
     runsProvider,
+    chat,
     vscode.window.registerTreeDataProvider('opticcode.status', statusProvider),
     vscode.window.registerTreeDataProvider('opticcode.findings', findingsProvider),
     vscode.window.registerTreeDataProvider('opticcode.runs', runsProvider),
@@ -39,6 +46,7 @@ export function activate(context: vscode.ExtensionContext): void {
   if (readSettings(scope).autoCheckOnStartup) {
     void controller.refreshStatus(false);
   }
+  return { chatParticipantId: chat.participantId };
 }
 
 export function deactivate(): void {}

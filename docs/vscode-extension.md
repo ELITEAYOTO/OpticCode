@@ -1,4 +1,4 @@
-# VSCODE-001 - Experimental VS Code extension
+# VSCODE-001 / VSCODE-CHAT-001 - Native VS Code extension
 
 ## Scope
 
@@ -7,10 +7,12 @@
 CodeActions, OutputChannel, status bar, input/quick-pick controls, progress, and
 untitled Markdown/JSON documents. V1 intentionally has no webview.
 
-The ownership boundary is strict:
+The ownership boundary is strict. VSCODE-CHAT-001 adds a stable native Chat
+participant without changing it:
 
 ```text
 VS Code UI
+  -> @opticcode / TreeViews / commands
   -> TypeScript protocol client (spawn, validation, bounds, cancellation)
     -> opticcode.exe JSON / NDJSON
       -> Rust Java/RAG/LLM/Git/worktree/apply implementations
@@ -52,6 +54,11 @@ Ask/Plan cancellation writes the bounded stdin control command `cancel\n`.
 OpticCode forwards it to the provider token. A forced kill is never described as
 a clean provider cancellation.
 
+Native Chat uses `opticcode.exe chat --protocol-jsonl`. It writes one structured
+`opticcode.chat` request, then a structured `opticcode.chat.control` cancellation
+message when needed. The JSONL parser and lifecycle checks are shared with the
+Assistant path.
+
 ## Native interface
 
 Status renders executable/version/protocol, provider/model/profile, Git,
@@ -64,6 +71,11 @@ to distinct diagnostic severities. Document edits remove stale diagnostics.
 
 Runs retains up to 50 session entries with command, request ID, state, duration,
 context, tokens, model, build/worktree summary, and report path.
+
+The Chat view exposes `@opticcode` with `/ask`, `/plan`, `/context`, `/analyze`,
+`/index`, `/legacy`, `/status`, `/runs`, `/help` and the future edit commands.
+Attached files, locations and active Unicode selections become structured
+references. Full details are documented in [`vscode-chat.md`](vscode-chat.md).
 
 ## Security boundary
 
@@ -90,16 +102,16 @@ npm run test:assistant
 npm run package
 ```
 
-The 20-test deterministic suite uses a fake executable for spaces/Unicode
+The deterministic suite uses a fake executable for spaces/Unicode
 arguments, JSON/NDJSON fragmentation, malformed output, request IDs, outer and
 nested sequences, terminal lifecycle, timeout, interruption, cancellation,
 compatibility, and size limits. Three real integration tests use version,
 capabilities, doctor, and Java context. The assistant smoke sends real streamed
 Ask and Plan calls to local Qwen.
 
-Run the Extension Development Host separately. It checks activation, all 13
-public commands, Status/doctor rendering, Runs rendering, and exact finding
-range opening:
+Run the Extension Development Host separately. It checks activation, the Chat
+participant ID, public commands, Status/doctor rendering, Runs rendering, exact
+finding ranges and deterministic handlers for Help, Status, Context and Ask:
 
 ```powershell
 npm run test:vscode
@@ -115,3 +127,4 @@ The packaged extension is `artifacts/opticcode-vscode-0.1.0.vsix`.
 - `compare` preserves the CLI rule that two model generations require explicit
   authorization.
 - No fix is automatically applied to the original project.
+- Chat edit commands remain fail-closed until POLICY-001 and CHAT-EDIT-001.

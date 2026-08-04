@@ -830,7 +830,9 @@ dependencies = [
  "opticcode-tools",
  "serde",
  "serde_json",
+ "tempfile",
  "tokio",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -857,6 +859,7 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_yaml",
+ "tempfile",
  "tree-sitter",
  "tree-sitter-java",
  "walkdir",

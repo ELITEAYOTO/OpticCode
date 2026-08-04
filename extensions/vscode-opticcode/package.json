@@ -26,6 +26,7 @@
   ],
   "main": "./out/src/extension.js",
   "activationEvents": [
+    "onChatParticipant:opticcode.chat",
     "onView:opticcode.status",
     "onView:opticcode.findings",
     "onView:opticcode.runs"
@@ -42,6 +43,31 @@
     "package": "npm run compile && vsce package --out ../../artifacts/opticcode-vscode-0.1.0.vsix"
   },
   "contributes": {
+    "chatParticipants": [
+      {
+        "id": "opticcode.chat",
+        "name": "opticcode",
+        "fullName": "OpticCode Local",
+        "description": "Local Java and Minecraft code assistant backed by OpticCode.",
+        "isSticky": true,
+        "commands": [
+          { "name": "ask", "description": "Ask about the current project" },
+          { "name": "plan", "description": "Create a read-only implementation plan" },
+          { "name": "context", "description": "Inspect bounded project context" },
+          { "name": "analyze", "description": "Analyze Java source without writing" },
+          { "name": "index", "description": "Inspect Java symbol indexing" },
+          { "name": "legacy", "description": "Inspect Minecraft 1.8 compatibility findings" },
+          { "name": "fix", "description": "Propose and verify edits in isolation" },
+          { "name": "verify", "description": "Verify the current proposal in a worktree" },
+          { "name": "diff", "description": "Show the latest verified diff" },
+          { "name": "apply", "description": "Apply an explicitly approved verified proposal" },
+          { "name": "rollback", "description": "Rollback a selected OpticCode transaction" },
+          { "name": "status", "description": "Show local runtime and repository status" },
+          { "name": "runs", "description": "Show recent bounded run metadata" },
+          { "name": "help", "description": "Show commands and safety limits" }
+        ]
+      }
+    ],
     "viewsContainers": {
       "activitybar": [
         {

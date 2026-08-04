@@ -13,6 +13,9 @@ import type {
   AssistantStreamResult,
   CapabilitiesReport,
   CancellationLike,
+  ChatProtocolEvent,
+  ChatProtocolRequest,
+  ChatStreamResult,
   DoctorReport,
   JsonObject,
   VersionReport,
@@ -33,7 +36,7 @@ export interface Connection {
 }
 
 export class OpticCodeService {
-  private connection: Connection | undefined;
+  private readonly connections = new Map<string, Connection>();
 
   public constructor(
     private readonly extensionPath: string,
@@ -41,13 +44,10 @@ export class OpticCodeService {
   ) {}
 
   public invalidate(): void {
-    this.connection = undefined;
+    this.connections.clear();
   }
 
   public async connect(force = false): Promise<Connection> {
-    if (!force && this.connection !== undefined) {
-      return this.connection;
-    }
     const folders = vscode.workspace.workspaceFolders ?? [];
     const primary = folders[0];
     if (primary === undefined) {
@@ -56,7 +56,27 @@ export class OpticCodeService {
         'Open a Java project folder before using OpticCode.',
       );
     }
-    const settings = readSettings(primary.uri);
+    return await this.connectForWorkspace(primary.uri, force);
+  }
+
+  public async connectForWorkspace(
+    workspace: vscode.Uri,
+    force = false,
+  ): Promise<Connection> {
+    const folders = vscode.workspace.workspaceFolders ?? [];
+    const folder = vscode.workspace.getWorkspaceFolder(workspace);
+    if (folder === undefined) {
+      throw new OpticCodeClientError(
+        'protocol_incompatible',
+        'The selected file is not inside an open workspace folder.',
+      );
+    }
+    const workspaceKey = normalizedWorkspaceKey(folder.uri.fsPath);
+    const cached = this.connections.get(workspaceKey);
+    if (!force && cached !== undefined) {
+      return cached;
+    }
+    const settings = readSettings(folder.uri);
     if (settings.profile === '' || settings.model === '') {
       throw new OpticCodeClientError(
         'protocol_incompatible',
@@ -80,15 +100,16 @@ export class OpticCodeService {
       ['capabilities', '--json'],
       validateCapabilitiesReport,
     );
-    this.connection = {
+    const connection = {
       executable,
       settings,
-      workspace: primary.uri.fsPath,
+      workspace: folder.uri.fsPath,
       version,
       capabilities,
       client,
     };
-    return this.connection;
+    this.connections.set(workspaceKey, connection);
+    return connection;
   }
 
   public async doctor(): Promise<DoctorReport> {
@@ -151,4 +172,39 @@ export class OpticCodeService {
       cancellation,
     );
   }
+
+  public async runChat(
+    request: ChatProtocolRequest,
+    workspace: vscode.Uri,
+    onEvent: (event: ChatProtocolEvent) => void,
+    cancellation?: CancellationLike,
+  ): Promise<ChatStreamResult> {
+    const connection = await this.connectForWorkspace(workspace);
+    if (
+      normalizedWorkspaceKey(request.workspace_root) !==
+      normalizedWorkspaceKey(connection.workspace)
+    ) {
+      throw new OpticCodeClientError(
+        'protocol_incompatible',
+        'Chat request workspace does not match its OpticCode connection.',
+      );
+    }
+    return await connection.client.runChatStream(
+      [
+        'chat',
+        '--rag-index',
+        path.join(connection.executable.workingDirectory, 'data', 'index'),
+        '--http-timeout-ms',
+        String(connection.settings.timeoutSeconds * 1000),
+      ],
+      request,
+      onEvent,
+      cancellation,
+    );
+  }
+}
+
+function normalizedWorkspaceKey(workspace: string): string {
+  const normalized = path.resolve(workspace);
+  return process.platform === 'win32' ? normalized.toLocaleLowerCase('en-US') : normalized;
 }

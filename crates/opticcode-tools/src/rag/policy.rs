@@ -598,7 +598,7 @@ pub(crate) fn record_matches_allow_policy(
     })
 }
 
-fn denied_directory(name: &str) -> Option<(&'static str, &'static str)> {
+pub(crate) fn denied_directory(name: &str) -> Option<(&'static str, &'static str)> {
     let lower = name.to_lowercase();
     if lower.starts_with(".staging-") || lower.starts_with(".opticcode-rag-") {
         return Some(("path.directory.rag_staging", "generated_output"));
@@ -609,7 +609,7 @@ fn denied_directory(name: &str) -> Option<(&'static str, &'static str)> {
         .map(|(_, rule_id, category)| (*rule_id, *category))
 }
 
-fn denied_relative_directory(path: &Path) -> Option<(&'static str, &'static str)> {
+pub(crate) fn denied_relative_directory(path: &Path) -> Option<(&'static str, &'static str)> {
     let normalized = normalized_relative(path).to_lowercase();
     if normalized == "benchmarks/runs" || normalized.ends_with("/benchmarks/runs") {
         return Some(("path.directory.benchmark_runs", "generated_output"));
@@ -617,7 +617,7 @@ fn denied_relative_directory(path: &Path) -> Option<(&'static str, &'static str)
     None
 }
 
-fn sensitive_file_name(path: &Path) -> Option<(&'static str, &'static str)> {
+pub(crate) fn sensitive_file_name(path: &Path) -> Option<(&'static str, &'static str)> {
     let name = path.file_name()?.to_string_lossy().to_ascii_lowercase();
     if name == ".env" || name.starts_with(".env.") {
         return Some(("path.file.environment", "credential_file"));

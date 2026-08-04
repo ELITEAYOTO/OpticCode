@@ -6,7 +6,8 @@ use std::time::Duration;
 
 use opticcode_core::{
     load_profile_for_workspace, ASSISTANT_CONTEXT_SCHEMA_VERSION, ASSISTANT_PROTOCOL_ID,
-    ASSISTANT_PROTOCOL_SCHEMA_VERSION, ASSISTANT_RUN_SCHEMA_VERSION,
+    ASSISTANT_PROTOCOL_SCHEMA_VERSION, ASSISTANT_RUN_SCHEMA_VERSION, CHAT_PROTOCOL_ID,
+    CHAT_PROTOCOL_SCHEMA_VERSION,
 };
 use opticcode_llm::{
     HealthRequest, LlmProvider, OllamaProvider, ProviderCapabilities, LLM_PROTOCOL_ID,
@@ -81,6 +82,7 @@ pub struct MachineOutputCapabilities {
 
 #[derive(Debug, Clone, Serialize)]
 pub struct FeatureCapabilities {
+    pub chat: bool,
     pub rag: bool,
     pub java: bool,
     pub worktrees: bool,
@@ -152,6 +154,13 @@ pub fn version_report() -> VersionReport {
         },
     );
     protocols.insert(
+        "chat",
+        ProtocolVersion {
+            id: CHAT_PROTOCOL_ID,
+            schema_version: CHAT_PROTOCOL_SCHEMA_VERSION,
+        },
+    );
+    protocols.insert(
         "discovery",
         ProtocolVersion {
             id: DISCOVERY_PROTOCOL_ID,
@@ -176,6 +185,7 @@ pub fn version_report() -> VersionReport {
             ("assistant_context", ASSISTANT_CONTEXT_SCHEMA_VERSION),
             ("assistant_run", ASSISTANT_RUN_SCHEMA_VERSION),
             ("capabilities", DISCOVERY_SCHEMA_VERSION),
+            ("chat", CHAT_PROTOCOL_SCHEMA_VERSION),
             ("doctor", DISCOVERY_SCHEMA_VERSION),
             ("evaluation", EVAL_SCHEMA_VERSION),
             ("java_context", JAVA_CONTEXT_SCHEMA_VERSION),
@@ -217,6 +227,7 @@ pub fn capabilities_report() -> CapabilitiesReport {
             "ask",
             "build",
             "capabilities",
+            "chat",
             "context",
             "doctor",
             "eval",
@@ -256,6 +267,7 @@ pub fn capabilities_report() -> CapabilitiesReport {
             cancellation: true,
         },
         features: FeatureCapabilities {
+            chat: true,
             rag: true,
             java: true,
             worktrees: true,

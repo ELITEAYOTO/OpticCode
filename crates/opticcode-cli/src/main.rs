@@ -72,8 +72,10 @@ use opticcode_tools::{
 use serde::Serialize;
 use std::io::{self, Read, Write};
 
+mod chat;
 mod discovery;
 
+use chat::{parse_isolated_chat, run_chat};
 use discovery::{
     capabilities_report, doctor_report, render_capabilities, render_doctor, render_version,
     version_report, DoctorOptions,
@@ -550,9 +552,21 @@ enum Command {
     Ask,
     /// Request a read-only implementation plan from the local model.
     Plan,
+    /// Run the versioned machine chat protocol over stdin/stdout.
+    Chat,
 }
 
 fn main() -> Result<()> {
+    if let Some(args) = parse_isolated_chat() {
+        let runtime = tokio::runtime::Builder::new_multi_thread()
+            .enable_all()
+            .build()?;
+        let exit_code = runtime.block_on(Box::pin(run_chat(args)))?;
+        if exit_code != 0 {
+            std::process::exit(exit_code);
+        }
+        return Ok(());
+    }
     if let Some(command) = parse_isolated_assistant() {
         let runtime = tokio::runtime::Builder::new_multi_thread()
             .enable_all()
@@ -1894,15 +1908,15 @@ async fn run_command(command: Command) -> Result<()> {
                 }
             }
         }
-        Command::Ask | Command::Plan => {
-            bail!("ask and plan must be parsed by the isolated assistant command parser")
+        Command::Ask | Command::Plan | Command::Chat => {
+            bail!("ask, plan, and chat must be parsed by their isolated command parsers")
         }
     }
 
     Ok(())
 }
 
-fn create_opticcode(
+pub(crate) fn create_opticcode(
     ollama_url: &str,
     model: &str,
     keep_alive: &str,

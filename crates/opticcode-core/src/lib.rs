@@ -1,4 +1,6 @@
 mod assistant_runtime;
+mod chat_protocol;
+mod chat_runtime;
 mod context_runtime;
 mod eval_runtime;
 mod protocol;
@@ -8,6 +10,19 @@ pub use assistant_runtime::{
     AssistantGenerationMetrics, AssistantPromptReport, AssistantRagHitReport, AssistantRagReport,
     AssistantRunReport, AssistantStructuredError, ASSISTANT_PROMPT_VERSION,
     ASSISTANT_RUN_SCHEMA_VERSION,
+};
+pub use chat_protocol::{
+    chat_event_channel, chat_setup_failure_event, validate_chat_request_id, ChatBudgets,
+    ChatClientMetadata, ChatCommand, ChatCompletionSummary, ChatContextFile, ChatControlKind,
+    ChatControlMessage, ChatEventReceiver, ChatEventSink, ChatExpectedProtocols,
+    ChatGenerationOptions, ChatHistoryRole, ChatHistoryTurn, ChatMetrics, ChatProtocolError,
+    ChatProtocolEvent, ChatProtocolEventPayload, ChatProtocolSession, ChatReference,
+    ChatReferenceTarget, ChatRejectedReference, ChatRequest, ChatResolvedReference,
+    ChatSecurityMode, ChatTextPosition, ChatTextRange, CHAT_CONTROL_PROTOCOL_ID, CHAT_PROTOCOL_ID,
+    CHAT_PROTOCOL_SCHEMA_VERSION, DEFAULT_CHAT_EVENT_CAPACITY, MAX_CHAT_REQUEST_BYTES,
+};
+pub use chat_runtime::{
+    execute_chat, ChatExecutionReport, ChatExecutionStatus, ChatRuntimeOptions,
 };
 pub use context_runtime::{
     prepare_assistant_context, AssistantContextFile, AssistantContextSnippet,

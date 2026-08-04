@@ -1278,3 +1278,33 @@ Raison :
   CONTEXT-002 et EVAL-001.
 
 Reference : [`llm-protocol.md`](llm-protocol.md).
+
+### D-066 - Transporter le Chat par une requete stdin structuree
+
+Statut : valide.
+
+Decision :
+
+- contribuer `opticcode.chat` comme participant Chat stable sans proposed API ;
+- transporter une unique requete schema 1 sur stdin, puis seulement des messages
+  de controle bornes ;
+- partager le parseur NDJSON TypeScript avec le flux Assistant existant ;
+- garder sequences, request IDs, tailles, timeout et terminal unique obligatoires ;
+- resoudre et relire les references dans Rust avec la politique RAG-SAFE ;
+- utiliser les ranges VS Code UTF-16 et conserver les chemins relatifs ;
+- borner l'historique et ne persister que des metadata de session non sensibles ;
+- separer les connexions, runs et namespaces de chaque workspace ;
+- garder toutes les commandes d'edition explicitement indisponibles avant
+  POLICY-001 et CHAT-EDIT-001 ;
+- conserver les vues Status, Findings et Runs comme tableau de controle.
+
+Raison :
+
+- les arguments shell ne conviennent pas aux conversations et references riches ;
+- une seconde pile NDJSON/annulation aurait cree deux comportements concurrents ;
+- un fichier joint n'est pas une autorisation d'ecriture ;
+- la validation Rust reste necessaire meme si VS Code filtre deja un chemin ;
+- le protocole ferme permet a une future interface de reutiliser le meme core ;
+- le mode read-only livre une interface utile avant d'ouvrir la surface apply.
+
+Reference : [`vscode-chat.md`](vscode-chat.md).

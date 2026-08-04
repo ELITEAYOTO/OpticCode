@@ -5,6 +5,15 @@ import type {
   AssistantCompletionSummary,
   AssistantProtocolEvent,
   CapabilitiesReport,
+  ChatCommand,
+  ChatCompletionSummary,
+  ChatContextFile,
+  ChatMetrics,
+  ChatProtocolEvent,
+  ChatRejectedReference,
+  ChatResolvedReference,
+  ChatSecurityMode,
+  ChatTextRange,
   ContextMode,
   DoctorCheck,
   DoctorReport,
@@ -16,6 +25,7 @@ import type {
 
 export const DISCOVERY_PROTOCOL = 'opticcode.discovery';
 export const ASSISTANT_PROTOCOL = 'opticcode.assistant';
+export const CHAT_PROTOCOL = 'opticcode.chat';
 export const LLM_PROTOCOL = 'opticcode.llm';
 export const SUPPORTED_SCHEMA_VERSION = 1;
 
@@ -97,6 +107,7 @@ export function validateVersionReport(value: unknown): VersionReport {
   const protocols = requireRecord(report.protocols, 'protocols');
   for (const [name, id] of [
     ['assistant', ASSISTANT_PROTOCOL],
+    ['chat', CHAT_PROTOCOL],
     ['discovery', DISCOVERY_PROTOCOL],
     ['llm', LLM_PROTOCOL],
   ] as const) {
@@ -119,7 +130,7 @@ export function validateCapabilitiesReport(value: unknown): CapabilitiesReport {
   const report = requireRecord(value, 'capabilities');
   requireProtocol(report, DISCOVERY_PROTOCOL);
   const commands = requireStringArray(report.commands, 'commands');
-  for (const required of ['version', 'capabilities', 'doctor', 'ask', 'plan']) {
+  for (const required of ['version', 'capabilities', 'doctor', 'ask', 'plan', 'chat']) {
     if (!commands.includes(required)) {
       incompatible(`Required command ${required} is not advertised.`);
     }
@@ -132,8 +143,300 @@ export function validateCapabilitiesReport(value: unknown): CapabilitiesReport {
   }
   requireArray(report.providers, 'providers');
   requireStringArray(report.context_modes, 'context_modes');
-  requireRecord(report.features, 'features');
+  const features = requireRecord(report.features, 'features');
+  if (features.chat !== true) {
+    incompatible('Required chat capability is disabled.');
+  }
   return report as CapabilitiesReport;
+}
+
+const CHAT_COMMANDS: readonly ChatCommand[] = [
+  'ask',
+  'plan',
+  'context',
+  'analyze',
+  'index',
+  'legacy',
+  'fix',
+  'verify',
+  'diff',
+  'apply',
+  'rollback',
+  'status',
+  'runs',
+  'help',
+];
+
+const CHAT_TERMINALS = ['completed', 'failed', 'cancelled'] as const;
+
+function chatCommand(value: unknown, field: string): ChatCommand {
+  const command = requireString(value, field);
+  if (!CHAT_COMMANDS.includes(command as ChatCommand)) {
+    incompatible(`Unknown chat command ${command}.`);
+  }
+  return command as ChatCommand;
+}
+
+function chatSecurityMode(value: unknown, field: string): ChatSecurityMode {
+  const mode = requireString(value, field);
+  if (!['read_only', 'worktree_edit', 'approved_apply'].includes(mode)) {
+    incompatible(`Unknown chat security mode ${mode}.`);
+  }
+  return mode as ChatSecurityMode;
+}
+
+function nullableString(value: unknown, field: string): string | null {
+  return value === null ? null : requireString(value, field);
+}
+
+function nullableNumber(value: unknown, field: string): number | null {
+  return value === null ? null : requireNumber(value, field);
+}
+
+function chatPosition(value: unknown, field: string): { line: number; character: number } {
+  const position = requireRecord(value, field);
+  return {
+    line: requireInteger(position.line, `${field}.line`),
+    character: requireInteger(position.character, `${field}.character`),
+  };
+}
+
+function chatRange(value: unknown, field: string): ChatTextRange {
+  const range = requireRecord(value, field);
+  return {
+    start: chatPosition(range.start, `${field}.start`),
+    end: chatPosition(range.end, `${field}.end`),
+  };
+}
+
+function nullableRange(value: unknown, field: string): ChatTextRange | null {
+  return value === null ? null : chatRange(value, field);
+}
+
+function chatResolvedReference(value: unknown, field: string): ChatResolvedReference {
+  const reference = requireRecord(value, field);
+  return {
+    reference_id: requireString(reference.reference_id, `${field}.reference_id`),
+    kind: requireString(reference.kind, `${field}.kind`),
+    path: nullableString(reference.path, `${field}.path`),
+    range: nullableRange(reference.range, `${field}.range`),
+    inclusion_reason: requireString(reference.inclusion_reason, `${field}.inclusion_reason`),
+    provenance: requireString(reference.provenance, `${field}.provenance`),
+    bytes: requireInteger(reference.bytes, `${field}.bytes`),
+    content_hash: nullableString(reference.content_hash, `${field}.content_hash`),
+  };
+}
+
+function chatRejectedReference(value: unknown, field: string): ChatRejectedReference {
+  const reference = requireRecord(value, field);
+  return {
+    reference_id: requireString(reference.reference_id, `${field}.reference_id`),
+    kind: requireString(reference.kind, `${field}.kind`),
+    rule_id: requireString(reference.rule_id, `${field}.rule_id`),
+    reason: requireString(reference.reason, `${field}.reason`),
+  };
+}
+
+function chatContextFile(value: unknown, field: string): ChatContextFile {
+  const file = requireRecord(value, field);
+  return {
+    path: requireString(file.path, `${field}.path`),
+    snippets: requireInteger(file.snippets, `${field}.snippets`),
+    provenance: requireString(file.provenance, `${field}.provenance`),
+  };
+}
+
+function chatMetrics(value: unknown, field: string): ChatMetrics {
+  const metrics = requireRecord(value, field);
+  return {
+    preparation_ms: requireInteger(metrics.preparation_ms, `${field}.preparation_ms`),
+    total_ms: requireInteger(metrics.total_ms, `${field}.total_ms`),
+    estimated_prompt_tokens: requireInteger(
+      metrics.estimated_prompt_tokens,
+      `${field}.estimated_prompt_tokens`,
+    ),
+    prompt_tokens: nullableNumber(metrics.prompt_tokens, `${field}.prompt_tokens`),
+    generated_tokens: nullableNumber(metrics.generated_tokens, `${field}.generated_tokens`),
+    generated_tokens_per_second: nullableNumber(
+      metrics.generated_tokens_per_second,
+      `${field}.generated_tokens_per_second`,
+    ),
+  };
+}
+
+function chatCompletionSummary(value: unknown): ChatCompletionSummary {
+  const summary = requireRecord(value, 'summary');
+  const references = requireArray(summary.references, 'summary.references');
+  const files = requireArray(summary.context_files, 'summary.context_files');
+  if (references.length > 64 || files.length > 4096) {
+    incompatible('Chat completion summary exceeds its collection limits.');
+  }
+  const used = summary.used_context_mode;
+  return {
+    command: chatCommand(summary.command, 'summary.command'),
+    success: requireBoolean(summary.success, 'summary.success'),
+    model: requireString(summary.model, 'summary.model'),
+    requested_context_mode: contextMode(
+      summary.requested_context_mode,
+      'summary.requested_context_mode',
+    ),
+    used_context_mode: used === null ? null : contextMode(used, 'summary.used_context_mode'),
+    references: references.map((entry, index) =>
+      chatResolvedReference(entry, `summary.references[${index}]`),
+    ),
+    rejected_references: requireInteger(
+      summary.rejected_references,
+      'summary.rejected_references',
+    ),
+    context_files: files.map((entry, index) =>
+      chatContextFile(entry, `summary.context_files[${index}]`),
+    ),
+    warnings: requireStringArray(summary.warnings, 'summary.warnings'),
+    metrics: chatMetrics(summary.metrics, 'summary.metrics'),
+    repository_state: requireString(summary.repository_state, 'summary.repository_state'),
+    run_id: requireString(summary.run_id, 'summary.run_id'),
+  };
+}
+
+export function validateChatEvent(
+  value: unknown,
+  expectedRequestId: string,
+): ChatProtocolEvent {
+  const event = requireRecord(value, 'chat_event');
+  requireProtocol(event, CHAT_PROTOCOL);
+  const requestId = requireString(event.request_id, 'request_id');
+  if (requestId !== expectedRequestId) {
+    throw new OpticCodeClientError(
+      'request_mismatch',
+      `Chat request ID ${requestId} does not match ${expectedRequestId}.`,
+    );
+  }
+  requireInteger(event.sequence, 'sequence');
+  requireInteger(event.elapsed_ms, 'elapsed_ms');
+  const type = requireString(event.type, 'type');
+  switch (type) {
+    case 'request_accepted':
+      chatCommand(event.command, 'command');
+      chatSecurityMode(event.security_mode, 'security_mode');
+      break;
+    case 'references_resolving':
+      requireInteger(event.count, 'count');
+      break;
+    case 'references_resolved': {
+      const accepted = requireArray(event.accepted, 'accepted');
+      const rejected = requireArray(event.rejected, 'rejected');
+      if (accepted.length > 64 || rejected.length > 64) {
+        incompatible('Chat reference event exceeds its bounded collection size.');
+      }
+      accepted.forEach((entry, index) => chatResolvedReference(entry, `accepted[${index}]`));
+      rejected.forEach((entry, index) => chatRejectedReference(entry, `rejected[${index}]`));
+      break;
+    }
+    case 'context_started':
+      contextMode(event.requested_mode, 'requested_mode');
+      break;
+    case 'context_ready': {
+      contextMode(event.requested_mode, 'requested_mode');
+      if (event.used_mode !== null) {
+        contextMode(event.used_mode, 'used_mode');
+      }
+      requireBoolean(event.analysis_complete, 'analysis_complete');
+      requireInteger(event.estimated_tokens, 'estimated_tokens');
+      const files = requireArray(event.files, 'files');
+      if (files.length > 4096) {
+        incompatible('Chat context file list exceeds its bounded size.');
+      }
+      files.forEach((entry, index) => chatContextFile(entry, `files[${index}]`));
+      break;
+    }
+    case 'retrieval_progress':
+      requireInteger(event.query_count, 'query_count');
+      requireInteger(event.hit_count, 'hit_count');
+      break;
+    case 'provider_started':
+      if (requireString(event.provider, 'provider') !== 'ollama') {
+        incompatible('Unsupported chat provider.');
+      }
+      requireString(event.model, 'model');
+      contextMode(event.context_mode, 'context_mode');
+      break;
+    case 'token_delta':
+      requireString(event.text, 'text');
+      break;
+    case 'finding':
+      requireString(event.finding_id, 'finding_id');
+      requireString(event.severity, 'severity');
+      requireString(event.message, 'message');
+      requireString(event.path, 'path');
+      if (event.range !== undefined && event.range !== null) {
+        chatRange(event.range, 'range');
+      }
+      break;
+    case 'warning':
+      requireString(event.code, 'code');
+      requireString(event.message, 'message');
+      break;
+    case 'metrics':
+      chatMetrics(event.metrics, 'metrics');
+      break;
+    case 'edit_plan_ready':
+      requireString(event.plan_id, 'plan_id');
+      requireString(event.summary, 'summary');
+      requireInteger(event.file_count, 'file_count');
+      break;
+    case 'verification_started':
+      requireString(event.proposal_id, 'proposal_id');
+      break;
+    case 'verification_completed':
+      requireString(event.proposal_id, 'proposal_id');
+      requireBoolean(event.success, 'success');
+      requireString(event.build, 'build');
+      requireString(event.tests, 'tests');
+      break;
+    case 'diff_ready':
+      requireString(event.proposal_id, 'proposal_id');
+      requireInteger(event.files, 'files');
+      requireInteger(event.additions, 'additions');
+      requireInteger(event.deletions, 'deletions');
+      break;
+    case 'approval_required':
+      requireString(event.proposal_id, 'proposal_id');
+      requireString(event.approval_request_id, 'approval_request_id');
+      requireString(event.summary, 'summary');
+      break;
+    case 'apply_started':
+      requireString(event.proposal_id, 'proposal_id');
+      requireString(event.transaction_id, 'transaction_id');
+      break;
+    case 'apply_completed':
+      requireString(event.proposal_id, 'proposal_id');
+      requireString(event.transaction_id, 'transaction_id');
+      requireBoolean(event.success, 'success');
+      break;
+    case 'rollback_available':
+      requireString(event.transaction_id, 'transaction_id');
+      break;
+    case 'completed':
+      chatCompletionSummary(event.summary);
+      break;
+    case 'cancelled':
+      requireString(event.reason, 'reason');
+      break;
+    case 'failed': {
+      const error = requireRecord(event.error, 'error');
+      requireString(error.code, 'error.code');
+      requireString(error.stage, 'error.stage');
+      requireString(error.message, 'error.message');
+      requireBoolean(error.retriable, 'error.retriable');
+      break;
+    }
+    default:
+      incompatible(`Unknown chat event type ${type}.`);
+  }
+  if (CHAT_TERMINALS.includes(type as (typeof CHAT_TERMINALS)[number])) {
+    // The shared stream parser enforces terminal uniqueness and ordering.
+  }
+  return event as ChatProtocolEvent;
 }
 
 export function validateDoctorReport(value: unknown): DoctorReport {

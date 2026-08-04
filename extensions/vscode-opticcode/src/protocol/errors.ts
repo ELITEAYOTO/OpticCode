@@ -8,10 +8,12 @@ export type ClientErrorCode =
   | 'request_mismatch'
   | 'terminal_missing'
   | 'terminal_duplicate'
+  | 'input_limit'
   | 'output_limit'
   | 'timeout'
   | 'process_failed'
   | 'process_interrupted'
+  | 'cancellation_forced'
   | 'cancellation_unconfirmed';
 
 export class OpticCodeClientError extends Error {

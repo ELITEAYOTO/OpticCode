@@ -1,6 +1,6 @@
 # OpticCode - Architecture cible
 
-Derniere mise a jour : 2026-08-03
+Derniere mise a jour : 2026-08-04
 
 ## Principe
 
@@ -284,6 +284,34 @@ futures. Ils ne doivent etre ajoutes qu'avec leurs propres benchmarks et sans
 affaiblir la restriction locale du chemin Ollama.
 
 Reference : [`llm-protocol.md`](llm-protocol.md).
+
+## Interface Chat VS Code
+
+Etat VSCODE-CHAT-001 implemente :
+
+```text
+ChatRequest VS Code
+  -> normalisation bornee et namespace workspace/session
+  -> opticcode.chat schema 1 sur stdin
+  -> runtime Rust read-only
+  -> contexte/RAG/Java et LlmProvider existants
+  -> evenements NDJSON sequences
+  -> ChatResponseStream natif
+```
+
+- un participant stable `opticcode.chat`, visible sous `@opticcode` ;
+- aucune proposed API, webview, LSP ou daemon ;
+- transport NDJSON factorise avec le client Assistant existant ;
+- references fichiers/ranges/selections canonicalisees et relues par Rust ;
+- historique borne et metadata de session separees par workspace ;
+- un terminal unique et annulation structuree ;
+- commandes d'edition fermees jusqu'a la politique et au pipeline verifie.
+
+La couche TypeScript ne devient pas une seconde implementation du core. Elle
+adapte uniquement les objets VS Code au protocole machine et les evenements aux
+composants natifs du Chat.
+
+Reference : [`vscode-chat.md`](vscode-chat.md).
 
 Regle d'optimisation :
 

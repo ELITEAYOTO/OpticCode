@@ -1,6 +1,6 @@
 # OpticCode for VS Code
 
-Experimental native VS Code client for the local OpticCode Rust CLI. The
+Native VS Code client for the local OpticCode Rust CLI. The
 extension launches `opticcode.exe` directly and consumes the versioned JSON and
 NDJSON protocols. It does not implement Java parsing, RAG, LLM inference, Git,
 worktrees, transactions, or Minecraft legacy rules in TypeScript.
@@ -63,6 +63,17 @@ views. Commands cover installation/status, profile selection, Java syntax and
 symbol context, read-only legacy proposals, worktree verification, streamed Ask
 and Plan, report viewing, lease recovery, and the OutputChannel.
 
+The native Chat view also exposes `@opticcode`. With no slash command it runs
+Ask. Available read-only commands are `/ask`, `/plan`, `/context`, `/analyze`,
+`/index`, `/legacy`, `/status`, `/runs`, and `/help`. The edit commands are
+discoverable but return an explicit unavailable response until the policy and
+verified edit milestones are installed.
+
+Attach files or precise selections with the Chat context controls. OpticCode
+keeps paths workspace-relative, validates them again in Rust, refuses sensitive
+or linked files, and shows why each user reference, discovered context file and
+RAG hit was used.
+
 Findings open the exact file range. Diagnostics are removed when that document
 changes. The only CodeAction is `Verify with OpticCode in Disposable Worktree`;
 it never edits the original document.
@@ -75,6 +86,10 @@ terminal event. VS Code cancellation writes `cancel\n` to the child process.
 Only a terminal `cancelled` event is shown as confirmed cancellation. A forced
 process termination is reported as an interruption.
 
+Chat uses the versioned `opticcode.chat` stdin/NDJSON protocol. History is
+bounded to recent turns and no prompt/source content is persisted in session
+metadata. Connections and run IDs are isolated per workspace.
+
 ## Worktree safety
 
 Verification always asks for confirmation. OpticCode creates a detached
@@ -86,13 +101,13 @@ project, no `--allow-dirty`, no arbitrary shell, and no Git push.
 ## First test
 
 1. Open `benchmarks/java-index-mini` in VS Code.
-2. Run `OpticCode: Check Installation`.
-3. Run `OpticCode: Refresh Status`.
-4. Run `OpticCode: Build Smart Context`.
-5. Run `OpticCode: Ask Qwen`.
-6. Open a legacy fixture and run `OpticCode: Propose Minecraft Legacy Fixes`.
-7. Run `OpticCode: Verify Proposed Fixes in Worktree` only from a clean Git project.
-8. Inspect the report and confirm the original project is unchanged.
+2. Open Chat and run `@opticcode /help`.
+3. Run `@opticcode /status`.
+4. Attach `Helpers.java` and ask `@opticcode /context Locate Helpers#ping().`.
+5. Select a precise range and run `@opticcode /ask Explain this code.`.
+6. Inspect references, context, token counts and the full report.
+7. Open a legacy fixture and run the existing read-only proposal command.
+8. Verify legacy proposals only in a clean disposable worktree.
 
 ## Limitations
 
@@ -102,3 +117,5 @@ project, no `--allow-dirty`, no arbitrary shell, and no Git push.
 - `compare` may produce a context comparison without model text unless double
   generation is explicitly authorized at the CLI level.
 - The extension has no automatic patch application to the original workspace.
+- `/fix`, `/apply` and `/rollback` remain inactive until POLICY-001 and
+  CHAT-EDIT-001 are fully validated.

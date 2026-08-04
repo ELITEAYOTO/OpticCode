@@ -50,6 +50,7 @@ export interface RunRecord {
   build?: string | undefined;
   worktree?: string | undefined;
   reportPath?: string | undefined;
+  workspaceId?: string | undefined;
 }
 
 export interface StatusSnapshot {
