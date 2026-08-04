@@ -691,6 +691,20 @@ naturelles du RAG lexical v2. RAG-002 doit donc prototyper Tantivy face au JSONL
 sur les memes cas, avec manifest incremental et cache. SQLite, embeddings et
 Qdrant ne sont pas encore des dependances justifiees.
 
+## Phase 6.5 - Grounding et metriques Chat
+
+Statut : terminee (`GROUNDING-METRICS-001`).
+
+Livre : scopes de contexte, manifest autoritatif, preuves machine, validation
+de conformite/contamination, isolation de l'historique, `DocumentFacts`,
+metriques multi-horloges, controles VS Code, corpus EVAL grounding et Prompt
+Lab Extension Host reel. Le champ visuel Chat reste un smoke manuel explicite.
+
+Avant `AGENT-001`, il reste uniquement a conserver une baseline Qwen stricte,
+effectuer le smoke visuel apres installation du VSIX et confirmer toutes les
+gates globales sur le commit final. Aucun nouveau moteur RAG n'est requis pour
+commencer la conception de la boucle agent bornee.
+
 ## Phase 7 - Agent iteratif
 
 Statut : a faire.

@@ -9,6 +9,7 @@ import { FindingsProvider, RunsProvider, StatusProvider } from './views';
 
 export interface OpticCodeExtensionApi {
   chatParticipantId: string;
+  promptLabHandler?: vscode.ChatRequestHandler;
 }
 
 export function activate(context: vscode.ExtensionContext): OpticCodeExtensionApi {
@@ -46,7 +47,12 @@ export function activate(context: vscode.ExtensionContext): OpticCodeExtensionAp
   if (readSettings(scope).autoCheckOnStartup) {
     void controller.refreshStatus(false);
   }
-  return { chatParticipantId: chat.participantId };
+  return {
+    chatParticipantId: chat.participantId,
+    ...(process.env['OPTICCODE_PROMPT_LAB'] === '1'
+      ? { promptLabHandler: chat.requestHandler }
+      : {}),
+  };
 }
 
 export function deactivate(): void {}

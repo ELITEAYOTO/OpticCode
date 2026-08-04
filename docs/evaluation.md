@@ -30,6 +30,13 @@ cas dans chacune des cinq categories :
 4. Maven, Gradle, `plugin.yml` et Bukkit ;
 5. regles legacy et cas negatifs.
 
+Le corpus frere `benchmarks/eval/grounding-metrics-v1.json` ajoute 12 cas pour
+les scopes, preuves, contaminations, invalidation de hash, concurrence et
+metriques UI. Il est execute par le Prompt Lab car ces observations exigent le
+participant VS Code et ne correspondent pas aux strategies de retrieval du
+runner EVAL-001. Qwen n'est jamais le juge unique : attentes exactes,
+validateurs Rust et chronometres Extension Host fournissent les verdicts.
+
 Les fixtures versionnees sont petites et artificielles. PandaSpigot et
 Kspawners sont seulement des fixtures externes optionnelles. Leur absence donne
 un resultat `skipped`, sans erreur et sans chemin personnel dans le corpus.

@@ -45,6 +45,11 @@ stricts, le `ProposalStore`, la verification worktree/build offline, le diff
 natif VS Code, l'apply original confirme et le rollback exact. La generation
 d'edition utilise maintenant un schema JSON Ollama et des ancres byte calculees
 par Rust ; le smoke Qwen 14B reel passe en une generation sans toucher l'original.
+GROUNDING-METRICS-001 distingue maintenant selection, resolution et injection,
+ajoute les scopes `automatic`/`references_preferred`/`references_only`, un
+manifest BLAKE3 autoritatif, des preuves validees, `DocumentFacts` sans LLM et
+des horloges separees Rust/processus/Extension Host. Une reponse stricte est
+refusee avant rendu si elle cite un autre fichier ou revele du contexte interne.
 
 - Phase 0 : audit environnement Windows 10 termine.
 - Phase 1 : documentation de cadrage terminee.
@@ -53,7 +58,8 @@ par Rust ; le smoke Qwen 14B reel passe en une generation sans toucher l'origina
 - Phase 3 : recherche depots externes et analyse Qwen Code terminees.
 - Phase 4 : MVP Rust fonctionnel.
 - Phase 5 : apply/worktree, Tree-sitter, index B1, edits B2/B3, LEGACY-002,
-  CONTEXT-001, EVAL-001, CONTEXT-002, POLICY-001 et CHAT-EDIT-001 termines.
+  CONTEXT-001, EVAL-001, CONTEXT-002, POLICY-001, CHAT-EDIT-001 et
+  GROUNDING-METRICS-001 termines.
 - Qualite courante : suites Rust et TypeScript, tests CLI/Chat, Clippy/lint
   stricts, build release et gates specialisees reproductibles.
 - Phase 6 : RAG-SAFE-001 termine ; le passage a Tantivy reste conditionne par un prototype mesure.
@@ -80,6 +86,9 @@ par Rust ; le smoke Qwen 14B reel passe en une generation sans toucher l'origina
 - [Protocole de decouverte client](docs/client-discovery.md)
 - [Extension VS Code experimentale](docs/vscode-extension.md)
 - [Participant Chat natif VS Code](docs/vscode-chat.md)
+- [Grounding strict et preuves](docs/grounding.md)
+- [Metriques et horloges Chat](docs/chat-metrics.md)
+- [Prompt Lab Extension Host](docs/prompt-lab.md)
 - [Moteur de politique deny-by-default](docs/policy-engine.md)
 - [Backlog canonique d'optimisation](docs/optimization-backlog.md)
 - [Etat environnement](docs/environment-audit.md)
@@ -211,6 +220,10 @@ $request | .\target\release\opticcode.exe policy explain --json
 .\scripts\run-vscode-chat-quality.ps1 -WithExtensionHost
 .\scripts\run-policy-quality.ps1
 .\scripts\run-policy-quality.ps1 -Full
+.\scripts\run-grounding-quality.ps1 -Full
+.\scripts\run-chat-metrics-quality.ps1 -Full
+.\scripts\run-vscode-prompt-lab.ps1 -Mock -WithExtensionHost
+.\scripts\run-vscode-prompt-lab.ps1 -WithQwen
 ```
 
 ## Prochaine etape
@@ -221,8 +234,9 @@ prompt Ollama moyen de 1 902 a 1 188 tokens (-37,5 %) et porte Recall@k de
 0,333. `legacy` reste donc le mode par defaut ; `symbol` est opt-in et refuse ou
 fallback explicitement lorsqu'il n'est pas fiable.
 
-`LLM/PROTOCOL-001`, `VSCODE-001`, `VSCODE-CHAT-001`, `POLICY-001` et
-`CHAT-EDIT-001` sont termines : le Chat peut generer un plan strict, verifier
+`LLM/PROTOCOL-001`, `VSCODE-001`, `VSCODE-CHAT-001`, `POLICY-001`,
+`CHAT-EDIT-001` et `GROUNDING-METRICS-001` sont termines : le Chat peut lire
+des references avec preuves, generer un plan strict, verifier
 dans un worktree, afficher le diff, puis appliquer ou rollbacker uniquement
 apres confirmation native. Le prochain jalon reste une premiere boucle agent
 bornee au-dessus de ce workflow ; `RAG-002` Tantivy reste soumis aux mesures

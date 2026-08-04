@@ -192,6 +192,7 @@ export class OpticCodeService {
     return await connection.client.runChatStream(
       [
         'chat',
+        ...promptLabOllamaArguments(),
         '--rag-index',
         path.join(connection.executable.workingDirectory, 'data', 'index'),
         '--http-timeout-ms',
@@ -202,6 +203,30 @@ export class OpticCodeService {
       cancellation,
     );
   }
+}
+
+function promptLabOllamaArguments(): string[] {
+  const value = process.env['OPTICCODE_PROMPT_LAB_OLLAMA_URL'];
+  if (process.env['OPTICCODE_PROMPT_LAB'] !== '1' || value === undefined) {
+    return [];
+  }
+  let endpoint: URL;
+  try {
+    endpoint = new URL(value);
+  } catch {
+    throw new OpticCodeClientError(
+      'protocol_incompatible',
+      'The Prompt Lab Ollama endpoint is not a valid URL.',
+    );
+  }
+  const loopback = new Set(['localhost', '127.0.0.1', '::1']);
+  if (endpoint.protocol !== 'http:' || !loopback.has(endpoint.hostname)) {
+    throw new OpticCodeClientError(
+      'protocol_incompatible',
+      'The Prompt Lab Ollama endpoint must use HTTP on the local loopback interface.',
+    );
+  }
+  return ['--ollama-url', endpoint.toString().replace(/\/$/u, '')];
 }
 
 function normalizedWorkspaceKey(workspace: string): string {

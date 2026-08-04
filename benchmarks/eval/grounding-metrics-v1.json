@@ -1,0 +1,102 @@
+{
+  "schema_version": 1,
+  "id": "opticcode-grounding-metrics-v1",
+  "version": "1.0.0",
+  "fixture": "benchmarks/grounding-plugin",
+  "metrics": [
+    "exact_match",
+    "task_compliance",
+    "unsupported_claim_rate",
+    "evidence_precision",
+    "evidence_recall",
+    "cross_file_leakage",
+    "internal_leakage",
+    "scope_compliance",
+    "cache_correctness",
+    "timing_error"
+  ],
+  "cases": [
+    {
+      "id": "plugin-yml-exact-keys",
+      "reference": "src/main/resources/plugin.yml",
+      "scope": "references_only",
+      "evidence_mode": "required",
+      "expected_route": "document_facts",
+      "expected": ["name", "main", "version", "commands"]
+    },
+    {
+      "id": "plugin-yml-api-version-absent",
+      "reference": "src/main/resources/plugin.yml",
+      "scope": "references_only",
+      "evidence_mode": "required",
+      "expected_route": "document_facts",
+      "expected": ["api-version absent"]
+    },
+    {
+      "id": "plugin-yml-api-version-present",
+      "reference": "src/main/resources/plugin.yml",
+      "scope": "references_only",
+      "evidence_mode": "required",
+      "mutation": "append api-version: 1.13",
+      "expected_route": "document_facts",
+      "expected": ["api-version: 1.13"]
+    },
+    {
+      "id": "reference-only-no-java-leak",
+      "reference": "src/main/resources/plugin.yml",
+      "scope": "references_only",
+      "forbidden": ["UnrelatedListener", "DeathProtectionListener", "OtherCommand"]
+    },
+    {
+      "id": "reference-only-no-history-leak",
+      "reference": "src/main/resources/plugin.yml",
+      "scope": "references_only",
+      "history_fixture": "prior-java-turn",
+      "forbidden": [".java", "listener", "cache"]
+    },
+    {
+      "id": "same-path-new-hash-invalidates-context",
+      "reference": "src/main/resources/plugin.yml",
+      "scope": "references_only",
+      "assertions": ["content_hash_changed", "context_fingerprint_changed", "prompt_fingerprint_changed"]
+    },
+    {
+      "id": "no-internal-cargo-command-leak",
+      "reference": "src/main/resources/plugin.yml",
+      "scope": "references_only",
+      "mock_scenario": "internal_leak",
+      "expected_terminal": "failed",
+      "forbidden_rendered": ["cargo run -q --"]
+    },
+    {
+      "id": "unsupported-evidence-refused",
+      "reference": "src/main/resources/plugin.yml",
+      "scope": "references_only",
+      "mock_scenario": "invalid_evidence",
+      "expected_terminal": "failed"
+    },
+    {
+      "id": "bukkit-sulphur-source-only",
+      "reference": "src/main/java/dev/example/LegacyMaterial.java",
+      "scope": "references_only",
+      "evidence_mode": "required",
+      "expected": ["Material.SULPHUR"]
+    },
+    {
+      "id": "visible-duration-accurate",
+      "mock_scenario": "timing",
+      "assertions": ["first_token_lte_visible", "visible_lte_total", "within_tolerance"]
+    },
+    {
+      "id": "late-metrics-ignored",
+      "mock_scenario": "event_after_terminal",
+      "expected_protocol_error": "terminal_duplicate"
+    },
+    {
+      "id": "parallel-chat-isolation",
+      "references": ["holdouts/nested-commands.yml", "holdouts/absent-key.json"],
+      "scope": "references_only",
+      "assertions": ["different_context_fingerprints", "zero_cross_response_leakage"]
+    }
+  ]
+}
