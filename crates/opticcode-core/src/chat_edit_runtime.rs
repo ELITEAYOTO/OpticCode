@@ -26,7 +26,7 @@ use crate::chat_runtime::{
     emit_text, ChatPolicyAuthorization, ChatRuntimeOptions, CommandOutcome, PreparedRequest,
     RuntimeFailure,
 };
-use crate::{ContextMode, OpticCode};
+use crate::{ContextMode, GroundingRoute, OpticCode};
 
 const EDIT_POLICY_SUMMARY: &str = concat!(
     "Deny by default. Existing allowlisted UTF-8 text modifications and at most one ",
@@ -1201,8 +1201,15 @@ fn outcome_from_generation(
             prompt_tokens: generation.usage.prompt_tokens,
             generated_tokens: generation.usage.generated_tokens,
             generated_tokens_per_second: tokens_per_second,
+            timing: None,
+            route: GroundingRoute::AutomaticAssistant.as_str().to_string(),
         },
         warnings: verification_warning(record).into_iter().collect(),
+        route: GroundingRoute::AutomaticAssistant,
+        grounding_response: None,
+        evidence: None,
+        compliance: None,
+        rag_hits: 0,
     }
 }
 
@@ -1212,6 +1219,11 @@ fn edit_outcome(used_context_mode: Option<ContextMode>, warnings: Vec<String>) -
         used_context_mode,
         metrics: ChatMetrics::default(),
         warnings,
+        route: GroundingRoute::AutomaticAssistant,
+        grounding_response: None,
+        evidence: None,
+        compliance: None,
+        rag_hits: 0,
     }
 }
 

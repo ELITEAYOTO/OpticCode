@@ -1,0 +1,6 @@
+name: ReservePlugin
+metadata:
+  commands:
+    reserve:
+      description: Nested command fixture
+enabled: true

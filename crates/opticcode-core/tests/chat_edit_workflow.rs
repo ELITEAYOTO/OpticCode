@@ -352,6 +352,9 @@ fn request(root: &Path, command: ChatCommand, prompt: &str) -> ChatRequest {
         provider: ProviderId::Ollama,
         model: "fixture-model".to_string(),
         context_mode: ContextMode::Legacy,
+        context_scope: opticcode_core::ChatContextScope::Automatic,
+        scope_reason: opticcode_core::ChatScopeReason::DefaultSetting,
+        evidence_mode: opticcode_core::ChatEvidenceMode::Optional,
         references: if command == ChatCommand::Fix {
             vec![ChatReference {
                 reference_id: "fixture-source".to_string(),

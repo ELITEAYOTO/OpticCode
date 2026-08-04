@@ -1425,3 +1425,31 @@ les controles Rust continuent de refuser toute derive sans mutation.
 
 Reference : [`llm-protocol.md`](llm-protocol.md) et
 [`chat-edits.md`](chat-edits.md).
+
+### D-070 - Rust est l'autorite du grounding
+
+Statut : valide.
+
+Decision : une reference VS Code n'est utilisable comme preuve qu'apres
+resolution, snapshot borne et entree dans `ContextManifest`. En scope
+`references_only`, aucun resume projet, ancien tour source, discovery ou RAG
+n'est injecte. Les claims, ranges et hashes sont verifies apres generation et
+avant rendu. Les faits documentaires simples contournent le LLM.
+
+Raison : le modele ne peut pas garantir lui-meme quels octets il a recus, ni
+recalculer un hash/range autoritatif, ni detecter une mutation TOCTOU.
+
+### D-071 - Mesurer les durees dans leur propre processus
+
+Statut : valide.
+
+Decision : Rust, le client processus et le handler Extension Host utilisent
+chacun une horloge monotone locale. L'UI distingue premier contenu, streaming,
+reponse visible, pipeline total, modele, contexte et post-traitement. Aucun
+timestamp absolu cross-processus n'est soustrait.
+
+Raison : l'ancien `Duration` affichait un total Rust sous un libelle perceptuel
+ambigu et ne pouvait pas expliquer un terminal tardif.
+
+References : [`grounding.md`](grounding.md),
+[`chat-metrics.md`](chat-metrics.md) et [`prompt-lab.md`](prompt-lab.md).

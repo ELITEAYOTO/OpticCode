@@ -1,0 +1,5 @@
+name = "ReserveToml"
+
+[server]
+host = "localhost"
+port = 25565

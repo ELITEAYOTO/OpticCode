@@ -4,6 +4,7 @@ mod chat_protocol;
 mod chat_runtime;
 mod context_runtime;
 mod eval_runtime;
+mod grounding;
 mod protocol;
 
 pub use assistant_runtime::{
@@ -16,12 +17,12 @@ pub use chat_protocol::{
     chat_event_channel, chat_setup_failure_event, validate_chat_request_id, ChatBudgets,
     ChatClientMetadata, ChatCommand, ChatCompletionSummary, ChatContextFile, ChatControlKind,
     ChatControlMessage, ChatEditControl, ChatEditReviewFile, ChatEventReceiver, ChatEventSink,
-    ChatExpectedProtocols, ChatGenerationOptions, ChatHistoryRole, ChatHistoryTurn, ChatMetrics,
-    ChatNativeConfirmation, ChatProtocolError, ChatProtocolEvent, ChatProtocolEventPayload,
-    ChatProtocolSession, ChatReference, ChatReferenceTarget, ChatRejectedReference, ChatRequest,
-    ChatResolvedReference, ChatSecurityMode, ChatTextPosition, ChatTextRange,
-    CHAT_CONTROL_PROTOCOL_ID, CHAT_PROTOCOL_ID, CHAT_PROTOCOL_SCHEMA_VERSION,
-    DEFAULT_CHAT_EVENT_CAPACITY, MAX_CHAT_REQUEST_BYTES,
+    ChatExpectedProtocols, ChatGenerationOptions, ChatGroundingSummary, ChatHistoryRole,
+    ChatHistoryTurn, ChatMetrics, ChatNativeConfirmation, ChatProtocolError, ChatProtocolEvent,
+    ChatProtocolEventPayload, ChatProtocolSession, ChatReference, ChatReferenceTarget,
+    ChatRejectedReference, ChatRequest, ChatResolvedReference, ChatSecurityMode, ChatTextPosition,
+    ChatTextRange, ChatTimingPhase, ChatTimingReport, CHAT_CONTROL_PROTOCOL_ID, CHAT_PROTOCOL_ID,
+    CHAT_PROTOCOL_SCHEMA_VERSION, DEFAULT_CHAT_EVENT_CAPACITY, MAX_CHAT_REQUEST_BYTES,
 };
 pub use chat_runtime::{
     execute_chat, ChatExecutionReport, ChatExecutionStatus, ChatRuntimeOptions,
@@ -33,6 +34,12 @@ pub use context_runtime::{
     PreparedContextVariant, ASSISTANT_CONTEXT_SCHEMA_VERSION,
 };
 pub use eval_runtime::{enrich_evaluation_with_llm, EvalLlmRuntimeOptions};
+pub use grounding::{
+    ChatContextScope, ChatEvidenceMode, ChatScopeReason, ClaimClassification, ComplianceReport,
+    ContextManifest, ContextManifestEntry, ContextManifestRange, DocumentFactsResult,
+    EvidenceCitation, EvidenceValidationReport, GroundedClaim, GroundedResponse, GroundingRoute,
+    GROUNDING_PROMPT_VERSION, GROUNDING_SCHEMA_VERSION,
+};
 pub use protocol::{
     assistant_event_channel, generated_request_id, validate_assistant_request_id,
     AssistantCompletionContextFile, AssistantCompletionRun, AssistantCompletionSummary,

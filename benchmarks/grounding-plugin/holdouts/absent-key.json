@@ -1,0 +1,7 @@
+{
+  "name": "ReserveJson",
+  "enabled": true,
+  "limits": {
+    "players": 64
+  }
+}

@@ -6,6 +6,21 @@ Derniere mise a jour : 2026-08-04
 
 OpticCode n'est pas un modele IA. C'est un agent local qui orchestre un modele open-weight deja entraine, des outils de code, une memoire projet et une base documentaire specialisee.
 
+Pour une requete Chat stricte, le chemin autoritatif est :
+
+```text
+VS Code reference actuelle
+  -> resolution sure Rust + snapshot BLAKE3
+  -> ContextManifest versionne
+  -> DocumentFacts ou provider structure
+  -> validation evidence + conformite + TOCTOU
+  -> rendu VS Code et horloges locales
+```
+
+La reference candidate, le contexte decouvert et le contenu injecte sont des
+objets distincts. Voir [`grounding.md`](grounding.md) et
+[`chat-metrics.md`](chat-metrics.md).
+
 ## Architecture logique
 
 ```text

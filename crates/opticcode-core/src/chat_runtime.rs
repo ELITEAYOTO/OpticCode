@@ -2,7 +2,7 @@ use std::collections::BTreeSet;
 use std::future::Future;
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use anyhow::Result;
 use opticcode_policy::{
@@ -19,18 +19,26 @@ use opticcode_tools::rag::{
 };
 
 use crate::chat_protocol::{
-    ChatCommand, ChatCompletionSummary, ChatContextFile, ChatEventEmitter, ChatMetrics,
-    ChatProtocolError, ChatProtocolEventPayload, ChatProtocolSession, ChatReference,
+    ChatCommand, ChatCompletionSummary, ChatContextFile, ChatEventEmitter, ChatGroundingSummary,
+    ChatMetrics, ChatProtocolError, ChatProtocolEventPayload, ChatProtocolSession, ChatReference,
     ChatReferenceTarget, ChatRejectedReference, ChatRequest, ChatResolvedReference,
-    ChatSecurityMode, ChatTextPosition, ChatTextRange, CHAT_PROTOCOL_ID,
-    CHAT_PROTOCOL_SCHEMA_VERSION, MAX_CHAT_EVENT_TEXT_BYTES, MAX_CHAT_HISTORY_CHARS,
-    MAX_CHAT_HISTORY_TOKENS, MAX_CHAT_HISTORY_TURNS, MAX_CHAT_OUTPUT_TOKENS, MAX_CHAT_PROMPT_CHARS,
-    MAX_CHAT_REFERENCES, MAX_CHAT_REFERENCE_BYTES,
+    ChatSecurityMode, ChatTextPosition, ChatTextRange, ChatTimingPhase, ChatTimingReport,
+    CHAT_PROTOCOL_ID, CHAT_PROTOCOL_SCHEMA_VERSION, MAX_CHAT_EVENT_TEXT_BYTES,
+    MAX_CHAT_HISTORY_CHARS, MAX_CHAT_HISTORY_TOKENS, MAX_CHAT_HISTORY_TURNS,
+    MAX_CHAT_OUTPUT_TOKENS, MAX_CHAT_PROMPT_CHARS, MAX_CHAT_REFERENCES, MAX_CHAT_REFERENCE_BYTES,
+};
+use crate::grounding::{
+    build_context_manifest, build_grounded_prompt, effective_context_scope,
+    grounded_response_schema, inspect_document_facts, prompt_fingerprint, validate_compliance,
+    validate_evidence, PromptFingerprintInput, ReferenceSnapshot,
 };
 use crate::{
     assistant_event_channel, prepare_assistant_context, AskOptions, AssistantCommandReport,
-    AssistantProtocolEventPayload, AssistantProtocolSession, ContextFallbackPolicy, ContextMode,
-    OpticCode, PlanOptions, ASSISTANT_PROTOCOL_SCHEMA_VERSION, DEFAULT_ASSISTANT_EVENT_CAPACITY,
+    AssistantProtocolEventPayload, AssistantProtocolSession, ChatContextScope, ChatEvidenceMode,
+    ChatScopeReason, ComplianceReport, ContextFallbackPolicy, ContextManifest,
+    ContextManifestRange, ContextMode, EvidenceValidationReport, GenerationResult,
+    GroundedResponse, GroundingRoute, OpticCode, PlanOptions, ASSISTANT_PROTOCOL_SCHEMA_VERSION,
+    DEFAULT_ASSISTANT_EVENT_CAPACITY,
 };
 
 const MAX_ID_BYTES: usize = 128;
@@ -113,16 +121,30 @@ impl std::error::Error for RuntimeFailure {}
 pub(crate) struct PreparedRequest {
     pub(crate) workspace: PathBuf,
     pub(crate) prompt: String,
+    pub(crate) user_prompt: String,
     pub(crate) references: Vec<ChatResolvedReference>,
     pub(crate) rejected: Vec<ChatRejectedReference>,
     pub(crate) warnings: Vec<String>,
     pub(crate) repository_state: String,
+    pub(crate) requested_scope: ChatContextScope,
+    pub(crate) effective_scope: ChatContextScope,
+    pub(crate) scope_reason: ChatScopeReason,
+    pub(crate) evidence_mode: ChatEvidenceMode,
+    pub(crate) manifest: ContextManifest,
+    pub(crate) prompt_fingerprint: String,
+    pub(crate) snapshots: Vec<ReferenceSnapshot>,
+    pub(crate) selected_references: usize,
+    pub(crate) resolved_references: usize,
+    pub(crate) historical_turns: usize,
+    pub(crate) reference_resolution_ms: u64,
+    pub(crate) prompt_build_ms: u64,
 }
 
 #[derive(Debug)]
 struct ReferenceMaterial {
     summary: ChatResolvedReference,
     prompt_content: String,
+    snapshot: Option<ReferenceSnapshot>,
 }
 
 #[derive(Debug)]
@@ -131,6 +153,11 @@ pub(crate) struct CommandOutcome {
     pub(crate) used_context_mode: Option<ContextMode>,
     pub(crate) metrics: ChatMetrics,
     pub(crate) warnings: Vec<String>,
+    pub(crate) route: GroundingRoute,
+    pub(crate) grounding_response: Option<GroundedResponse>,
+    pub(crate) evidence: Option<EvidenceValidationReport>,
+    pub(crate) compliance: Option<ComplianceReport>,
+    pub(crate) rag_hits: usize,
 }
 
 #[derive(Debug)]
@@ -172,14 +199,55 @@ pub async fn execute_chat(
         }
         Ok((prepared, mut outcome)) => {
             outcome.metrics.total_ms = elapsed_ms(started);
+            outcome.metrics.route = outcome.route.as_str().to_string();
+            let timing = outcome
+                .metrics
+                .timing
+                .get_or_insert_with(|| timing_report(&request, Vec::new()));
+            timing.phases.retain(|phase| phase.name != "runtime_total");
+            timing.phases.push(timing_phase(
+                "runtime_total",
+                outcome.metrics.total_ms,
+                "opticcode-core",
+                &["request_received", "terminal_preparation"],
+            ));
             emitter
                 .send(ChatProtocolEventPayload::Metrics {
+                    metrics: outcome.metrics.clone(),
+                })
+                .await?;
+            emitter
+                .send(ChatProtocolEventPayload::TimingMetrics {
                     metrics: outcome.metrics.clone(),
                 })
                 .await?;
             let mut warnings = prepared.warnings.clone();
             warnings.extend(outcome.warnings);
             warnings.truncate(MAX_WARNING_COUNT);
+            let grounding = ChatGroundingSummary {
+                schema_version: crate::GROUNDING_SCHEMA_VERSION,
+                route: outcome.route,
+                requested_scope: prepared.requested_scope,
+                effective_scope: prepared.effective_scope,
+                scope_reason: prepared.scope_reason,
+                evidence_mode: prepared.evidence_mode,
+                selected_references: prepared.selected_references,
+                resolved_references: prepared.resolved_references,
+                injected_references: prepared.manifest.entries.len(),
+                refused_references: prepared.rejected.len(),
+                discovered_files: if outcome.route == GroundingRoute::AutomaticAssistant {
+                    outcome.context_files.len()
+                } else {
+                    0
+                },
+                rag_hits: outcome.rag_hits,
+                historical_turns: prepared.historical_turns,
+                prompt_fingerprint: prepared.prompt_fingerprint.clone(),
+                manifest: prepared.manifest.clone(),
+                response: outcome.grounding_response.clone(),
+                evidence: outcome.evidence.clone(),
+                compliance: outcome.compliance.clone(),
+            };
             let summary = ChatCompletionSummary {
                 command: request.command,
                 success: true,
@@ -193,9 +261,12 @@ pub async fn execute_chat(
                 metrics: outcome.metrics,
                 repository_state: prepared.repository_state.clone(),
                 run_id: request.request_id.clone(),
+                grounding: Some(grounding),
             };
             emitter
-                .send(ChatProtocolEventPayload::Completed { summary })
+                .send(ChatProtocolEventPayload::Completed {
+                    summary: Box::new(summary),
+                })
                 .await?;
             Ok(ChatExecutionReport {
                 request_id,
@@ -274,15 +345,42 @@ async fn execute_chat_inner(
 
     let outcome = match request.command {
         ChatCommand::Ask | ChatCommand::Plan => {
-            let app = app.ok_or_else(|| {
-                RuntimeFailure::new(
-                    "provider_unavailable",
-                    "provider_setup",
-                    "the configured local LLM provider is unavailable",
+            if prepared.effective_scope != ChatContextScope::Automatic
+                && !prepared.snapshots.is_empty()
+            {
+                run_grounded_assistant(
+                    app,
+                    request,
+                    &prepared,
+                    emitter,
+                    cancellation,
+                    options,
+                    started,
                 )
-                .retriable(true)
-            })?;
-            run_assistant(
+                .await?
+            } else {
+                let app = app.ok_or_else(|| {
+                    RuntimeFailure::new(
+                        "provider_unavailable",
+                        "provider_setup",
+                        "the configured local LLM provider is unavailable",
+                    )
+                    .retriable(true)
+                })?;
+                run_assistant(
+                    app,
+                    request,
+                    &prepared,
+                    emitter,
+                    cancellation,
+                    options,
+                    started,
+                )
+                .await?
+            }
+        }
+        ChatCommand::Inspect => {
+            run_grounded_assistant(
                 app,
                 request,
                 &prepared,
@@ -660,6 +758,19 @@ async fn prepare_request(
             format!("workspace cannot be resolved: {error}"),
         )
     })?;
+    let (effective_scope, scope_reason) =
+        effective_context_scope(request.context_scope, request.scope_reason, &request.prompt);
+    for reference in &request.references {
+        emitter
+            .send(ChatProtocolEventPayload::ReferenceSelected {
+                reference_id: reference.reference_id.clone(),
+                kind: reference.target.kind().to_string(),
+                path: reference.target.path().map(ToString::to_string),
+                origin: "user_attachment".to_string(),
+            })
+            .await
+            .map_err(event_failure)?;
+    }
     emitter
         .send(ChatProtocolEventPayload::ReferencesResolving {
             count: request.references.len(),
@@ -667,43 +778,115 @@ async fn prepare_request(
         .await
         .map_err(event_failure)?;
 
+    let resolution_started = Instant::now();
     let mut accepted_material = Vec::new();
     let mut rejected = Vec::new();
     let mut retained_bytes = 0usize;
     for reference in &request.references {
-        match resolve_reference(&workspace, reference, request.budgets.max_reference_bytes) {
-            Ok(material)
+        match resolve_reference(
+            &workspace,
+            &request.workspace_id,
+            reference,
+            request.budgets.max_reference_bytes,
+        ) {
+            Ok(mut material)
                 if retained_bytes.saturating_add(material.summary.bytes)
                     <= request.budgets.max_reference_bytes =>
             {
                 retained_bytes = retained_bytes.saturating_add(material.summary.bytes);
+                if material.snapshot.is_some() {
+                    material.summary.injection = "injected".to_string();
+                    material.summary.bytes_injected = material.summary.bytes;
+                } else {
+                    material.summary.injection = "identity_only".to_string();
+                }
+                emitter
+                    .send(ChatProtocolEventPayload::ReferenceResolved {
+                        reference: material.summary.clone(),
+                    })
+                    .await
+                    .map_err(event_failure)?;
                 accepted_material.push(material);
             }
-            Ok(_) => rejected.push(rejected_reference(
-                reference,
-                "size.total_reference_budget",
-                "reference would exceed the total attachment budget",
-            )),
-            Err(error) => rejected.push(rejected_reference(reference, error.code, &error.message)),
+            Ok(_) => {
+                let refused = rejected_reference(
+                    reference,
+                    "size.total_reference_budget",
+                    "reference would exceed the total attachment budget",
+                );
+                emitter
+                    .send(ChatProtocolEventPayload::ReferenceRefused {
+                        reference: refused.clone(),
+                    })
+                    .await
+                    .map_err(event_failure)?;
+                rejected.push(refused);
+            }
+            Err(error) => {
+                let refused = rejected_reference(reference, error.code, &error.message);
+                emitter
+                    .send(ChatProtocolEventPayload::ReferenceRefused {
+                        reference: refused.clone(),
+                    })
+                    .await
+                    .map_err(event_failure)?;
+                rejected.push(refused);
+            }
         }
     }
-    let references = accepted_material
+    let reference_resolution_ms = duration_ms_floor(resolution_started.elapsed());
+    let resolved = accepted_material
         .iter()
         .map(|material| material.summary.clone())
         .collect::<Vec<_>>();
     emitter
         .send(ChatProtocolEventPayload::ReferencesResolved {
-            accepted: references.clone(),
+            accepted: resolved,
             rejected: rejected.clone(),
         })
         .await
         .map_err(event_failure)?;
 
+    let snapshots = accepted_material
+        .iter()
+        .filter_map(|material| material.snapshot.clone())
+        .collect::<Vec<_>>();
+    let references = accepted_material
+        .iter()
+        .filter(|material| material.snapshot.is_some())
+        .map(|material| material.summary.clone())
+        .collect::<Vec<_>>();
+    for reference in &references {
+        emitter
+            .send(ChatProtocolEventPayload::ReferenceInjected {
+                reference: reference.clone(),
+            })
+            .await
+            .map_err(event_failure)?;
+    }
+    if effective_scope == ChatContextScope::ReferencesOnly && snapshots.is_empty() {
+        return Err(RuntimeFailure::new(
+            if request.references.is_empty() {
+                "references_required"
+            } else {
+                "reference_unavailable"
+            },
+            "grounding_scope",
+            "references_only requires at least one readable reference attached to the current request",
+        ));
+    }
+
     let mut warnings = rejected
         .iter()
         .map(|item| format!("{}: {}", item.rule_id, item.reason))
         .collect::<Vec<_>>();
-    let (history, history_warnings) = bounded_history(request);
+    let allow_broad_context = effective_scope == ChatContextScope::Automatic
+        || (effective_scope == ChatContextScope::ReferencesPreferred && snapshots.is_empty());
+    let (history, history_warnings, historical_turns) = if allow_broad_context {
+        bounded_history(request, effective_scope)
+    } else {
+        ("none".to_string(), Vec::new(), 0)
+    };
     warnings.extend(history_warnings);
     warnings.truncate(MAX_WARNING_COUNT);
     for warning in &warnings {
@@ -717,16 +900,41 @@ async fn prepare_request(
     }
 
     let (project_summary, repository_state) = project_summary(&workspace);
-    let explicit_references = render_reference_material(&accepted_material);
-    let prompt = format!(
-        concat!(
-            "[PROJECT_SUMMARY]\n{}\n\n",
-            "[CHAT_HISTORY]\n{}\n\n",
-            "[CURRENT_REQUEST]\n{}\n\n",
-            "[EXPLICIT_REFERENCES]\n{}"
-        ),
-        project_summary, history, request.prompt, explicit_references
+    let manifest = build_context_manifest(
+        effective_scope,
+        &request.workspace_id,
+        &request.request_id,
+        &request.profile,
+        &snapshots,
     );
+    let prompt_build_started = Instant::now();
+    let prompt = if allow_broad_context {
+        let explicit_references = render_reference_material(&accepted_material);
+        format!(
+            concat!(
+                "[PROJECT_SUMMARY]\n{}\n\n",
+                "[CHAT_HISTORY]\n{}\n\n",
+                "[CURRENT_REQUEST]\n{}\n\n",
+                "[EXPLICIT_REFERENCES]\n{}"
+            ),
+            project_summary, history, request.prompt, explicit_references
+        )
+    } else {
+        build_grounded_prompt(
+            &request.prompt,
+            &manifest,
+            &snapshots,
+            request.evidence_mode,
+        )
+        .map_err(|error| {
+            RuntimeFailure::new(
+                "grounded_prompt_failed",
+                "prompt_preparation",
+                error.to_string(),
+            )
+        })?
+    };
+    let prompt_build_ms = duration_ms_floor(prompt_build_started.elapsed());
     if estimate_tokens(&prompt) > request.budgets.max_prompt_tokens {
         return Err(RuntimeFailure::new(
             "prompt_budget_exceeded",
@@ -734,18 +942,65 @@ async fn prepare_request(
             "bounded history and explicit references exceed the configured prompt budget",
         ));
     }
+    let context_mode = request.context_mode.to_string();
+    let provider = request.provider.to_string();
+    let max_output_tokens = request.generation.max_output_tokens.to_string();
+    let brief = request.generation.brief.to_string();
+    let compare_generate = request.generation.compare_generate.to_string();
+    let rag_hits = request.budgets.rag_hits.to_string();
+    let prompt_fingerprint = prompt_fingerprint(PromptFingerprintInput {
+        task: &request.prompt,
+        manifest: &manifest,
+        evidence_mode: request.evidence_mode,
+        command: request.command.as_str(),
+        model: &request.model,
+        temperature: request.generation.temperature,
+        seed: request.generation.seed,
+        cache_dimensions: &[
+            ("repository_state", repository_state.as_str()),
+            ("context_mode", context_mode.as_str()),
+            ("session_namespace", request.client.session_id.as_str()),
+            ("provider", provider.as_str()),
+            ("max_output_tokens", max_output_tokens.as_str()),
+            ("brief", brief.as_str()),
+            ("compare_generate", compare_generate.as_str()),
+            ("rag_hits", rag_hits.as_str()),
+            ("authorized_history", history.as_str()),
+        ],
+    });
+    emitter
+        .send(ChatProtocolEventPayload::ContextManifestReady {
+            manifest: manifest.clone(),
+            prompt_fingerprint: prompt_fingerprint.clone(),
+        })
+        .await
+        .map_err(event_failure)?;
     Ok(PreparedRequest {
         workspace,
         prompt,
+        user_prompt: request.prompt.clone(),
         references,
         rejected,
         warnings,
         repository_state,
+        requested_scope: request.context_scope,
+        effective_scope,
+        scope_reason,
+        evidence_mode: request.evidence_mode,
+        manifest,
+        prompt_fingerprint,
+        snapshots,
+        selected_references: request.references.len(),
+        resolved_references: accepted_material.len(),
+        historical_turns,
+        reference_resolution_ms,
+        prompt_build_ms,
     })
 }
 
 fn resolve_reference(
     workspace: &Path,
+    workspace_id: &str,
     reference: &ChatReference,
     _total_budget: usize,
 ) -> std::result::Result<ReferenceMaterial, RuntimeFailure> {
@@ -781,10 +1036,11 @@ fn resolve_reference(
                     .map_err(|error| {
                         RuntimeFailure::new(error.rule_id, "reference_resolution", error.message)
                     })?;
-            let content = match target {
+            let full_hash = blake3::hash(file.content.as_bytes()).to_hex().to_string();
+            let (content, range) = match target {
                 ChatReferenceTarget::Range { range, .. }
                 | ChatReferenceTarget::Selection { range, .. } => {
-                    extract_utf16_range(&file.content, *range)?
+                    extract_utf16_range_snapshot(&file.content, *range)?
                 }
                 ChatReferenceTarget::Symbol { symbol, range, .. } => {
                     if symbol.is_empty() || symbol.chars().count() > MAX_SYMBOL_CHARS {
@@ -795,15 +1051,33 @@ fn resolve_reference(
                         ));
                     }
                     if let Some(range) = range {
-                        extract_utf16_range(&file.content, *range)?
+                        extract_utf16_range_snapshot(&file.content, *range)?
                     } else {
-                        extract_symbol_context(&file.content, symbol)?
+                        let extracted = extract_symbol_context(&file.content, symbol)?;
+                        let start = file.content.find(&extracted).ok_or_else(|| {
+                            RuntimeFailure::new(
+                                "reference.symbol_location",
+                                "reference_resolution",
+                                "materialized symbol could not be located in its source snapshot",
+                            )
+                        })?;
+                        let end = start.saturating_add(extracted.len());
+                        (
+                            extracted,
+                            manifest_range_from_bytes(&file.content, start, end),
+                        )
                     }
                 }
                 ChatReferenceTarget::Finding {
                     range: Some(range), ..
-                } => extract_utf16_range(&file.content, *range)?,
-                _ => file.content.clone(),
+                } => extract_utf16_range_snapshot(&file.content, *range)?,
+                _ => {
+                    let end = file.content.len();
+                    (
+                        file.content.clone(),
+                        manifest_range_from_bytes(&file.content, 0, end),
+                    )
+                }
             };
             if content.len() > MAX_SAFE_REFERENCE_FILE_BYTES as usize {
                 return Err(RuntimeFailure::new(
@@ -812,20 +1086,56 @@ fn resolve_reference(
                     "materialized reference exceeds the hard byte limit",
                 ));
             }
+            let injected_hash = blake3::hash(content.as_bytes()).to_hex().to_string();
+            let stable =
+                read_safe_workspace_file(workspace, Path::new(path), MAX_SAFE_REFERENCE_FILE_BYTES)
+                    .map_err(|error| {
+                        RuntimeFailure::new(error.rule_id, "reference_revalidation", error.message)
+                    })?;
+            if blake3::hash(stable.content.as_bytes()).to_hex().as_str() != full_hash {
+                return Err(RuntimeFailure::new(
+                    "reference_changed_during_read",
+                    "reference_revalidation",
+                    "reference changed while its authoritative snapshot was being prepared",
+                ));
+            }
+            let summary = ChatResolvedReference {
+                reference_id: reference.reference_id.clone(),
+                kind: target.kind().to_string(),
+                path: Some(file.relative_path.clone()),
+                range: target.range().copied(),
+                inclusion_reason: bounded_text(
+                    &reference.inclusion_reason,
+                    MAX_REFERENCE_REASON_CHARS,
+                ),
+                provenance: "user_reference".to_string(),
+                bytes: content.len(),
+                content_hash: Some(injected_hash.clone()),
+                origin: "user_attachment".to_string(),
+                resolution: "resolved".to_string(),
+                security_decision: "allow".to_string(),
+                injection: "accepted".to_string(),
+                bytes_injected: 0,
+                reason: "explicit_user_reference".to_string(),
+                full_content_hash: Some(full_hash.clone()),
+            };
             Ok(ReferenceMaterial {
-                summary: ChatResolvedReference {
+                summary,
+                snapshot: Some(ReferenceSnapshot {
                     reference_id: reference.reference_id.clone(),
-                    kind: target.kind().to_string(),
-                    path: Some(file.relative_path.clone()),
-                    range: target.range().copied(),
-                    inclusion_reason: bounded_text(
-                        &reference.inclusion_reason,
-                        MAX_REFERENCE_REASON_CHARS,
-                    ),
-                    provenance: "user_reference".to_string(),
-                    bytes: content.len(),
-                    content_hash: Some(blake3::hash(content.as_bytes()).to_hex().to_string()),
-                },
+                    path: file.relative_path,
+                    origin: "user_attachment".to_string(),
+                    file_hash: full_hash,
+                    injected_hash,
+                    file_size: file.content.len(),
+                    encoding: "utf-8".to_string(),
+                    line_ending: detect_line_ending(&file.content).to_string(),
+                    range,
+                    content: content.clone(),
+                    reason: "explicit_user_reference".to_string(),
+                    git_state: reference_git_state(workspace, path),
+                    workspace_id: workspace_id.to_string(),
+                }),
                 prompt_content: content,
             })
         }
@@ -843,8 +1153,16 @@ fn metadata_reference(reference: &ChatReference, prompt_content: String) -> Refe
             provenance: "user_reference".to_string(),
             bytes: 0,
             content_hash: None,
+            origin: "user_attachment".to_string(),
+            resolution: "resolved".to_string(),
+            security_decision: "allow".to_string(),
+            injection: "identity_only".to_string(),
+            bytes_injected: 0,
+            reason: "metadata_identity_only".to_string(),
+            full_content_hash: None,
         },
         prompt_content,
+        snapshot: None,
     }
 }
 
@@ -858,6 +1176,10 @@ fn rejected_reference(
         kind: reference.target.kind().to_string(),
         rule_id: bounded_text(rule_id, 128),
         reason: bounded_text(reason, 2 * 1024),
+        path: reference.target.path().map(ToString::to_string),
+        origin: "user_attachment".to_string(),
+        injection: "refused".to_string(),
+        reason_code: bounded_text(rule_id, 128),
     }
 }
 
@@ -881,15 +1203,42 @@ fn render_reference_material(material: &[ReferenceMaterial]) -> String {
         .join("\n\n")
 }
 
-fn bounded_history(request: &ChatRequest) -> (String, Vec<String>) {
+fn bounded_history(
+    request: &ChatRequest,
+    effective_scope: ChatContextScope,
+) -> (String, Vec<String>, usize) {
     if request.history.is_empty() {
-        return ("none".to_string(), Vec::new());
+        return ("none".to_string(), Vec::new(), 0);
     }
     let mut selected = Vec::new();
     let mut chars = 0usize;
     let mut tokens = 0usize;
     let mut warnings = Vec::new();
     for turn in request.history.iter().rev() {
+        let strict_history_metadata_missing = effective_scope != ChatContextScope::Automatic
+            && (turn.workspace_id.as_deref() != Some(request.workspace_id.as_str())
+                || turn.grounding_status.as_deref() != Some("grounded")
+                || turn
+                    .context_fingerprint
+                    .as_deref()
+                    .is_none_or(str::is_empty));
+        if strict_history_metadata_missing
+            || turn
+                .workspace_id
+                .as_deref()
+                .is_some_and(|workspace| workspace != request.workspace_id)
+            || turn
+                .grounding_status
+                .as_deref()
+                .is_some_and(|status| status != "grounded")
+            || turn.source_scope.is_some_and(|scope| {
+                effective_scope == ChatContextScope::ReferencesPreferred
+                    && scope == ChatContextScope::Automatic
+            })
+        {
+            warnings.push("an incompatible or ungrounded historical turn was omitted".to_string());
+            continue;
+        }
         if selected.len() >= request.budgets.max_history_turns {
             warnings.push("older chat turns were omitted by the turn budget".to_string());
             break;
@@ -924,7 +1273,8 @@ fn bounded_history(request: &ChatRequest) -> (String, Vec<String>) {
         ));
     }
     selected.reverse();
-    (selected.join("\n\n"), warnings)
+    let retained = selected.len();
+    (selected.join("\n\n"), warnings, retained)
 }
 
 fn looks_like_large_diff_or_report(content: &str) -> bool {
@@ -979,6 +1329,477 @@ fn project_summary(workspace: &Path) -> (String, String) {
         },
     );
     (summary, digest)
+}
+
+async fn run_grounded_assistant(
+    app: Option<&OpticCode>,
+    request: &ChatRequest,
+    prepared: &PreparedRequest,
+    emitter: &ChatEventEmitter,
+    cancellation: &opticcode_llm::CancellationToken,
+    options: &ChatRuntimeOptions,
+    started: Instant,
+) -> std::result::Result<CommandOutcome, RuntimeFailure> {
+    emitter
+        .send(ChatProtocolEventPayload::ContextStarted {
+            requested_mode: request.context_mode,
+        })
+        .await
+        .map_err(event_failure)?;
+    let context_files = prepared
+        .manifest
+        .entries
+        .iter()
+        .map(|entry| ChatContextFile {
+            path: entry.path.clone(),
+            snippets: entry.ranges.len(),
+            provenance: entry.origin.clone(),
+        })
+        .collect::<Vec<_>>();
+    emitter
+        .send(ChatProtocolEventPayload::ContextReady {
+            requested_mode: request.context_mode,
+            used_mode: None,
+            analysis_complete: true,
+            estimated_tokens: prepared.manifest.estimated_tokens,
+            files: context_files.clone(),
+        })
+        .await
+        .map_err(event_failure)?;
+    emitter
+        .send(ChatProtocolEventPayload::RetrievalProgress {
+            query_count: 0,
+            hit_count: 0,
+        })
+        .await
+        .map_err(event_failure)?;
+    if cancellation.is_cancelled() {
+        return Err(RuntimeFailure::new(
+            "request_cancelled",
+            "grounded_context",
+            "request was cancelled before grounded answer generation",
+        ));
+    }
+
+    let force_document_inspection = request.command == ChatCommand::Inspect;
+    let document_facts = if prepared.snapshots.len() == 1 {
+        inspect_document_facts(
+            &prepared.user_prompt,
+            &prepared.snapshots[0],
+            force_document_inspection,
+        )
+        .map_err(|error| {
+            RuntimeFailure::new(
+                "document_inspection_failed",
+                "document_facts",
+                format!("deterministic document inspection failed: {error:#}"),
+            )
+        })?
+    } else {
+        None
+    };
+
+    if let Some(facts) = document_facts {
+        emitter
+            .send(ChatProtocolEventPayload::DocumentInspectionCompleted {
+                format: facts.format,
+                facts: facts.response.claims.len(),
+                model_calls: facts.model_calls,
+            })
+            .await
+            .map_err(event_failure)?;
+        let validation_started = Instant::now();
+        let (evidence, compliance) = validate_grounded_answer(
+            prepared,
+            &facts.response,
+            GroundingRoute::DocumentFacts,
+            emitter,
+        )
+        .await?;
+        let validation_ms = duration_ms_floor(validation_started.elapsed());
+        revalidate_reference_snapshots(prepared)?;
+        emit_text(emitter, &facts.response.answer).await?;
+        return Ok(CommandOutcome {
+            context_files,
+            used_context_mode: None,
+            metrics: grounded_metrics(
+                request,
+                prepared,
+                GroundingRoute::DocumentFacts,
+                &[],
+                validation_ms,
+                started,
+            ),
+            warnings: Vec::new(),
+            route: GroundingRoute::DocumentFacts,
+            grounding_response: Some(facts.response),
+            evidence: Some(evidence),
+            compliance: Some(compliance),
+            rag_hits: 0,
+        });
+    }
+
+    let app = app.ok_or_else(|| {
+        RuntimeFailure::new(
+            "provider_unavailable",
+            "provider_setup",
+            "the deterministic route did not match and the configured local LLM provider is unavailable",
+        )
+        .retriable(true)
+    })?;
+    if options.verify_model {
+        app.ensure_model_available().await.map_err(|error| {
+            RuntimeFailure::new(
+                "model_unavailable",
+                "provider_setup",
+                format!("configured model verification failed: {error:#}"),
+            )
+            .retriable(true)
+        })?;
+    }
+    emitter
+        .send(ChatProtocolEventPayload::ProviderStarted {
+            provider: request.provider,
+            model: request.model.clone(),
+            context_mode: request.context_mode,
+        })
+        .await
+        .map_err(event_failure)?;
+    let generations = generate_grounded_response(app, request, prepared, cancellation).await?;
+    let response = parse_grounded_response(
+        &generations
+            .last()
+            .expect("grounded generation always contains at least one result")
+            .output,
+    )?;
+    if cancellation.is_cancelled() {
+        return Err(RuntimeFailure::new(
+            "request_cancelled",
+            "grounded_generation",
+            "request was cancelled before grounding validation",
+        ));
+    }
+    let validation_started = Instant::now();
+    let (evidence, compliance) =
+        validate_grounded_answer(prepared, &response, GroundingRoute::ReferenceLlm, emitter)
+            .await?;
+    let validation_ms = duration_ms_floor(validation_started.elapsed());
+    revalidate_reference_snapshots(prepared)?;
+    emit_text(emitter, &response.answer).await?;
+    let mut warnings = Vec::new();
+    if generations.len() > 1 {
+        warnings.push("one bounded JSON format correction was used".to_string());
+    }
+    Ok(CommandOutcome {
+        context_files,
+        used_context_mode: None,
+        metrics: grounded_metrics(
+            request,
+            prepared,
+            GroundingRoute::ReferenceLlm,
+            &generations,
+            validation_ms,
+            started,
+        ),
+        warnings,
+        route: GroundingRoute::ReferenceLlm,
+        grounding_response: Some(response),
+        evidence: Some(evidence),
+        compliance: Some(compliance),
+        rag_hits: 0,
+    })
+}
+
+async fn generate_grounded_response(
+    app: &OpticCode,
+    request: &ChatRequest,
+    prepared: &PreparedRequest,
+    cancellation: &opticcode_llm::CancellationToken,
+) -> std::result::Result<Vec<GenerationResult>, RuntimeFailure> {
+    let schema = grounded_response_schema();
+    let primary = app
+        .generate_structured(
+            format!("{}:grounded", request.request_id),
+            prepared.prompt.clone(),
+            schema.clone(),
+            request.generation.max_output_tokens,
+            Some(request.generation.temperature.unwrap_or(0.0)),
+            request.generation.seed,
+            cancellation.clone(),
+        )
+        .await
+        .map_err(|error| {
+            RuntimeFailure::new(
+                "grounded_generation_failed",
+                "grounded_generation",
+                format!("structured local generation failed: {error:#}"),
+            )
+            .retriable(true)
+        })?;
+    if serde_json::from_str::<GroundedResponse>(&primary.output).is_ok() {
+        return Ok(vec![primary]);
+    }
+    if cancellation.is_cancelled() {
+        return Err(RuntimeFailure::new(
+            "request_cancelled",
+            "grounded_format_correction",
+            "request was cancelled before the single format correction",
+        ));
+    }
+    let correction_prompt = format!(
+        concat!(
+            "{}\n\n",
+            "[FORMAT_CORRECTION]\n",
+            "The previous output was not valid against the required JSON contract. ",
+            "Perform only a format correction: preserve the same factual claims, use no new source, ",
+            "and return exactly one JSON object.\n",
+            "[PREVIOUS_OUTPUT]\n{}"
+        ),
+        prepared.prompt,
+        bounded_text(&primary.output, 64 * 1024)
+    );
+    let corrected = app
+        .generate_structured(
+            format!("{}:grounded-format", request.request_id),
+            correction_prompt,
+            schema,
+            request.generation.max_output_tokens,
+            Some(0.0),
+            request.generation.seed,
+            cancellation.clone(),
+        )
+        .await
+        .map_err(|error| {
+            RuntimeFailure::new(
+                "grounded_format_correction_failed",
+                "grounded_format_correction",
+                format!("the single format correction failed: {error:#}"),
+            )
+        })?;
+    parse_grounded_response(&corrected.output)?;
+    Ok(vec![primary, corrected])
+}
+
+fn parse_grounded_response(output: &str) -> std::result::Result<GroundedResponse, RuntimeFailure> {
+    serde_json::from_str(output).map_err(|error| {
+        RuntimeFailure::new(
+            "grounded_response_invalid",
+            "grounded_validation",
+            format!(
+                "structured grounded response is invalid after the allowed correction: {error}"
+            ),
+        )
+    })
+}
+
+async fn validate_grounded_answer(
+    prepared: &PreparedRequest,
+    response: &GroundedResponse,
+    route: GroundingRoute,
+    emitter: &ChatEventEmitter,
+) -> std::result::Result<(EvidenceValidationReport, ComplianceReport), RuntimeFailure> {
+    emitter
+        .send(ChatProtocolEventPayload::GroundingValidationStarted {
+            route,
+            evidence_mode: prepared.evidence_mode,
+        })
+        .await
+        .map_err(event_failure)?;
+    let evidence = validate_evidence(response, &prepared.manifest, prepared.evidence_mode);
+    let compliance = validate_compliance(
+        &prepared.user_prompt,
+        response,
+        &prepared.manifest,
+        &prepared.snapshots,
+    );
+    emitter
+        .send(ChatProtocolEventPayload::GroundingValidationCompleted {
+            evidence: evidence.clone(),
+            compliance: compliance.clone(),
+        })
+        .await
+        .map_err(event_failure)?;
+    if compliance.internal_context_leak {
+        emitter
+            .send(ChatProtocolEventPayload::InternalContextLeakDetected {
+                markers: vec!["internal_context_marker".to_string()],
+            })
+            .await
+            .map_err(event_failure)?;
+    }
+    if !evidence.valid || !compliance.compliant {
+        let mut errors = evidence.errors.clone();
+        errors.extend(compliance.errors.clone());
+        errors.truncate(128);
+        emitter
+            .send(ChatProtocolEventPayload::TaskComplianceFailed {
+                errors: errors.clone(),
+            })
+            .await
+            .map_err(event_failure)?;
+        return Err(RuntimeFailure::new(
+            "task_compliance_failed",
+            "grounding_validation",
+            if compliance.internal_context_leak {
+                "OpticCode refused the model response because it contained unauthorized internal context"
+            } else if compliance.cross_file_leak {
+                "OpticCode refused the model response because it mentioned unauthorized sources"
+            } else {
+                "OpticCode refused the response because its evidence or task compliance was invalid"
+            },
+        ));
+    }
+    Ok((evidence, compliance))
+}
+
+fn revalidate_reference_snapshots(
+    prepared: &PreparedRequest,
+) -> std::result::Result<(), RuntimeFailure> {
+    for snapshot in &prepared.snapshots {
+        let current = read_safe_workspace_file(
+            &prepared.workspace,
+            Path::new(&snapshot.path),
+            MAX_SAFE_REFERENCE_FILE_BYTES,
+        )
+        .map_err(|error| {
+            RuntimeFailure::new(
+                "reference_revalidation_failed",
+                "grounding_revalidation",
+                format!("{}: {}", error.rule_id, error.message),
+            )
+        })?;
+        let current_hash = blake3::hash(current.content.as_bytes())
+            .to_hex()
+            .to_string();
+        if current_hash != snapshot.file_hash || current.content.len() != snapshot.file_size {
+            return Err(RuntimeFailure::new(
+                "reference_snapshot_stale",
+                "grounding_revalidation",
+                "an injected reference changed before the grounded response could be accepted",
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn grounded_metrics(
+    request: &ChatRequest,
+    prepared: &PreparedRequest,
+    route: GroundingRoute,
+    generations: &[GenerationResult],
+    validation_ms: u64,
+    started: Instant,
+) -> ChatMetrics {
+    let prompt_tokens = sum_optional_u64(
+        generations
+            .iter()
+            .map(|generation| generation.usage.prompt_tokens),
+    );
+    let generated_tokens = sum_optional_u64(
+        generations
+            .iter()
+            .map(|generation| generation.usage.generated_tokens),
+    );
+    let generation_ms = generations
+        .iter()
+        .filter_map(|generation| generation.timings.generation_ms)
+        .sum::<u64>();
+    let generated_tokens_per_second = generated_tokens
+        .filter(|_| generation_ms > 0)
+        .map(|tokens| tokens as f64 / (generation_ms as f64 / 1_000.0));
+    let provider_client_ms = generations
+        .iter()
+        .map(|generation| generation.timings.client_ms)
+        .sum::<u64>();
+    let provider_total_ms = generations
+        .iter()
+        .filter_map(|generation| generation.timings.provider_total_ms)
+        .sum::<u64>();
+    let provider_load_ms = generations
+        .iter()
+        .filter_map(|generation| generation.timings.load_ms)
+        .sum::<u64>();
+    let prompt_eval_ms = generations
+        .iter()
+        .filter_map(|generation| generation.timings.prompt_eval_ms)
+        .sum::<u64>();
+    let mut phases = vec![
+        timing_phase(
+            "reference_resolution",
+            prepared.reference_resolution_ms,
+            "opticcode-core",
+            &["references_started", "references_completed"],
+        ),
+        timing_phase(
+            "prompt_build",
+            prepared.prompt_build_ms,
+            "opticcode-core",
+            &["context_started", "context_completed"],
+        ),
+    ];
+    if !generations.is_empty() {
+        phases.push(timing_phase(
+            "provider_client",
+            provider_client_ms,
+            "opticcode-llm",
+            &["provider_started", "provider_completed"],
+        ));
+        phases.push(timing_phase(
+            "provider_total",
+            provider_total_ms,
+            "ollama",
+            &["provider_reported_total"],
+        ));
+        phases.push(timing_phase(
+            "provider_generation",
+            generation_ms,
+            "ollama",
+            &["provider_token_generation"],
+        ));
+        phases.push(timing_phase(
+            "provider_load",
+            provider_load_ms,
+            "ollama",
+            &["provider_model_load"],
+        ));
+        phases.push(timing_phase(
+            "provider_prompt_eval",
+            prompt_eval_ms,
+            "ollama",
+            &["provider_prompt_evaluation"],
+        ));
+    }
+    phases.push(timing_phase(
+        "grounding_validation",
+        validation_ms,
+        "opticcode-core",
+        &["validation_started", "validation_completed"],
+    ));
+    ChatMetrics {
+        preparation_ms: prepared
+            .reference_resolution_ms
+            .saturating_add(prepared.prompt_build_ms),
+        total_ms: elapsed_ms(started),
+        estimated_prompt_tokens: estimate_tokens(&prepared.prompt),
+        prompt_tokens,
+        generated_tokens,
+        generated_tokens_per_second,
+        timing: Some(timing_report(request, phases)),
+        route: route.as_str().to_string(),
+    }
+}
+
+fn sum_optional_u64(values: impl Iterator<Item = Option<u64>>) -> Option<u64> {
+    let mut seen = false;
+    let total = values.fold(0u64, |total, value| {
+        if let Some(value) = value {
+            seen = true;
+            total.saturating_add(value)
+        } else {
+            total
+        }
+    });
+    seen.then_some(total)
 }
 
 async fn run_assistant(
@@ -1164,8 +1985,39 @@ async fn run_assistant(
         })
         .collect::<Vec<_>>();
     let generated = report.generated_run();
+    let preparation_ms = report.preparation_duration_us.saturating_add(999) / 1_000;
+    let mut phases = vec![timing_phase(
+        "context_build",
+        preparation_ms,
+        "opticcode-core",
+        &["context_started", "context_completed"],
+    )];
+    if let Some(generation) = generated.and_then(|run| run.metrics.as_ref()) {
+        phases.push(timing_phase(
+            "provider_client",
+            generation.client_ms,
+            "opticcode-llm",
+            &["provider_started", "provider_completed"],
+        ));
+        if let Some(provider_total_ms) = generation.ollama_total_ms {
+            phases.push(timing_phase(
+                "provider_total",
+                provider_total_ms,
+                "ollama",
+                &["provider_reported_total"],
+            ));
+        }
+        if let Some(generation_ms) = generation.generation_ms {
+            phases.push(timing_phase(
+                "provider_generation",
+                generation_ms,
+                "ollama",
+                &["provider_token_generation"],
+            ));
+        }
+    }
     let metrics = ChatMetrics {
-        preparation_ms: report.preparation_duration_us.saturating_add(999) / 1_000,
+        preparation_ms,
         total_ms: elapsed_ms(started),
         estimated_prompt_tokens: generated
             .map(|run| run.prompt.estimated_tokens)
@@ -1190,12 +2042,20 @@ async fn run_assistant(
                 .as_ref()
                 .and_then(|metrics| metrics.generated_tokens_per_second)
         }),
+        timing: Some(timing_report(request, phases)),
+        route: GroundingRoute::AutomaticAssistant.as_str().to_string(),
     };
+    let rag_hits = report.rag.hits.len();
     Ok(CommandOutcome {
         context_files,
         used_context_mode: report.used_context_mode,
         metrics,
         warnings: report.warnings,
+        route: GroundingRoute::AutomaticAssistant,
+        grounding_response: None,
+        evidence: None,
+        compliance: None,
+        rag_hits,
     })
 }
 
@@ -1321,6 +2181,11 @@ async fn run_context_command(
             .into_iter()
             .map(|fallback| fallback.warning)
             .collect(),
+        route: GroundingRoute::AutomaticAssistant,
+        grounding_response: None,
+        evidence: None,
+        compliance: None,
+        rag_hits: 0,
     })
 }
 
@@ -1398,6 +2263,11 @@ async fn run_analyze_command(
         used_context_mode: None,
         metrics: command_metrics(started, 0),
         warnings: report.warnings,
+        route: GroundingRoute::AutomaticAssistant,
+        grounding_response: None,
+        evidence: None,
+        compliance: None,
+        rag_hits: 0,
     })
 }
 
@@ -1451,6 +2321,11 @@ async fn run_index_command(
         used_context_mode: None,
         metrics: command_metrics(started, 0),
         warnings: report.warnings,
+        route: GroundingRoute::AutomaticAssistant,
+        grounding_response: None,
+        evidence: None,
+        compliance: None,
+        rag_hits: 0,
     })
 }
 
@@ -1495,6 +2370,11 @@ async fn run_legacy_command(
         used_context_mode: None,
         metrics: command_metrics(started, 0),
         warnings: report.warnings,
+        route: GroundingRoute::AutomaticAssistant,
+        grounding_response: None,
+        evidence: None,
+        compliance: None,
+        rag_hits: 0,
     })
 }
 
@@ -1529,6 +2409,11 @@ async fn run_status_command(
         used_context_mode: None,
         metrics: command_metrics(started, 0),
         warnings: Vec::new(),
+        route: GroundingRoute::AutomaticAssistant,
+        grounding_response: None,
+        evidence: None,
+        compliance: None,
+        rag_hits: 0,
     })
 }
 
@@ -1565,6 +2450,7 @@ async fn run_help_command(
         "OpticCode Local is protected by the deny-by-default POLICY-001 runtime.\n\n",
         "- `/ask`: answer with bounded project, RAG, history, and explicit references\n",
         "- `/plan`: produce a plan without writing\n",
+        "- `/inspect`: inspect deterministic facts in an attached structured document\n",
         "- `/context`: inspect legacy/symbol context\n",
         "- `/analyze`, `/index`, `/legacy`: run read-only Java analysis\n",
         "- `/status`, `/runs`: inspect local state\n",
@@ -1610,10 +2496,10 @@ pub(crate) async fn emit_text(
     Ok(())
 }
 
-fn extract_utf16_range(
+fn extract_utf16_range_snapshot(
     content: &str,
     range: ChatTextRange,
-) -> std::result::Result<String, RuntimeFailure> {
+) -> std::result::Result<(String, ContextManifestRange), RuntimeFailure> {
     let start = position_to_byte(content, range.start)?;
     let end = position_to_byte(content, range.end)?;
     if start > end {
@@ -1623,7 +2509,61 @@ fn extract_utf16_range(
             "range start is after range end",
         ));
     }
-    Ok(content[start..end].to_string())
+    Ok((
+        content[start..end].to_string(),
+        manifest_range_from_bytes(content, start, end),
+    ))
+}
+
+fn manifest_range_from_bytes(
+    content: &str,
+    start_byte: usize,
+    end_byte: usize,
+) -> ContextManifestRange {
+    let start_line = 1 + content[..start_byte.min(content.len())]
+        .bytes()
+        .filter(|byte| *byte == b'\n')
+        .count() as u32;
+    let end_anchor = end_byte.saturating_sub(1).min(content.len());
+    let end_line = if end_byte == 0 {
+        start_line
+    } else {
+        1 + content[..end_anchor]
+            .bytes()
+            .filter(|byte| *byte == b'\n')
+            .count() as u32
+    };
+    ContextManifestRange {
+        start_line,
+        end_line: end_line.max(start_line),
+        start_byte,
+        end_byte,
+    }
+}
+
+fn detect_line_ending(content: &str) -> &'static str {
+    let crlf = content.matches("\r\n").count();
+    let lf = content.matches('\n').count();
+    match (crlf, lf.saturating_sub(crlf)) {
+        (0, 0) => "none",
+        (0, _) => "lf",
+        (_, 0) => "crlf",
+        _ => "mixed",
+    }
+}
+
+fn reference_git_state(workspace: &Path, path: &str) -> String {
+    let normalized = path.replace('\\', "/");
+    capture_git_state(workspace)
+        .ok()
+        .and_then(|state| {
+            state
+                .changes
+                .into_iter()
+                .find(|change| change.path.replace('\\', "/") == normalized)
+                .map(|change| format!("changed:{}{}", change.index_status, change.worktree_status))
+        })
+        .unwrap_or_else(|| "clean_or_untracked".to_string())
 }
 
 fn position_to_byte(
@@ -1714,6 +2654,11 @@ fn empty_outcome(started: Instant) -> CommandOutcome {
         used_context_mode: None,
         metrics: command_metrics(started, 0),
         warnings: Vec::new(),
+        route: GroundingRoute::AutomaticAssistant,
+        grounding_response: None,
+        evidence: None,
+        compliance: None,
+        rag_hits: 0,
     }
 }
 
@@ -1725,7 +2670,40 @@ fn command_metrics(started: Instant, estimated_prompt_tokens: usize) -> ChatMetr
         prompt_tokens: None,
         generated_tokens: None,
         generated_tokens_per_second: None,
+        timing: None,
+        route: GroundingRoute::AutomaticAssistant.as_str().to_string(),
     }
+}
+
+fn timing_report(request: &ChatRequest, phases: Vec<ChatTimingPhase>) -> ChatTimingReport {
+    ChatTimingReport {
+        schema_version: 1,
+        request_id: request.request_id.clone(),
+        run_id: request.request_id.clone(),
+        workspace_id: request.workspace_id.clone(),
+        command: request.command.as_str().to_string(),
+        unit: "milliseconds".to_string(),
+        clock: "std::time::Instant".to_string(),
+        phases,
+    }
+}
+
+fn timing_phase(
+    name: &str,
+    duration_ms: u64,
+    measured_by: &str,
+    includes: &[&str],
+) -> ChatTimingPhase {
+    ChatTimingPhase {
+        name: name.to_string(),
+        duration_ms,
+        measured_by: measured_by.to_string(),
+        includes: includes.iter().map(|value| (*value).to_string()).collect(),
+    }
+}
+
+fn duration_ms_floor(duration: Duration) -> u64 {
+    duration.as_millis().min(u128::from(u64::MAX)) as u64
 }
 
 fn event_failure(error: anyhow::Error) -> RuntimeFailure {
@@ -1772,8 +2750,10 @@ fn metadata_is_link_or_reparse(metadata: &std::fs::Metadata) -> bool {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::VecDeque;
     use std::fs;
-    use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::{Arc, Mutex};
 
     use async_trait::async_trait;
     use opticcode_llm::{
@@ -1791,13 +2771,31 @@ mod tests {
 
     struct MockProvider;
 
+    struct StructuredMockProvider {
+        outputs: Mutex<VecDeque<String>>,
+        calls: AtomicUsize,
+    }
+
+    impl StructuredMockProvider {
+        fn new(outputs: impl IntoIterator<Item = String>) -> Self {
+            Self {
+                outputs: Mutex::new(outputs.into_iter().collect()),
+                calls: AtomicUsize::new(0),
+            }
+        }
+    }
+
     fn generation(request: &GenerationRequest) -> GenerationResult {
+        generation_with_output(request, "mock answer")
+    }
+
+    fn generation_with_output(request: &GenerationRequest, output: &str) -> GenerationResult {
         GenerationResult {
             schema_version: LLM_PROTOCOL_SCHEMA_VERSION,
             request_id: request.request_id.clone(),
             provider: ProviderId::Ollama,
             model: request.model.clone(),
-            output: "mock answer".to_string(),
+            output: output.to_string(),
             finish_reason: FinishReason::Stop,
             prompt_chars: request.prompt.chars().count(),
             usage: opticcode_llm::GenerationUsage {
@@ -1811,6 +2809,56 @@ mod tests {
                 prompt_eval_ms: Some(2),
                 generation_ms: Some(2),
             },
+        }
+    }
+
+    #[async_trait]
+    impl LlmProvider for StructuredMockProvider {
+        fn id(&self) -> ProviderId {
+            ProviderId::Ollama
+        }
+
+        fn endpoint(&self) -> &str {
+            "http://localhost:11434"
+        }
+
+        fn capabilities(&self) -> ProviderCapabilities {
+            MockProvider.capabilities()
+        }
+
+        async fn health(
+            &self,
+            request: HealthRequest,
+        ) -> std::result::Result<HealthReport, ProviderError> {
+            MockProvider.health(request).await
+        }
+
+        async fn list_models(&self) -> std::result::Result<Vec<ModelInfo>, ProviderError> {
+            Ok(Vec::new())
+        }
+
+        async fn generate(
+            &self,
+            request: GenerationRequest,
+            _cancellation: opticcode_llm::CancellationToken,
+        ) -> std::result::Result<GenerationResult, ProviderError> {
+            self.calls.fetch_add(1, Ordering::Relaxed);
+            let output = self
+                .outputs
+                .lock()
+                .unwrap()
+                .pop_front()
+                .unwrap_or_else(|| "{}".to_string());
+            Ok(generation_with_output(&request, &output))
+        }
+
+        async fn stream(
+            &self,
+            request: GenerationRequest,
+            _events: EventSink,
+            cancellation: opticcode_llm::CancellationToken,
+        ) -> std::result::Result<GenerationResult, ProviderError> {
+            self.generate(request, cancellation).await
         }
     }
 
@@ -1937,6 +2985,9 @@ mod tests {
             provider: ProviderId::Ollama,
             model: "mock-model".to_string(),
             context_mode: ContextMode::Legacy,
+            context_scope: ChatContextScope::Automatic,
+            scope_reason: ChatScopeReason::DefaultSetting,
+            evidence_mode: ChatEvidenceMode::Optional,
             references: Vec::new(),
             history: Vec::new(),
             budgets: ChatBudgets::default(),
@@ -2027,6 +3078,7 @@ mod tests {
         for command in [
             ChatCommand::Ask,
             ChatCommand::Plan,
+            ChatCommand::Inspect,
             ChatCommand::Context,
             ChatCommand::Analyze,
             ChatCommand::Index,
@@ -2107,6 +3159,286 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn explicit_only_prompt_is_confined_to_the_current_reference() {
+        let workspace = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../..")
+            .join("benchmarks/grounding-plugin");
+        let mut chat = request(&workspace, ChatCommand::Ask);
+        chat.prompt = concat!(
+            "Lis uniquement le fichier plugin.yml joint.\n\n",
+            "Retourne seulement :\n",
+            "1. la liste exacte de ses cles de premier niveau ;\n",
+            "2. la ligne exacte contenant api-version, si elle existe ;\n",
+            "3. sinon ecris exactement : api-version absent.\n\n",
+            "N'utilise aucune connaissance generale.\n",
+            "Ne recommande aucune modification.\n",
+            "Ne parle d'aucun autre fichier."
+        )
+        .to_string();
+        chat.references.push(ChatReference {
+            reference_id: "plugin-yml-only".to_string(),
+            inclusion_reason: "attached by user".to_string(),
+            target: ChatReferenceTarget::File {
+                path: "src/main/resources/plugin.yml".to_string(),
+            },
+        });
+        chat.history.push(ChatHistoryTurn {
+            role: ChatHistoryRole::Assistant,
+            content: "Inspect UnrelatedListener.java and run cargo benchmark commands.".to_string(),
+            command: Some(ChatCommand::Ask),
+            result_id: Some("stale-java-run".to_string()),
+            source_scope: Some(ChatContextScope::Automatic),
+            workspace_id: Some("workspace-test".to_string()),
+            context_fingerprint: Some("stale-context".to_string()),
+            grounding_status: Some("ungrounded".to_string()),
+        });
+
+        let (events, _receiver) = chat_event_channel(DEFAULT_CHAT_EVENT_CAPACITY).unwrap();
+        let session = ChatProtocolSession {
+            request_id: chat.request_id.clone(),
+            events,
+            cancellation: opticcode_llm::CancellationToken::new(),
+        };
+        let emitter = ChatEventEmitter::new(&session).unwrap();
+        let prepared = prepare_request(&chat, &emitter).await.unwrap();
+
+        assert!(prepared.prompt.contains("name: OutilsEvolutif"));
+        assert!(!prepared.prompt.contains("[PROJECT_SUMMARY]"));
+        assert!(!prepared.prompt.contains("[CHAT_HISTORY]"));
+        assert!(!prepared.prompt.contains("UnrelatedListener.java"));
+        assert!(!prepared.prompt.contains("cargo benchmark"));
+    }
+
+    #[tokio::test]
+    async fn strict_yaml_question_uses_document_facts_without_a_provider() {
+        let workspace = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../..")
+            .join("benchmarks/grounding-plugin");
+        let mut chat = request(&workspace, ChatCommand::Ask);
+        chat.prompt = concat!(
+            "Lis uniquement le fichier plugin.yml joint.\n\n",
+            "Retourne seulement :\n",
+            "1. la liste exacte de ses cl\u{00e9}s de premier niveau ;\n",
+            "2. la ligne exacte contenant api-version, si elle existe ;\n",
+            "3. sinon \u{00e9}cris exactement : \u{00ab} api-version absent \u{00bb}.\n\n",
+            "N'utilise aucune connaissance g\u{00e9}n\u{00e9}rale.\n",
+            "Ne recommande aucune modification.\n",
+            "Ne parle d'aucun autre fichier."
+        )
+        .to_string();
+        chat.context_scope = ChatContextScope::ReferencesOnly;
+        chat.evidence_mode = ChatEvidenceMode::Required;
+        chat.references.push(ChatReference {
+            reference_id: "plugin-yml-only".to_string(),
+            inclusion_reason: "attached by user".to_string(),
+            target: ChatReferenceTarget::File {
+                path: "src/main/resources/plugin.yml".to_string(),
+            },
+        });
+
+        let (report, events) = run(None, chat).await;
+        assert_eq!(report.status, ChatExecutionStatus::Completed, "{events:#?}");
+        assert_eq!(
+            events
+                .iter()
+                .filter_map(crate::ChatProtocolEvent::output_delta)
+                .collect::<String>(),
+            "name\nmain\nversion\ncommands\napi-version absent"
+        );
+        assert!(!events.iter().any(|event| matches!(
+            event.payload,
+            ChatProtocolEventPayload::ProviderStarted { .. }
+        )));
+        assert!(events.iter().any(|event| matches!(
+            event.payload,
+            ChatProtocolEventPayload::DocumentInspectionCompleted { model_calls: 0, .. }
+        )));
+        let validation_sequence = events
+            .iter()
+            .find(|event| {
+                matches!(
+                    event.payload,
+                    ChatProtocolEventPayload::GroundingValidationCompleted { .. }
+                )
+            })
+            .map(|event| event.sequence)
+            .unwrap();
+        let answer_sequence = events
+            .iter()
+            .find(|event| matches!(event.payload, ChatProtocolEventPayload::TokenDelta { .. }))
+            .map(|event| event.sequence)
+            .unwrap();
+        assert!(validation_sequence < answer_sequence);
+        let grounding = events.iter().find_map(|event| match &event.payload {
+            ChatProtocolEventPayload::Completed { summary } => summary.grounding.as_ref(),
+            _ => None,
+        });
+        assert_eq!(
+            grounding.map(|value| value.route),
+            Some(GroundingRoute::DocumentFacts)
+        );
+        assert_eq!(grounding.map(|value| value.injected_references), Some(1));
+        assert_eq!(grounding.map(|value| value.discovered_files), Some(0));
+        assert_eq!(grounding.map(|value| value.rag_hits), Some(0));
+    }
+
+    #[tokio::test]
+    async fn references_only_without_a_current_reference_fails_closed() {
+        let temp = fixture();
+        let mut chat = request(temp.path(), ChatCommand::Ask);
+        chat.context_scope = ChatContextScope::ReferencesOnly;
+        chat.evidence_mode = ChatEvidenceMode::Required;
+        let (report, events) = run(None, chat).await;
+        assert_eq!(report.status, ChatExecutionStatus::Failed);
+        assert!(events.iter().any(|event| matches!(
+            &event.payload,
+            ChatProtocolEventPayload::Failed { error }
+                if error.code == "references_required"
+        )));
+    }
+
+    #[tokio::test]
+    async fn invalid_cross_file_evidence_is_refused_before_rendering() {
+        let temp = fixture();
+        let provider = Arc::new(StructuredMockProvider::new([serde_json::json!({
+            "schema_version": 1,
+            "answer": "Read UnrelatedListener.java.",
+            "claims": [{
+                "claim_id": "claim-1",
+                "text": "UnrelatedListener.java is relevant.",
+                "classification": "observed",
+                "evidence": [{
+                    "path": "src/main/java/test/UnrelatedListener.java",
+                    "start_line": 1,
+                    "end_line": 1,
+                    "content_hash": "0".repeat(64)
+                }]
+            }],
+            "missing_information": [],
+            "used_general_knowledge": false
+        })
+        .to_string()]));
+        let app = OpticCode::with_provider(provider.clone(), "mock-model").unwrap();
+        let mut chat = request(temp.path(), ChatCommand::Ask);
+        chat.prompt = "Use only this file. Describe the declared class.".to_string();
+        chat.context_scope = ChatContextScope::ReferencesOnly;
+        chat.evidence_mode = ChatEvidenceMode::Required;
+        chat.references.push(ChatReference {
+            reference_id: "plugin-java".to_string(),
+            inclusion_reason: "attached by user".to_string(),
+            target: ChatReferenceTarget::File {
+                path: "src/main/java/test/Plugin.java".to_string(),
+            },
+        });
+        let (report, events) = run(Some(&app), chat).await;
+        assert_eq!(report.status, ChatExecutionStatus::Failed);
+        assert_eq!(provider.calls.load(Ordering::Relaxed), 1);
+        assert!(!events
+            .iter()
+            .any(|event| matches!(event.payload, ChatProtocolEventPayload::TokenDelta { .. })));
+        assert!(events.iter().any(|event| matches!(
+            event.payload,
+            ChatProtocolEventPayload::TaskComplianceFailed { .. }
+        )));
+    }
+
+    #[tokio::test]
+    async fn grounded_llm_allows_only_one_format_correction() {
+        let temp = fixture();
+        let content =
+            fs::read_to_string(temp.path().join("src/main/java/test/Plugin.java")).unwrap();
+        let hash = blake3::hash(content.as_bytes()).to_hex().to_string();
+        let valid = serde_json::json!({
+            "schema_version": 1,
+            "answer": "Plugin is the declared class.",
+            "claims": [{
+                "claim_id": "claim-1",
+                "text": "Plugin is the declared class.",
+                "classification": "observed",
+                "evidence": [{
+                    "path": "src/main/java/test/Plugin.java",
+                    "start_line": 1,
+                    "end_line": 2,
+                    "content_hash": hash
+                }]
+            }],
+            "missing_information": [],
+            "used_general_knowledge": false
+        })
+        .to_string();
+        let provider = Arc::new(StructuredMockProvider::new(["not-json".to_string(), valid]));
+        let app = OpticCode::with_provider(provider.clone(), "mock-model").unwrap();
+        let mut chat = request(temp.path(), ChatCommand::Ask);
+        chat.prompt = "Use only this file. State the declared class name.".to_string();
+        chat.context_scope = ChatContextScope::ReferencesOnly;
+        chat.evidence_mode = ChatEvidenceMode::Required;
+        chat.references.push(ChatReference {
+            reference_id: "plugin-java".to_string(),
+            inclusion_reason: "attached by user".to_string(),
+            target: ChatReferenceTarget::File {
+                path: "src/main/java/test/Plugin.java".to_string(),
+            },
+        });
+        let (report, events) = run(Some(&app), chat).await;
+        assert_eq!(report.status, ChatExecutionStatus::Completed, "{events:#?}");
+        assert_eq!(provider.calls.load(Ordering::Relaxed), 2);
+        assert_eq!(
+            events
+                .iter()
+                .filter_map(crate::ChatProtocolEvent::output_delta)
+                .collect::<String>(),
+            "Plugin is the declared class."
+        );
+    }
+
+    #[tokio::test]
+    async fn same_path_new_hash_and_parallel_references_are_isolated() {
+        let temp = tempfile::tempdir().unwrap();
+        fs::write(temp.path().join("a.yml"), "name: first\n").unwrap();
+        fs::write(temp.path().join("b.yml"), "name: second\n").unwrap();
+        let make_request = |path: &str, request_id: &str| {
+            let mut chat = request(temp.path(), ChatCommand::Ask);
+            chat.request_id = request_id.to_string();
+            chat.prompt = "Use only the attached file. Is `name` present?".to_string();
+            chat.context_scope = ChatContextScope::ReferencesOnly;
+            chat.evidence_mode = ChatEvidenceMode::Required;
+            chat.references.push(ChatReference {
+                reference_id: format!("reference-{request_id}"),
+                inclusion_reason: "attached by user".to_string(),
+                target: ChatReferenceTarget::File {
+                    path: path.to_string(),
+                },
+            });
+            chat
+        };
+        let first_a = prepare_for_test(&make_request("a.yml", "request-a-first")).await;
+        fs::write(temp.path().join("a.yml"), "name: changed\n").unwrap();
+        let changed_a = prepare_for_test(&make_request("a.yml", "request-a-changed")).await;
+        assert_ne!(first_a.manifest.fingerprint, changed_a.manifest.fingerprint);
+        assert_ne!(first_a.prompt_fingerprint, changed_a.prompt_fingerprint);
+
+        let request_a = make_request("a.yml", "request-a-parallel");
+        let request_b = make_request("b.yml", "request-b-parallel");
+        let (prepared_a, prepared_b) =
+            tokio::join!(prepare_for_test(&request_a), prepare_for_test(&request_b));
+        assert_eq!(prepared_a.manifest.entries[0].path, "a.yml");
+        assert_eq!(prepared_b.manifest.entries[0].path, "b.yml");
+        assert!(!prepared_a.prompt.contains("second"));
+        assert!(!prepared_b.prompt.contains("changed"));
+    }
+
+    async fn prepare_for_test(request: &ChatRequest) -> PreparedRequest {
+        let (events, _receiver) = chat_event_channel(DEFAULT_CHAT_EVENT_CAPACITY).unwrap();
+        let session = ChatProtocolSession {
+            request_id: request.request_id.clone(),
+            events,
+            cancellation: opticcode_llm::CancellationToken::new(),
+        };
+        let emitter = ChatEventEmitter::new(&session).unwrap();
+        prepare_request(request, &emitter).await.unwrap()
+    }
+
+    #[tokio::test]
     async fn file_range_and_unicode_selection_are_materialized_safely() {
         let temp = fixture();
         let mut chat = request(temp.path(), ChatCommand::Help);
@@ -2149,6 +3481,10 @@ mod tests {
                 },
                 command: Some(ChatCommand::Ask),
                 result_id: None,
+                source_scope: Some(ChatContextScope::Automatic),
+                workspace_id: Some("workspace-test".to_string()),
+                context_fingerprint: Some(format!("context-{index}")),
+                grounding_status: Some("grounded".to_string()),
             })
             .collect();
         let (_, events) = run(None, chat).await;

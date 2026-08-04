@@ -1,0 +1,6 @@
+name: OutilsEvolutif
+main: dev.example.OutilsEvolutif
+version: 1.0.0
+commands:
+  outil:
+    description: Test

@@ -7,7 +7,10 @@ use opticcode_llm::{CancellationToken, ProviderId};
 use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc;
 
-use crate::ContextMode;
+use crate::{
+    ChatContextScope, ChatEvidenceMode, ChatScopeReason, ComplianceReport, ContextManifest,
+    ContextMode, EvidenceValidationReport, GroundedResponse, GroundingRoute,
+};
 
 pub const CHAT_PROTOCOL_ID: &str = "opticcode.chat";
 pub const CHAT_PROTOCOL_SCHEMA_VERSION: u32 = 1;
@@ -50,6 +53,12 @@ pub struct ChatRequest {
     pub provider: ProviderId,
     pub model: String,
     pub context_mode: ContextMode,
+    #[serde(default)]
+    pub context_scope: ChatContextScope,
+    #[serde(default)]
+    pub scope_reason: ChatScopeReason,
+    #[serde(default)]
+    pub evidence_mode: ChatEvidenceMode,
     pub references: Vec<ChatReference>,
     pub history: Vec<ChatHistoryTurn>,
     pub budgets: ChatBudgets,
@@ -91,6 +100,7 @@ pub enum ChatCommand {
     Analyze,
     Index,
     Legacy,
+    Inspect,
     Fix,
     Verify,
     Diff,
@@ -112,6 +122,7 @@ impl ChatCommand {
             Self::Analyze => "analyze",
             Self::Index => "index",
             Self::Legacy => "legacy",
+            Self::Inspect => "inspect",
             Self::Fix => "fix",
             Self::Verify => "verify",
             Self::Diff => "diff",
@@ -125,7 +136,10 @@ impl ChatCommand {
     }
 
     pub const fn requires_prompt(self) -> bool {
-        matches!(self, Self::Ask | Self::Plan | Self::Context | Self::Fix)
+        matches!(
+            self,
+            Self::Ask | Self::Plan | Self::Context | Self::Inspect | Self::Fix
+        )
     }
 }
 
@@ -237,6 +251,14 @@ pub struct ChatHistoryTurn {
     pub command: Option<ChatCommand>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub result_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_scope: Option<ChatContextScope>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub workspace_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub context_fingerprint: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub grounding_status: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -581,6 +603,26 @@ pub enum ChatProtocolEventPayload {
         accepted: Vec<ChatResolvedReference>,
         rejected: Vec<ChatRejectedReference>,
     },
+    ReferenceSelected {
+        reference_id: String,
+        kind: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        path: Option<String>,
+        origin: String,
+    },
+    ReferenceResolved {
+        reference: ChatResolvedReference,
+    },
+    ReferenceInjected {
+        reference: ChatResolvedReference,
+    },
+    ReferenceRefused {
+        reference: ChatRejectedReference,
+    },
+    ContextManifestReady {
+        manifest: ContextManifest,
+        prompt_fingerprint: String,
+    },
     ContextStarted {
         requested_mode: ContextMode,
     },
@@ -616,6 +658,28 @@ pub enum ChatProtocolEventPayload {
         message: String,
     },
     Metrics {
+        metrics: ChatMetrics,
+    },
+    GroundingValidationStarted {
+        route: GroundingRoute,
+        evidence_mode: ChatEvidenceMode,
+    },
+    GroundingValidationCompleted {
+        evidence: EvidenceValidationReport,
+        compliance: ComplianceReport,
+    },
+    TaskComplianceFailed {
+        errors: Vec<String>,
+    },
+    InternalContextLeakDetected {
+        markers: Vec<String>,
+    },
+    DocumentInspectionCompleted {
+        format: String,
+        facts: usize,
+        model_calls: usize,
+    },
+    TimingMetrics {
         metrics: ChatMetrics,
     },
     EditPlanStarted {
@@ -710,7 +774,7 @@ pub enum ChatProtocolEventPayload {
         proposal_id: String,
     },
     Completed {
-        summary: ChatCompletionSummary,
+        summary: Box<ChatCompletionSummary>,
     },
     Cancelled {
         reason: String,
@@ -745,6 +809,15 @@ impl ChatProtocolEventPayload {
         };
         if text.is_some_and(|value| value.len() > MAX_CHAT_EVENT_TEXT_BYTES) {
             bail!("chat event text exceeds its bounded payload limit");
+        }
+        if let Self::TaskComplianceFailed { errors }
+        | Self::InternalContextLeakDetected { markers: errors } = self
+        {
+            if errors.len() > 128
+                || errors.iter().map(String::len).sum::<usize>() > MAX_CHAT_EVENT_TEXT_BYTES
+            {
+                bail!("chat grounding diagnostics exceed their bounded payload limit");
+            }
         }
         if let Self::DiffReady {
             display_patch,
@@ -787,6 +860,20 @@ pub struct ChatResolvedReference {
     pub provenance: String,
     pub bytes: usize,
     pub content_hash: Option<String>,
+    #[serde(default)]
+    pub origin: String,
+    #[serde(default)]
+    pub resolution: String,
+    #[serde(default)]
+    pub security_decision: String,
+    #[serde(default)]
+    pub injection: String,
+    #[serde(default)]
+    pub bytes_injected: usize,
+    #[serde(default)]
+    pub reason: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub full_content_hash: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -795,6 +882,14 @@ pub struct ChatRejectedReference {
     pub kind: String,
     pub rule_id: String,
     pub reason: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub path: Option<String>,
+    #[serde(default)]
+    pub origin: String,
+    #[serde(default)]
+    pub injection: String,
+    #[serde(default)]
+    pub reason_code: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -812,6 +907,62 @@ pub struct ChatMetrics {
     pub prompt_tokens: Option<u64>,
     pub generated_tokens: Option<u64>,
     pub generated_tokens_per_second: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub timing: Option<ChatTimingReport>,
+    #[serde(default)]
+    pub route: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct ChatTimingPhase {
+    pub name: String,
+    pub duration_ms: u64,
+    pub measured_by: String,
+    pub includes: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct ChatTimingReport {
+    pub schema_version: u32,
+    #[serde(default)]
+    pub request_id: String,
+    #[serde(default)]
+    pub run_id: String,
+    #[serde(default)]
+    pub workspace_id: String,
+    #[serde(default)]
+    pub command: String,
+    pub unit: String,
+    pub clock: String,
+    pub phases: Vec<ChatTimingPhase>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct ChatGroundingSummary {
+    pub schema_version: u32,
+    pub route: GroundingRoute,
+    pub requested_scope: ChatContextScope,
+    pub effective_scope: ChatContextScope,
+    pub scope_reason: ChatScopeReason,
+    pub evidence_mode: ChatEvidenceMode,
+    pub selected_references: usize,
+    pub resolved_references: usize,
+    pub injected_references: usize,
+    pub refused_references: usize,
+    pub discovered_files: usize,
+    pub rag_hits: usize,
+    pub historical_turns: usize,
+    pub prompt_fingerprint: String,
+    pub manifest: ContextManifest,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub response: Option<GroundedResponse>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub evidence: Option<EvidenceValidationReport>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub compliance: Option<ComplianceReport>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -828,6 +979,8 @@ pub struct ChatCompletionSummary {
     pub metrics: ChatMetrics,
     pub repository_state: String,
     pub run_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub grounding: Option<ChatGroundingSummary>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -943,6 +1096,9 @@ mod tests {
             provider: ProviderId::Ollama,
             model: "qwen2.5-coder:14b".to_string(),
             context_mode: ContextMode::Legacy,
+            context_scope: ChatContextScope::Automatic,
+            scope_reason: ChatScopeReason::DefaultSetting,
+            evidence_mode: ChatEvidenceMode::Optional,
             references: Vec::new(),
             history: Vec::new(),
             budgets: ChatBudgets::default(),
