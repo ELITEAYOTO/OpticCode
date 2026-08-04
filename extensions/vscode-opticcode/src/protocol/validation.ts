@@ -7,17 +7,23 @@ import type {
   CapabilitiesReport,
   ChatCommand,
   ChatCompletionSummary,
+  ChatContextScope,
   ChatContextFile,
   ChatEditReviewFile,
   ChatMetrics,
+  ChatGroundingSummary,
   ChatProtocolEvent,
   ChatRejectedReference,
   ChatResolvedReference,
   ChatSecurityMode,
+  ChatTimingReport,
+  ContextManifest,
+  ComplianceReport,
   ChatTextRange,
   ContextMode,
   DoctorCheck,
   DoctorReport,
+  EvidenceValidationReport,
   GenerationResult,
   JsonObject,
   LlmProtocolEvent,
@@ -172,6 +178,7 @@ export function validateCapabilitiesReport(value: unknown): CapabilitiesReport {
 const CHAT_COMMANDS: readonly ChatCommand[] = [
   'ask',
   'plan',
+  'inspect',
   'context',
   'analyze',
   'index',
@@ -204,6 +211,33 @@ function chatSecurityMode(value: unknown, field: string): ChatSecurityMode {
   return mode as ChatSecurityMode;
 }
 
+function chatContextScope(value: unknown, field: string): ChatContextScope {
+  const scope = requireString(value, field);
+  if (!['automatic', 'references_preferred', 'references_only'].includes(scope)) {
+    incompatible(`Unknown chat context scope ${scope}.`);
+  }
+  return scope as ChatContextScope;
+}
+
+function chatEvidenceMode(value: unknown, field: string): 'optional' | 'required' {
+  const mode = requireString(value, field);
+  if (mode !== 'optional' && mode !== 'required') {
+    incompatible(`Unknown chat evidence mode ${mode}.`);
+  }
+  return mode;
+}
+
+function groundingRoute(
+  value: unknown,
+  field: string,
+): 'automatic_assistant' | 'reference_llm' | 'document_facts' {
+  const route = requireString(value, field);
+  if (!['automatic_assistant', 'reference_llm', 'document_facts'].includes(route)) {
+    incompatible(`Unknown grounding route ${route}.`);
+  }
+  return route as 'automatic_assistant' | 'reference_llm' | 'document_facts';
+}
+
 function nullableString(value: unknown, field: string): string | null {
   return value === null ? null : requireString(value, field);
 }
@@ -234,7 +268,7 @@ function nullableRange(value: unknown, field: string): ChatTextRange | null {
 
 function chatResolvedReference(value: unknown, field: string): ChatResolvedReference {
   const reference = requireRecord(value, field);
-  return {
+  const resolved: ChatResolvedReference = {
     reference_id: requireString(reference.reference_id, `${field}.reference_id`),
     kind: requireString(reference.kind, `${field}.kind`),
     path: nullableString(reference.path, `${field}.path`),
@@ -244,16 +278,60 @@ function chatResolvedReference(value: unknown, field: string): ChatResolvedRefer
     bytes: requireInteger(reference.bytes, `${field}.bytes`),
     content_hash: nullableString(reference.content_hash, `${field}.content_hash`),
   };
+  if (reference.origin !== undefined) {
+    resolved.origin = requireString(reference.origin, `${field}.origin`);
+  }
+  if (reference.resolution !== undefined) {
+    resolved.resolution = requireString(reference.resolution, `${field}.resolution`);
+  }
+  if (reference.security_decision !== undefined) {
+    resolved.security_decision = requireString(
+      reference.security_decision,
+      `${field}.security_decision`,
+    );
+  }
+  if (reference.injection !== undefined) {
+    resolved.injection = requireString(reference.injection, `${field}.injection`);
+  }
+  if (reference.bytes_injected !== undefined) {
+    resolved.bytes_injected = requireInteger(
+      reference.bytes_injected,
+      `${field}.bytes_injected`,
+    );
+  }
+  if (reference.reason !== undefined) {
+    resolved.reason = requireString(reference.reason, `${field}.reason`);
+  }
+  if (reference.full_content_hash !== undefined) {
+    resolved.full_content_hash = nullableString(
+      reference.full_content_hash,
+      `${field}.full_content_hash`,
+    );
+  }
+  return resolved;
 }
 
 function chatRejectedReference(value: unknown, field: string): ChatRejectedReference {
   const reference = requireRecord(value, field);
-  return {
+  const rejected: ChatRejectedReference = {
     reference_id: requireString(reference.reference_id, `${field}.reference_id`),
     kind: requireString(reference.kind, `${field}.kind`),
     rule_id: requireString(reference.rule_id, `${field}.rule_id`),
     reason: requireString(reference.reason, `${field}.reason`),
   };
+  if (reference.path !== undefined) {
+    rejected.path = nullableString(reference.path, `${field}.path`);
+  }
+  if (reference.origin !== undefined) {
+    rejected.origin = requireString(reference.origin, `${field}.origin`);
+  }
+  if (reference.injection !== undefined) {
+    rejected.injection = requireString(reference.injection, `${field}.injection`);
+  }
+  if (reference.reason_code !== undefined) {
+    rejected.reason_code = requireString(reference.reason_code, `${field}.reason_code`);
+  }
+  return rejected;
 }
 
 function chatContextFile(value: unknown, field: string): ChatContextFile {
@@ -305,7 +383,7 @@ function chatEditReviewFile(value: unknown, field: string): ChatEditReviewFile {
 
 function chatMetrics(value: unknown, field: string): ChatMetrics {
   const metrics = requireRecord(value, field);
-  return {
+  const validated: ChatMetrics = {
     preparation_ms: requireInteger(metrics.preparation_ms, `${field}.preparation_ms`),
     total_ms: requireInteger(metrics.total_ms, `${field}.total_ms`),
     estimated_prompt_tokens: requireInteger(
@@ -319,6 +397,231 @@ function chatMetrics(value: unknown, field: string): ChatMetrics {
       `${field}.generated_tokens_per_second`,
     ),
   };
+  if (metrics.timing !== undefined && metrics.timing !== null) {
+    validated.timing = chatTimingReport(metrics.timing, `${field}.timing`);
+  }
+  if (metrics.route !== undefined) {
+    validated.route = requireString(metrics.route, `${field}.route`);
+  }
+  return validated;
+}
+
+function chatTimingReport(value: unknown, field: string): ChatTimingReport {
+  const timing = requireRecord(value, field);
+  const phases = requireArray(timing.phases, `${field}.phases`);
+  if (phases.length > 128) {
+    incompatible('Chat timing report exceeds its phase limit.');
+  }
+  return {
+    schema_version: requireInteger(timing.schema_version, `${field}.schema_version`),
+    ...(timing.request_id === undefined
+      ? {}
+      : { request_id: requireString(timing.request_id, `${field}.request_id`) }),
+    ...(timing.run_id === undefined
+      ? {}
+      : { run_id: requireString(timing.run_id, `${field}.run_id`) }),
+    ...(timing.workspace_id === undefined
+      ? {}
+      : { workspace_id: requireString(timing.workspace_id, `${field}.workspace_id`) }),
+    ...(timing.command === undefined
+      ? {}
+      : { command: requireString(timing.command, `${field}.command`) }),
+    unit: requireString(timing.unit, `${field}.unit`),
+    clock: requireString(timing.clock, `${field}.clock`),
+    phases: phases.map((phase, index) => {
+      const entry = requireRecord(phase, `${field}.phases[${index}]`);
+      return {
+        name: requireString(entry.name, `${field}.phases[${index}].name`),
+        duration_ms: requireInteger(
+          entry.duration_ms,
+          `${field}.phases[${index}].duration_ms`,
+        ),
+        measured_by: requireString(
+          entry.measured_by,
+          `${field}.phases[${index}].measured_by`,
+        ),
+        includes: requireStringArray(entry.includes, `${field}.phases[${index}].includes`),
+      };
+    }),
+  };
+}
+
+function contextManifest(value: unknown, field: string): ContextManifest {
+  const manifest = requireRecord(value, field);
+  const entries = requireArray(manifest.entries, `${field}.entries`);
+  if (entries.length > 64) {
+    incompatible('Context manifest exceeds its entry limit.');
+  }
+  const parsedEntries = entries.map((value, entryIndex) => {
+    const entryField = `${field}.entries[${entryIndex}]`;
+    const entry = requireRecord(value, entryField);
+    const ranges = requireArray(entry.ranges, `${entryField}.ranges`);
+    if (ranges.length > 128) {
+      incompatible('Context manifest entry exceeds its range limit.');
+    }
+    return {
+      reference_id: requireString(entry.reference_id, `${entryField}.reference_id`),
+      path: requireString(entry.path, `${entryField}.path`),
+      origin: requireString(entry.origin, `${entryField}.origin`),
+      hash: requireString(entry.hash, `${entryField}.hash`),
+      injected_hash: requireString(entry.injected_hash, `${entryField}.injected_hash`),
+      size_bytes: requireInteger(entry.size_bytes, `${entryField}.size_bytes`),
+      encoding: requireString(entry.encoding, `${entryField}.encoding`),
+      line_ending: requireString(entry.line_ending, `${entryField}.line_ending`),
+      ranges: ranges.map((value, rangeIndex) => {
+        const rangeField = `${entryField}.ranges[${rangeIndex}]`;
+        const range = requireRecord(value, rangeField);
+        return {
+          start_line: requireInteger(range.start_line, `${rangeField}.start_line`),
+          end_line: requireInteger(range.end_line, `${rangeField}.end_line`),
+          start_byte: requireInteger(range.start_byte, `${rangeField}.start_byte`),
+          end_byte: requireInteger(range.end_byte, `${rangeField}.end_byte`),
+        };
+      }),
+      bytes_injected: requireInteger(entry.bytes_injected, `${entryField}.bytes_injected`),
+      reason: requireString(entry.reason, `${entryField}.reason`),
+      git_state: requireString(entry.git_state, `${entryField}.git_state`),
+      workspace_id: requireString(entry.workspace_id, `${entryField}.workspace_id`),
+    };
+  });
+  return {
+    schema_version: requireInteger(manifest.schema_version, `${field}.schema_version`),
+    context_scope: chatContextScope(manifest.context_scope, `${field}.context_scope`),
+    workspace_id: requireString(manifest.workspace_id, `${field}.workspace_id`),
+    request_id: requireString(manifest.request_id, `${field}.request_id`),
+    prompt_version: requireString(manifest.prompt_version, `${field}.prompt_version`),
+    profile: requireString(manifest.profile, `${field}.profile`),
+    entries: parsedEntries,
+    total_bytes: requireInteger(manifest.total_bytes, `${field}.total_bytes`),
+    estimated_tokens: requireInteger(
+      manifest.estimated_tokens,
+      `${field}.estimated_tokens`,
+    ),
+    fingerprint: requireString(manifest.fingerprint, `${field}.fingerprint`),
+  };
+}
+
+function evidenceReport(value: unknown, field: string): EvidenceValidationReport {
+  const report = requireRecord(value, field);
+  return {
+    valid: requireBoolean(report.valid, `${field}.valid`),
+    claims_checked: requireInteger(report.claims_checked, `${field}.claims_checked`),
+    citations_checked: requireInteger(
+      report.citations_checked,
+      `${field}.citations_checked`,
+    ),
+    errors: requireStringArray(report.errors, `${field}.errors`),
+  };
+}
+
+function complianceReport(value: unknown, field: string): ComplianceReport {
+  const report = requireRecord(value, field);
+  return {
+    compliant: requireBoolean(report.compliant, `${field}.compliant`),
+    internal_context_leak: requireBoolean(
+      report.internal_context_leak,
+      `${field}.internal_context_leak`,
+    ),
+    cross_file_leak: requireBoolean(report.cross_file_leak, `${field}.cross_file_leak`),
+    task_format_violation: requireBoolean(
+      report.task_format_violation,
+      `${field}.task_format_violation`,
+    ),
+    errors: requireStringArray(report.errors, `${field}.errors`),
+  };
+}
+
+function groundedResponse(value: unknown, field: string): void {
+  const response = requireRecord(value, field);
+  requireInteger(response.schema_version, `${field}.schema_version`);
+  requireString(response.answer, `${field}.answer`);
+  requireStringArray(response.missing_information, `${field}.missing_information`);
+  requireBoolean(response.used_general_knowledge, `${field}.used_general_knowledge`);
+  const claims = requireArray(response.claims, `${field}.claims`);
+  if (claims.length > 128) {
+    incompatible('Grounded response exceeds its claim limit.');
+  }
+  for (const [claimIndex, value] of claims.entries()) {
+    const claimField = `${field}.claims[${claimIndex}]`;
+    const claim = requireRecord(value, claimField);
+    requireString(claim.claim_id, `${claimField}.claim_id`);
+    requireString(claim.text, `${claimField}.text`);
+    const classification = requireString(claim.classification, `${claimField}.classification`);
+    if (!['observed', 'inferred', 'general_knowledge', 'insufficient_evidence'].includes(classification)) {
+      incompatible(`Unknown evidence classification ${classification}.`);
+    }
+    const citations = requireArray(claim.evidence, `${claimField}.evidence`);
+    if (citations.length > 32) {
+      incompatible('Grounded claim exceeds its citation limit.');
+    }
+    for (const [citationIndex, value] of citations.entries()) {
+      const citationField = `${claimField}.evidence[${citationIndex}]`;
+      const citation = requireRecord(value, citationField);
+      requireString(citation.path, `${citationField}.path`);
+      requireInteger(citation.start_line, `${citationField}.start_line`);
+      requireInteger(citation.end_line, `${citationField}.end_line`);
+      requireString(citation.content_hash, `${citationField}.content_hash`);
+    }
+  }
+}
+
+function chatGroundingSummary(value: unknown, field: string): ChatGroundingSummary {
+  const grounding = requireRecord(value, field);
+  const reason = requireString(grounding.scope_reason, `${field}.scope_reason`);
+  if (!['explicit_setting', 'explicit_prompt_restriction', 'default_setting', 'server_downgrade'].includes(reason)) {
+    incompatible(`Unknown scope reason ${reason}.`);
+  }
+  if (grounding.response !== undefined && grounding.response !== null) {
+    groundedResponse(grounding.response, `${field}.response`);
+  }
+  const evidence =
+    grounding.evidence === undefined || grounding.evidence === null
+      ? undefined
+      : evidenceReport(grounding.evidence, `${field}.evidence`);
+  const compliance =
+    grounding.compliance === undefined || grounding.compliance === null
+      ? undefined
+      : complianceReport(grounding.compliance, `${field}.compliance`);
+  return {
+    schema_version: requireInteger(grounding.schema_version, `${field}.schema_version`),
+    route: groundingRoute(grounding.route, `${field}.route`),
+    requested_scope: chatContextScope(grounding.requested_scope, `${field}.requested_scope`),
+    effective_scope: chatContextScope(grounding.effective_scope, `${field}.effective_scope`),
+    scope_reason: reason as ChatGroundingSummary['scope_reason'],
+    evidence_mode: chatEvidenceMode(grounding.evidence_mode, `${field}.evidence_mode`),
+    selected_references: requireInteger(
+      grounding.selected_references,
+      `${field}.selected_references`,
+    ),
+    resolved_references: requireInteger(
+      grounding.resolved_references,
+      `${field}.resolved_references`,
+    ),
+    injected_references: requireInteger(
+      grounding.injected_references,
+      `${field}.injected_references`,
+    ),
+    refused_references: requireInteger(
+      grounding.refused_references,
+      `${field}.refused_references`,
+    ),
+    discovered_files: requireInteger(grounding.discovered_files, `${field}.discovered_files`),
+    rag_hits: requireInteger(grounding.rag_hits, `${field}.rag_hits`),
+    historical_turns: requireInteger(
+      grounding.historical_turns,
+      `${field}.historical_turns`,
+    ),
+    prompt_fingerprint: requireString(
+      grounding.prompt_fingerprint,
+      `${field}.prompt_fingerprint`,
+    ),
+    manifest: contextManifest(grounding.manifest, `${field}.manifest`),
+    ...(grounding.response === undefined || grounding.response === null
+      ? {}
+      : { response: grounding.response as ChatGroundingSummary['response'] }),
+    ...(evidence === undefined ? {} : { evidence }),
+    ...(compliance === undefined ? {} : { compliance }),
+  };
 }
 
 function chatCompletionSummary(value: unknown): ChatCompletionSummary {
@@ -329,7 +632,7 @@ function chatCompletionSummary(value: unknown): ChatCompletionSummary {
     incompatible('Chat completion summary exceeds its collection limits.');
   }
   const used = summary.used_context_mode;
-  return {
+  const validated: ChatCompletionSummary = {
     command: chatCommand(summary.command, 'summary.command'),
     success: requireBoolean(summary.success, 'summary.success'),
     model: requireString(summary.model, 'summary.model'),
@@ -353,6 +656,10 @@ function chatCompletionSummary(value: unknown): ChatCompletionSummary {
     repository_state: requireString(summary.repository_state, 'summary.repository_state'),
     run_id: requireString(summary.run_id, 'summary.run_id'),
   };
+  if (summary.grounding !== undefined && summary.grounding !== null) {
+    validated.grounding = chatGroundingSummary(summary.grounding, 'summary.grounding');
+  }
+  return validated;
 }
 
 export function validateChatEvent(
@@ -406,6 +713,29 @@ export function validateChatEvent(
       rejected.forEach((entry, index) => chatRejectedReference(entry, `rejected[${index}]`));
       break;
     }
+    case 'reference_selected':
+      requireString(event.reference_id, 'reference_id');
+      requireString(event.kind, 'kind');
+      if (event.path !== undefined && event.path !== null) {
+        requireString(event.path, 'path');
+      }
+      requireString(event.origin, 'origin');
+      break;
+    case 'reference_resolved':
+    case 'reference_injected':
+      chatResolvedReference(event.reference, 'reference');
+      break;
+    case 'reference_refused':
+      chatRejectedReference(event.reference, 'reference');
+      break;
+    case 'context_manifest_ready': {
+      const manifest = contextManifest(event.manifest, 'manifest');
+      if (manifest.request_id !== expectedRequestId) {
+        incompatible('Context manifest request ID does not match the active request.');
+      }
+      requireString(event.prompt_fingerprint, 'prompt_fingerprint');
+      break;
+    }
     case 'context_started':
       contextMode(event.requested_mode, 'requested_mode');
       break;
@@ -451,7 +781,38 @@ export function validateChatEvent(
       requireString(event.message, 'message');
       break;
     case 'metrics':
-      chatMetrics(event.metrics, 'metrics');
+    case 'timing_metrics': {
+      const metrics = chatMetrics(event.metrics, 'metrics');
+      if (
+        metrics.timing?.request_id !== undefined &&
+        metrics.timing.request_id !== expectedRequestId
+      ) {
+        incompatible('Chat timing request ID does not match the active request.');
+      }
+      break;
+    }
+    case 'grounding_validation_started':
+      groundingRoute(event.route, 'route');
+      chatEvidenceMode(event.evidence_mode, 'evidence_mode');
+      break;
+    case 'grounding_validation_completed':
+      evidenceReport(event.evidence, 'evidence');
+      complianceReport(event.compliance, 'compliance');
+      break;
+    case 'task_compliance_failed':
+      if (requireStringArray(event.errors, 'errors').length > 128) {
+        incompatible('Task compliance diagnostics exceed their bounded count.');
+      }
+      break;
+    case 'internal_context_leak_detected':
+      if (requireStringArray(event.markers, 'markers').length > 128) {
+        incompatible('Internal leak diagnostics exceed their bounded count.');
+      }
+      break;
+    case 'document_inspection_completed':
+      requireString(event.format, 'format');
+      requireInteger(event.facts, 'facts');
+      requireInteger(event.model_calls, 'model_calls');
       break;
     case 'edit_plan_started':
       requireString(event.plan_id, 'plan_id');
@@ -568,9 +929,23 @@ export function validateChatEvent(
     case 'proposal_discarded':
       requireString(event.proposal_id, 'proposal_id');
       break;
-    case 'completed':
-      chatCompletionSummary(event.summary);
+    case 'completed': {
+      const summary = chatCompletionSummary(event.summary);
+      if (
+        summary.metrics.timing?.request_id !== undefined &&
+        summary.metrics.timing.request_id !== expectedRequestId
+      ) {
+        incompatible('Completed timing belongs to another request.');
+      }
+      if (
+        summary.grounding !== undefined &&
+        summary.grounding !== null &&
+        summary.grounding.manifest.request_id !== expectedRequestId
+      ) {
+        incompatible('Completed grounding manifest belongs to another request.');
+      }
       break;
+    }
     case 'cancelled':
       requireString(event.reason, 'reason');
       break;

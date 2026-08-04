@@ -8,6 +8,8 @@ import {
   ChatRequestBuildError,
   collectWorkspaceReferences,
   parseChatCommand,
+  promptRequestsReferencesOnly,
+  requestedGroundingScope,
   sessionNamespace,
   workspaceIdentity,
 } from '../../src/chat/model';
@@ -15,6 +17,7 @@ import { ChatEventPresenter } from '../../src/chat/presentation';
 import type {
   ChatCompletionSummary,
   ChatProtocolEvent,
+  ChatUiTiming,
 } from '../../src/protocol/types';
 
 const workspace = path.resolve('C:\fixture', 'Optic Code Unicode');
@@ -85,9 +88,88 @@ function completionSummary(): ChatCompletionSummary {
       prompt_tokens: 1100,
       generated_tokens: 107,
       generated_tokens_per_second: 20,
+      route: 'reference_llm',
+      timing: {
+        schema_version: 1,
+        request_id: 'request-test',
+        run_id: 'run-test',
+        workspace_id: 'workspace-test',
+        command: 'ask',
+        unit: 'milliseconds',
+        clock: 'std::time::Instant',
+        phases: [
+          { name: 'reference_resolution', duration_ms: 80, measured_by: 'rust', includes: [] },
+          { name: 'prompt_build', duration_ms: 20, measured_by: 'rust', includes: [] },
+          { name: 'provider_total', duration_ms: 3500, measured_by: 'ollama', includes: [] },
+        ],
+      },
     },
     repository_state: 'state',
     run_id: 'run-test',
+    grounding: {
+      schema_version: 1,
+      route: 'reference_llm',
+      requested_scope: 'references_only',
+      effective_scope: 'references_only',
+      scope_reason: 'explicit_prompt_restriction',
+      evidence_mode: 'required',
+      selected_references: 1,
+      resolved_references: 1,
+      injected_references: 1,
+      refused_references: 0,
+      discovered_files: 0,
+      rag_hits: 0,
+      historical_turns: 0,
+      prompt_fingerprint: 'b'.repeat(64),
+      manifest: {
+        schema_version: 1,
+        context_scope: 'references_only',
+        workspace_id: 'workspace-test',
+        request_id: 'request-test',
+        prompt_version: 'opticcode-grounding-prompt-v2',
+        profile: 'minecraft-java-1.8',
+        entries: [{
+          reference_id: 'selection',
+          path: 'src/Plugin.java',
+          origin: 'user_attachment',
+          hash: 'a'.repeat(64),
+          injected_hash: 'a'.repeat(64),
+          size_bytes: 20,
+          encoding: 'utf-8',
+          line_ending: 'lf',
+          ranges: [{ start_line: 3, end_line: 4, start_byte: 10, end_byte: 30 }],
+          bytes_injected: 20,
+          reason: 'explicit_user_reference',
+          git_state: 'clean',
+          workspace_id: 'workspace-test',
+        }],
+        total_bytes: 20,
+        estimated_tokens: 5,
+        fingerprint: 'c'.repeat(64),
+      },
+      evidence: { valid: true, claims_checked: 1, citations_checked: 1, errors: [] },
+      compliance: {
+        compliant: true,
+        internal_context_leak: false,
+        cross_file_leak: false,
+        task_format_violation: false,
+        errors: [],
+      },
+    },
+  };
+}
+
+function uiTiming(): ChatUiTiming {
+  return {
+    schema_version: 1,
+    request_id: 'request-test',
+    clock: 'performance.now',
+    first_token_ms: 820,
+    answer_streaming_ms: 3410,
+    visible_response_ms: 4230,
+    total_pipeline_ms: 4580,
+    post_processing_ms: 350,
+    terminal_rendered_ms: 4580,
   };
 }
 
@@ -96,6 +178,19 @@ describe('OpticCode chat model', () => {
     assert.equal(parseChatCommand(undefined), 'ask');
     assert.equal(parseChatCommand(' PLAN '), 'plan');
     assert.equal(parseChatCommand('unknown'), undefined);
+  });
+
+  it('detects explicit reference-only intent in French and English', () => {
+    assert.equal(promptRequestsReferencesOnly('Lis uniquement le fichier joint.'), true);
+    assert.equal(promptRequestsReferencesOnly('Use only the attached file.'), true);
+    assert.deepEqual(
+      requestedGroundingScope('automatic', 'Ne lis aucun autre fichier.'),
+      { scope: 'references_only', reason: 'explicit_prompt_restriction' },
+    );
+    assert.deepEqual(requestedGroundingScope('references_preferred', 'Explain this project.'), {
+      scope: 'references_preferred',
+      reason: 'default_setting',
+    });
   });
 
   it('bounds malformed history, redacts secrets, and omits large prior diffs', () => {
@@ -181,10 +276,16 @@ describe('OpticCode chat model', () => {
     assert.equal(request.security_mode, 'read_only');
     assert.equal(request.command, 'ask');
     assert.equal(request.generation.max_output_tokens, 1024);
+    assert.equal(request.context_scope, 'references_preferred');
+    assert.equal(request.evidence_mode, 'required');
     assert.match(request.request_id, /^vscode-chat-ask-/u);
 
     assert.throws(
       () => buildChatRequest({ ...requestInput(), prompt: '' }),
+      ChatRequestBuildError,
+    );
+    assert.throws(
+      () => buildChatRequest({ ...requestInput(), command: 'inspect', prompt: '' }),
       ChatRequestBuildError,
     );
     assert.doesNotThrow(() =>
@@ -226,16 +327,29 @@ describe('OpticCode chat presentation', () => {
       type: 'token_delta',
       text: '**answer**',
     };
-    assert.deepEqual(presenter.accept(delta), [{ kind: 'markdown', text: '**answer**' }]);
+    assert.deepEqual(presenter.accept(delta), [{ kind: 'answer', text: '**answer**' }]);
+
+    presenter.accept({
+      ...baseEvent(1),
+      type: 'reference_injected',
+      reference: completionSummary().references[0]!,
+    });
 
     const completed: ChatProtocolEvent = {
-      ...baseEvent(1),
+      ...baseEvent(2),
       type: 'completed',
       summary: completionSummary(),
     };
-    const operations = presenter.accept(completed);
+    assert.deepEqual(presenter.accept(completed), []);
+    const operations = presenter.complete(completionSummary(), uiTiming());
     assert.ok(operations.some((operation) => operation.kind === 'anchor'));
-    assert.ok(operations.some((operation) => operation.kind === 'filetree'));
+    assert.equal(operations.some((operation) => operation.kind === 'filetree'), false);
+    assert.ok(
+      operations.some(
+        (operation) =>
+          operation.kind === 'button' && operation.title === 'Show Injected Context',
+      ),
+    );
     assert.ok(
       operations.some(
         (operation) => operation.kind === 'button' && operation.title === 'Show Full Report',
@@ -243,22 +357,42 @@ describe('OpticCode chat presentation', () => {
     );
     assert.ok(
       operations.some(
-        (operation) => operation.kind === 'markdown' && operation.text.includes('5.20'),
+        (operation) =>
+          operation.kind === 'markdown' &&
+          operation.text.includes('First token') &&
+          operation.text.includes('Total pipeline') &&
+          !operation.text.includes('Duration:'),
       ),
     );
   });
 
   it('does not expose apply before an approval event exists', () => {
-    const operations = new ChatEventPresenter().accept({
+    const presenter = new ChatEventPresenter();
+    presenter.accept({
       ...baseEvent(0),
       type: 'completed',
       summary: completionSummary(),
     });
+    const operations = presenter.complete(completionSummary(), uiTiming());
     assert.equal(
       operations.some(
         (operation) => operation.kind === 'button' && operation.title.includes('Apply'),
       ),
       false,
     );
+  });
+
+  it('labels DocumentFacts as zero model-token work', () => {
+    const summary = completionSummary();
+    summary.metrics.prompt_tokens = null;
+    summary.metrics.generated_tokens = null;
+    summary.grounding!.route = 'document_facts';
+    const operations = new ChatEventPresenter().complete(summary, uiTiming());
+    const markdown = operations
+      .filter((operation) => operation.kind === 'markdown')
+      .map((operation) => operation.text)
+      .join('');
+    assert.match(markdown, /Prompt: \*\*0 model tokens\*\*/u);
+    assert.match(markdown, /Output: \*\*0 model tokens\*\*/u);
   });
 });

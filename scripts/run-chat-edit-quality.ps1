@@ -7,7 +7,7 @@ param(
 $ErrorActionPreference = "Stop"
 $repoRoot = Split-Path -Parent $PSScriptRoot
 $extensionRoot = Join-Path $repoRoot "extensions\vscode-opticcode"
-$artifact = Join-Path $repoRoot "artifacts\opticcode-vscode-0.2.0.vsix"
+$artifact = Join-Path $repoRoot "artifacts\opticcode-vscode-0.2.1.vsix"
 Set-Location -LiteralPath $repoRoot
 
 function Assert-LastExitCode([int]$Expected, [string]$Message) {
@@ -105,8 +105,8 @@ if ($forbidden.Count -ne 0) {
 
 $manifest = (& tar -xOf $artifact "extension/package.json" | Out-String) | ConvertFrom-Json
 Assert-LastExitCode 0 "Unable to inspect packaged extension manifest"
-if ($manifest.version -ne "0.2.0") {
-    throw "Packaged extension version is $($manifest.version), expected 0.2.0."
+if ($manifest.version -ne "0.2.1") {
+    throw "Packaged extension version is $($manifest.version), expected 0.2.1."
 }
 $textEntries = @($entries | Where-Object {
     $_ -eq 'extension.vsixmanifest' -or

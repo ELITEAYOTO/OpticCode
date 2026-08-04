@@ -34,14 +34,21 @@ npm run compile
 npm run lint
 npm test
 npm run package
-code --install-extension ..\..\artifacts\opticcode-vscode-0.2.0.vsix --force
+code --install-extension ..\..\artifacts\opticcode-vscode-0.2.1.vsix --force
 ```
 
 No global npm package is required. The package output is:
 
 ```text
-artifacts/opticcode-vscode-0.2.0.vsix
+artifacts/opticcode-vscode-0.2.1.vsix
 ```
+
+Chat defaults to `referencesPreferred` with required evidence. Use
+`OpticCode: Select Chat Context Scope` for `automatic`,
+`referencesPreferred`, or `referencesOnly`. Strict answers expose only the
+manifest actually injected, validated claims, and separate First token,
+Visible response, and Total pipeline timings. `/inspect` routes supported
+YAML/JSON/TOML/properties/XML facts without a model call.
 
 ## Configuration
 

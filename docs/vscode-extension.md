@@ -126,7 +126,10 @@ finding ranges and deterministic handlers for Help, Status, Context and Ask:
 npm run test:vscode
 ```
 
-The packaged extension is `artifacts/opticcode-vscode-0.2.0.vsix`.
+The packaged extension is `artifacts/opticcode-vscode-0.2.1.vsix`.
+GROUNDING-METRICS-001 adds context-scope/evidence settings,
+injected-context/evidence actions, `/inspect`, split timing labels, and the
+real-process Extension Host Prompt Lab.
 
 ## Known limits
 

@@ -349,6 +349,17 @@ switch (scenario) {
     process.exitCode = 2;
     break;
   }
+  case 'chat-late-metrics': {
+    const input = await initialChatRequest();
+    const events = validChatEvents(input.request.request_id);
+    const metrics = events.find((event) => event.type === 'metrics').metrics;
+    writeEvents([
+      ...events,
+      chat(input.request.request_id, events.length, 'metrics', { metrics }),
+    ]);
+    input.lines.close();
+    break;
+  }
   case 'chat-timeout': {
     await initialChatRequest();
     setTimeout(() => {}, 10_000);

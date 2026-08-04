@@ -6,7 +6,7 @@ param(
 $ErrorActionPreference = "Stop"
 $repoRoot = Split-Path -Parent $PSScriptRoot
 $extensionRoot = Join-Path $repoRoot "extensions\vscode-opticcode"
-$artifact = Join-Path $repoRoot "artifacts\opticcode-vscode-0.2.0.vsix"
+$artifact = Join-Path $repoRoot "artifacts\opticcode-vscode-0.2.1.vsix"
 Set-Location -LiteralPath $repoRoot
 
 $statusBefore = git status --porcelain=v1

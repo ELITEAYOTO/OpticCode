@@ -321,6 +321,8 @@ function fixtureConnection(workspace: string): Connection {
       profile: 'minecraft-java-1.8',
       model: 'fixture-model',
       contextMode: 'symbol',
+      chatContextScope: 'references_preferred',
+      evidenceMode: 'required',
       timeoutSeconds: 30,
       showDebugOutput: false,
       autoCheckOnStartup: false,

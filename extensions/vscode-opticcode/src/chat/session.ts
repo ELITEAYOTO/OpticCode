@@ -17,6 +17,7 @@ export interface ChatSessionMetadata {
 }
 
 const STORAGE_KEY = 'opticcode.chat.sessions.v1';
+const CONTEXT_EPOCH_KEY = 'opticcode.chat.contextEpoch.v1';
 const MAX_SESSIONS = 32;
 const MAX_RECENT_RUNS = 16;
 
@@ -35,6 +36,11 @@ export class ChatSessionStore {
 
   public get(workspaceId: string, sessionId: string): ChatSessionMetadata | undefined {
     return this.sessions.get(sessionKey(workspaceId, sessionId));
+  }
+
+  public contextEpoch(): number {
+    const value = this.storage.get<number>(CONTEXT_EPOCH_KEY, 0);
+    return Number.isSafeInteger(value) && value >= 0 ? value : 0;
   }
 
   public findByRunId(runId: string): ChatSessionMetadata | undefined {
@@ -63,6 +69,29 @@ export class ChatSessionStore {
   public async remove(workspaceId: string, sessionId: string): Promise<void> {
     this.sessions.delete(sessionKey(workspaceId, sessionId));
     await this.storage.update(STORAGE_KEY, [...this.sessions.values()]);
+  }
+
+  public async clearContext(): Promise<number> {
+    const nextEpoch = this.contextEpoch() + 1;
+    for (const [key, session] of this.sessions) {
+      this.sessions.set(key, {
+        schemaVersion: 1,
+        namespace: session.namespace,
+        workspaceId: session.workspaceId,
+        sessionId: session.sessionId,
+        recentRunIds: [],
+        updatedAt: new Date().toISOString(),
+        ...(session.lastProposalId === undefined
+          ? {}
+          : { lastProposalId: session.lastProposalId }),
+        ...(session.lastTransactionId === undefined
+          ? {}
+          : { lastTransactionId: session.lastTransactionId }),
+      });
+    }
+    await this.storage.update(CONTEXT_EPOCH_KEY, nextEpoch);
+    await this.storage.update(STORAGE_KEY, [...this.sessions.values()]);
+    return nextEpoch;
   }
 }
 

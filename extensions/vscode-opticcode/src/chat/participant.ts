@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import * as path from 'node:path';
+import { performance } from 'node:perf_hooks';
 import * as vscode from 'vscode';
 
 import type { RunRecord } from '../model';
@@ -22,6 +23,7 @@ import {
   CHAT_PARTICIPANT_ID,
   collectWorkspaceReferences,
   parseChatCommand,
+  requestedGroundingScope,
   sessionNamespace,
   workspaceIdentity,
   type NeutralHistoryTurn,
@@ -30,9 +32,13 @@ import {
 import { ChatEventPresenter, type ChatRenderOperation } from './presentation';
 import { ChatEditReviewController } from './editReview';
 import { ChatSessionStore, type ChatSessionMetadata } from './session';
+import { createChatUiTiming, markTerminalRendered, safeDuration } from './timing';
 
 const INTERNAL_COMMANDS = {
   showContext: 'opticcode.internal.chat.showContext',
+  showInjectedContext: 'opticcode.internal.chat.showInjectedContext',
+  showEvidence: 'opticcode.internal.chat.showEvidence',
+  copyGroundingReport: 'opticcode.internal.chat.copyGroundingReport',
   showReport: 'opticcode.internal.chat.showReport',
   showDiff: 'opticcode.internal.chat.showDiff',
   showAllChanges: 'opticcode.internal.chat.showAllChanges',
@@ -45,6 +51,7 @@ const EDIT_COMMANDS = new Set<ChatCommand>(['fix', 'verify', 'diff', 'apply', 'r
 
 export interface ChatRegistration {
   readonly participantId: string;
+  readonly requestHandler: vscode.ChatRequestHandler;
   dispose(): void;
 }
 
@@ -87,10 +94,9 @@ export function registerOpticCodeChat(
     sessions,
     editReview,
   );
-  const participant = vscode.chat.createChatParticipant(
-    CHAT_PARTICIPANT_ID,
-    (request, context, response, token) => handler.handle(request, context, response, token),
-  );
+  const requestHandler: vscode.ChatRequestHandler = (request, context, response, token) =>
+    handler.handle(request, context, response, token);
+  const participant = vscode.chat.createChatParticipant(CHAT_PARTICIPANT_ID, requestHandler);
   participant.iconPath = vscode.Uri.joinPath(extensionContext.extensionUri, 'media', 'opticcode.svg');
   subscriptions.push(participant);
   subscriptions.push(editReview);
@@ -107,9 +113,38 @@ export function registerOpticCodeChat(
     }
     await reports.showPath(session.lastReportPath);
   };
+  const requireGroundingArgument = (value: unknown): Record<string, unknown> => {
+    if (!isRecord(value)) {
+      throw new Error('No bounded grounding report was selected.');
+    }
+    return value;
+  };
   subscriptions.push(
     vscode.commands.registerCommand(INTERNAL_COMMANDS.showContext, showStoredReport),
     vscode.commands.registerCommand(INTERNAL_COMMANDS.showReport, showStoredReport),
+    vscode.commands.registerCommand(INTERNAL_COMMANDS.showInjectedContext, async (value) => {
+      const grounding = requireGroundingArgument(value);
+      await reports.showJson(grounding.manifest ?? {});
+    }),
+    vscode.commands.registerCommand(INTERNAL_COMMANDS.showEvidence, async (value) => {
+      const grounding = requireGroundingArgument(value);
+      await reports.showJson({
+        response: grounding.response ?? null,
+        evidence: grounding.evidence ?? null,
+        compliance: grounding.compliance ?? null,
+      });
+    }),
+    vscode.commands.registerCommand(INTERNAL_COMMANDS.copyGroundingReport, async (value) => {
+      const grounding = requireGroundingArgument(value);
+      await vscode.env.clipboard.writeText(`${JSON.stringify(grounding, null, 2)}\n`);
+      await vscode.window.showInformationMessage('OpticCode grounding report copied.');
+    }),
+    vscode.commands.registerCommand('opticcode.clearChatSessionContext', async () => {
+      await sessions.clearContext();
+      await vscode.window.showInformationMessage(
+        'OpticCode chat context cleared. Edit proposals and transactions were preserved.',
+      );
+    }),
     vscode.commands.registerCommand(INTERNAL_COMMANDS.showDiff, (proposalId) =>
       editReview.showDiff(proposalId),
     ),
@@ -133,6 +168,7 @@ export function registerOpticCodeChat(
 
   return {
     participantId: CHAT_PARTICIPANT_ID,
+    requestHandler,
     dispose: () => {
       for (const subscription of subscriptions) {
         subscription.dispose();
@@ -158,6 +194,9 @@ export class OpticCodeChatHandler {
     response: vscode.ChatResponseStream,
     token: vscode.CancellationToken,
   ): Promise<vscode.ChatResult> {
+    const handlerStartedAt = performance.now();
+    let firstAnswerRenderedAt: number | undefined;
+    let lastAnswerRenderedAt: number | undefined;
     const command = parseChatCommand(request.command);
     if (command === undefined) {
       response.markdown(
@@ -178,15 +217,29 @@ export class OpticCodeChatHandler {
       response.progress('Connecting to the local OpticCode runtime...');
       const connection = await this.service.connectForWorkspace(workspace.uri);
       const workspaceId = workspaceIdentity(connection.workspace);
-      const participantSession = sessionIdFromHistory(context.history) ?? randomUUID();
+      const contextEpoch = this.sessions.contextEpoch();
+      const participantSession =
+        sessionIdFromHistory(context.history, contextEpoch) ?? randomUUID();
       const stored = this.sessions.get(workspaceId, participantSession);
       const namespace = sessionNamespace(
         connection.workspace,
         stored?.repositoryState,
         participantSession,
       );
-      const history = historyFromVscode(context.history);
-      const references = referencesFromVscode(request, workspace, command);
+      const history = historyFromVscode(context.history, workspaceId, contextEpoch);
+      const groundingScope = requestedGroundingScope(
+        connection.settings.chatContextScope,
+        request.prompt,
+      );
+      if (groundingScope.reason === 'explicit_prompt_restriction') {
+        response.progress('Context scope tightened to references_only from the current prompt.');
+      }
+      const references = referencesFromVscode(
+        request,
+        workspace,
+        command,
+        groundingScope.scope,
+      );
       for (const rejection of references.rejected) {
         response.markdown(
           `\n> **Reference ignored:** ${escapeMarkdown(rejection.reason)}\n`,
@@ -200,6 +253,8 @@ export class OpticCodeChatHandler {
         history,
         references.accepted,
         stored,
+        groundingScope.scope,
+        groundingScope.reason,
       );
       const presenter = new ChatEventPresenter();
       const result = await this.service.runChat(
@@ -207,10 +262,28 @@ export class OpticCodeChatHandler {
         workspace.uri,
         (event) => {
           this.editReview?.observe(connection.workspace, event);
-          this.render(response, workspace, presenter.accept(event));
+          const operations = presenter.accept(event);
+          const containsAnswer = operations.some((operation) => operation.kind === 'answer');
+          this.render(response, workspace, operations);
+          if (containsAnswer) {
+            const renderedAt = performance.now();
+            firstAnswerRenderedAt ??= renderedAt;
+            lastAnswerRenderedAt = renderedAt;
+          }
         },
         token,
       );
+      const terminalRenderStartedAt = performance.now();
+      const uiTiming = createChatUiTiming(
+        result.requestId,
+        handlerStartedAt,
+        firstAnswerRenderedAt,
+        lastAnswerRenderedAt,
+        terminalRenderStartedAt,
+      );
+      result.uiTiming = uiTiming;
+      this.render(response, workspace, presenter.complete(result.summary, uiTiming));
+      markTerminalRendered(uiTiming, handlerStartedAt, performance.now());
       let reportPath: string | undefined;
       try {
         reportPath = await this.recordResult(
@@ -220,6 +293,7 @@ export class OpticCodeChatHandler {
           result,
           references.rejected,
         );
+        uiTiming.report_persisted_ms = safeDuration(performance.now() - handlerStartedAt);
       } catch (error) {
         this.output.appendLine(`[chat] report storage failed: ${errorMessage(error)}`);
         response.markdown(
@@ -254,6 +328,7 @@ export class OpticCodeChatHandler {
           '\n\n> **Warning:** The response completed, but session metadata could not be stored.\n',
         );
       }
+      uiTiming.handler_completed_ms = safeDuration(performance.now() - handlerStartedAt);
       return {
         ...(result.status === 'failed'
           ? { errorDetails: { message: terminalFailure(result) } }
@@ -268,6 +343,17 @@ export class OpticCodeChatHandler {
             session_id: participantSession,
             repository_state: result.summary?.repository_state ?? null,
             command,
+            context_epoch: contextEpoch,
+            source_scope: result.summary?.grounding?.effective_scope ?? null,
+            context_fingerprint: result.summary?.grounding?.manifest.fingerprint ?? null,
+            grounding_status:
+              result.summary?.grounding?.evidence?.valid === true &&
+              result.summary?.grounding?.compliance?.compliant === true
+                ? 'grounded'
+                : 'ungrounded',
+            chat_metrics: result.summary?.metrics ?? null,
+            client_timing: result.clientTiming ?? null,
+            ui_timing: result.uiTiming ?? null,
           },
         },
       };
@@ -300,6 +386,8 @@ export class OpticCodeChatHandler {
     history: readonly ChatHistoryTurn[],
     references: readonly ChatReference[],
     stored: ChatSessionMetadata | undefined,
+    contextScope: ChatProtocolRequest['context_scope'],
+    scopeReason: ChatProtocolRequest['scope_reason'],
   ): ChatProtocolRequest {
     return buildChatRequest({
       command,
@@ -308,6 +396,9 @@ export class OpticCodeChatHandler {
       profile: connection.settings.profile,
       model: connection.settings.model,
       contextMode: connection.settings.contextMode,
+      contextScope,
+      scopeReason,
+      evidenceMode: connection.settings.evidenceMode,
       sessionId: namespace,
       clientVersion: this.clientVersion,
       vscodeVersion: vscode.version,
@@ -337,6 +428,9 @@ export class OpticCodeChatHandler {
           response.progress(operation.text);
           break;
         case 'markdown':
+          response.markdown(operation.text);
+          break;
+        case 'answer':
           response.markdown(operation.text);
           break;
         case 'reference': {
@@ -430,6 +524,7 @@ function referencesFromVscode(
   request: vscode.ChatRequest,
   workspace: vscode.WorkspaceFolder,
   command: ChatCommand,
+  contextScope: ChatProtocolRequest['context_scope'],
 ): ReturnType<typeof collectWorkspaceReferences> {
   const candidates: ReferenceCandidate[] = [];
   for (const [index, reference] of request.references.entries()) {
@@ -438,7 +533,11 @@ function referencesFromVscode(
       candidates.push(candidate);
     }
   }
-  if (usesEditorContext(command)) {
+  if (
+    usesEditorContext(command) &&
+    contextScope !== 'references_only' &&
+    candidates.length === 0
+  ) {
     const editor = vscode.window.activeTextEditor;
     if (
       editor !== undefined &&
@@ -544,14 +643,17 @@ function structuredReference(
 
 function historyFromVscode(
   history: readonly (vscode.ChatRequestTurn | vscode.ChatResponseTurn)[],
+  workspaceId: string,
+  contextEpoch: number,
 ): ChatHistoryTurn[] {
   const candidates: NeutralHistoryTurn[] = [];
-  for (const turn of history) {
+  for (const turn of historySinceContextEpoch(history, contextEpoch)) {
     if (turn instanceof vscode.ChatRequestTurn) {
       candidates.push({
         role: 'user',
         content: turn.prompt,
         command: turn.command,
+        workspaceId,
       });
       continue;
     }
@@ -567,6 +669,10 @@ function historyFromVscode(
         content: markdown,
         command: turn.command,
         resultId: resultMetadata(turn.result)?.run_id,
+        sourceScope: resultMetadata(turn.result)?.source_scope,
+        workspaceId: resultMetadata(turn.result)?.workspace_id,
+        contextFingerprint: resultMetadata(turn.result)?.context_fingerprint,
+        groundingStatus: resultMetadata(turn.result)?.grounding_status,
       });
     }
   }
@@ -575,17 +681,40 @@ function historyFromVscode(
 
 function sessionIdFromHistory(
   history: readonly (vscode.ChatRequestTurn | vscode.ChatResponseTurn)[],
+  contextEpoch: number,
 ): string | undefined {
   for (let index = history.length - 1; index >= 0; index -= 1) {
     const turn = history[index];
     if (turn instanceof vscode.ChatResponseTurn) {
-      const sessionId = resultMetadata(turn.result)?.session_id;
+      const metadata = resultMetadata(turn.result);
+      if (metadata?.context_epoch !== contextEpoch) {
+        continue;
+      }
+      const sessionId = metadata.session_id;
       if (typeof sessionId === 'string' && /^[a-zA-Z0-9._:-]{1,128}$/.test(sessionId)) {
         return sessionId;
       }
     }
   }
   return undefined;
+}
+
+function historySinceContextEpoch(
+  history: readonly (vscode.ChatRequestTurn | vscode.ChatResponseTurn)[],
+  contextEpoch: number,
+): readonly (vscode.ChatRequestTurn | vscode.ChatResponseTurn)[] {
+  let start = 0;
+  for (let index = history.length - 1; index >= 0; index -= 1) {
+    const turn = history[index];
+    if (turn instanceof vscode.ChatResponseTurn) {
+      const epoch = resultMetadata(turn.result)?.context_epoch;
+      if (typeof epoch === 'number' && epoch !== contextEpoch) {
+        start = index + 1;
+        break;
+      }
+    }
+  }
+  return history.slice(start);
 }
 
 function resultMetadata(result: vscode.ChatResult): Record<string, unknown> | undefined {
@@ -711,6 +840,8 @@ function chatReport(
         duration_ms: result.durationMs,
         exit_code: result.exitCode,
         cancellation_confirmed: result.cancellationConfirmed,
+        client_timing: result.clientTiming ?? null,
+        ui_timing: result.uiTiming ?? null,
         summary: result.summary ?? null,
         locally_rejected_references: rejectedReferences,
         events: eventSummary,

@@ -36,6 +36,7 @@ API et aucune installation VS Code Insiders ne sont requises.
 | --- | --- | --- |
 | `/ask` | reponse locale streamee | aucune |
 | `/plan` | plan d'implementation | aucune |
+| `/inspect` | faits documentaires exacts avec preuves | aucune |
 | `/context` | contexte borne et explique | aucune |
 | `/analyze` | analyse Java | aucune |
 | `/index` | etat/index symbolique Java | aucune |
@@ -243,10 +244,11 @@ Elle couvre notamment :
 - E2E Rust `/fix`, typed apply sans mutation, modale simulee, apply et rollback.
 
 L'API de test VS Code ne permet pas de saisir de facon stable une requete dans
-la vue Chat comme un utilisateur. Le test Extension Host active donc le vrai
-participant, puis execute son handler et son rendu via une implementation
-deterministe du runtime. Le transport reel est teste separement contre le vrai
-`opticcode.exe`.
+la vue Chat comme un utilisateur. Le Prompt Lab active donc le vrai participant
+et invoque exactement son callback enregistre dans l'Extension Host. Le meme
+test traverse le service, le vrai client processus, le vrai `opticcode.exe`,
+NDJSON, le presenter et les metriques ; seul le champ visuel n'est pas
+automatise. Voir [`prompt-lab.md`](prompt-lab.md).
 
 ## Premier test manuel
 
@@ -270,6 +272,8 @@ deterministe du runtime. Le transport reel est teste separement contre le vrai
 - pas de daemon reseau ;
 - `legacy` reste le mode de contexte par defaut ;
 - le provider brut dans le selecteur de modeles VS Code n'est pas implemente.
+- `references_preferred` est le scope UI par defaut ; une restriction explicite
+  du prompt est reduite a `references_only` par Rust.
 
 Le cycle detaille, les limites et la recuperation sont dans
 [`chat-edits.md`](chat-edits.md).

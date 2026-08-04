@@ -2,7 +2,7 @@
   "name": "opticcode",
   "displayName": "OpticCode",
   "description": "Experimental thin VS Code client for the local OpticCode assistant.",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "publisher": "opticcode-local",
   "license": "MIT",
   "repository": {
@@ -40,7 +40,7 @@
     "test:integration": "npm run compile && node --test out/test/integration/*.test.js",
     "test:assistant": "npm run compile && node scripts/real-assistant-smoke.mjs",
     "test:vscode": "npm run compile && node scripts/run-vscode-test.mjs",
-    "package": "npm run compile && vsce package --out ../../artifacts/opticcode-vscode-0.2.0.vsix"
+    "package": "npm run compile && vsce package --out ../../artifacts/opticcode-vscode-0.2.1.vsix"
   },
   "contributes": {
     "chatParticipants": [
@@ -53,6 +53,7 @@
         "commands": [
           { "name": "ask", "description": "Ask about the current project" },
           { "name": "plan", "description": "Create a read-only implementation plan" },
+          { "name": "inspect", "description": "Inspect exact facts in an attached document" },
           { "name": "context", "description": "Inspect bounded project context" },
           { "name": "analyze", "description": "Analyze Java source without writing" },
           { "name": "index", "description": "Inspect Java symbol indexing" },
@@ -97,6 +98,8 @@
       { "command": "opticcode.checkInstallation", "title": "OpticCode: Check Installation", "icon": "$(check)" },
       { "command": "opticcode.refreshStatus", "title": "OpticCode: Refresh Status", "icon": "$(refresh)" },
       { "command": "opticcode.selectProfile", "title": "OpticCode: Select Profile" },
+      { "command": "opticcode.selectChatContextScope", "title": "OpticCode: Select Chat Context Scope" },
+      { "command": "opticcode.clearChatSessionContext", "title": "OpticCode: Clear Chat Session Context" },
       { "command": "opticcode.analyzeJavaProject", "title": "OpticCode: Analyze Current Java Project" },
       { "command": "opticcode.buildJavaSymbolIndex", "title": "OpticCode: Build Java Symbol Index" },
       { "command": "opticcode.buildSmartContext", "title": "OpticCode: Build Smart Context" },
@@ -156,6 +159,20 @@
           "default": "legacy",
           "scope": "resource",
           "description": "Context selection mode. Legacy remains the default."
+        },
+        "opticcode.chatContextScope": {
+          "type": "string",
+          "enum": ["automatic", "referencesPreferred", "referencesOnly"],
+          "default": "referencesPreferred",
+          "scope": "resource",
+          "description": "Controls whether chat uses automatic discovery, prioritizes current references, or uses only current references."
+        },
+        "opticcode.evidenceMode": {
+          "type": "string",
+          "enum": ["optional", "required"],
+          "default": "required",
+          "scope": "resource",
+          "description": "Requires machine-validated evidence for grounded chat answers."
         },
         "opticcode.defaultTimeoutSeconds": {
           "type": "number",

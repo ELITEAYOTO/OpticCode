@@ -4,12 +4,15 @@ import * as path from 'node:path';
 import type {
   ChatBudgets,
   ChatCommand,
+  ChatContextScope,
+  ChatEvidenceMode,
   ChatExpectedProtocols,
   ChatEditControl,
   ChatGenerationOptions,
   ChatHistoryTurn,
   ChatProtocolRequest,
   ChatReference,
+  ChatScopeReason,
   ChatSecurityMode,
   ChatTextRange,
   ContextMode,
@@ -21,6 +24,7 @@ export const CHAT_SCHEMA_VERSION = 1;
 export const CHAT_COMMANDS: readonly ChatCommand[] = [
   'ask',
   'plan',
+  'inspect',
   'context',
   'analyze',
   'index',
@@ -64,6 +68,10 @@ export interface NeutralHistoryTurn {
   content: unknown;
   command?: unknown;
   resultId?: unknown;
+  sourceScope?: unknown;
+  workspaceId?: unknown;
+  contextFingerprint?: unknown;
+  groundingStatus?: unknown;
 }
 
 export interface ReferenceCandidate {
@@ -90,6 +98,9 @@ export interface ChatRequestInput {
   profile: string;
   model: string;
   contextMode: ContextMode;
+  contextScope?: ChatContextScope | undefined;
+  scopeReason?: ChatScopeReason | undefined;
+  evidenceMode?: ChatEvidenceMode | undefined;
   sessionId: string;
   clientVersion: string;
   vscodeVersion: string;
@@ -172,11 +183,21 @@ export function boundChatHistory(
         ? parseChatCommand(candidate.command)
         : undefined;
     const resultId = boundedIdentifier(candidate.resultId);
+    const sourceScope = isChatContextScope(candidate.sourceScope)
+      ? candidate.sourceScope
+      : undefined;
+    const workspaceId = boundedIdentifier(candidate.workspaceId);
+    const contextFingerprint = boundedIdentifier(candidate.contextFingerprint);
+    const groundingStatus = boundedIdentifier(candidate.groundingStatus);
     bounded.unshift({
       role: candidate.role,
       content,
       ...(command === undefined ? {} : { command }),
       ...(resultId === undefined ? {} : { result_id: resultId }),
+      ...(sourceScope === undefined ? {} : { source_scope: sourceScope }),
+      ...(workspaceId === undefined ? {} : { workspace_id: workspaceId }),
+      ...(contextFingerprint === undefined ? {} : { context_fingerprint: contextFingerprint }),
+      ...(groundingStatus === undefined ? {} : { grounding_status: groundingStatus }),
     });
     characters += content.length;
     tokens += estimatedTokens;
@@ -243,6 +264,9 @@ export function buildChatRequest(input: ChatRequestInput): ChatProtocolRequest {
     provider: 'ollama',
     model: input.model,
     context_mode: input.contextMode,
+    context_scope: input.contextScope ?? 'references_preferred',
+    scope_reason: input.scopeReason ?? 'default_setting',
+    evidence_mode: input.evidenceMode ?? 'required',
     references: input.references.slice(0, CHAT_BUDGETS.max_references),
     history: input.history.slice(-CHAT_BUDGETS.max_history_turns),
     budgets: { ...CHAT_BUDGETS },
@@ -391,7 +415,53 @@ function estimateTokens(value: string): number {
 }
 
 function requiresPrompt(command: ChatCommand): boolean {
-  return command === 'ask' || command === 'plan' || command === 'context' || command === 'fix';
+  return (
+    command === 'ask' ||
+    command === 'plan' ||
+    command === 'inspect' ||
+    command === 'context' ||
+    command === 'fix'
+  );
+}
+
+export function promptRequestsReferencesOnly(prompt: string): boolean {
+  const normalized = prompt
+    .normalize('NFD')
+    .replaceAll(/\p{Mark}/gu, '')
+    .toLocaleLowerCase('fr-FR')
+    .replaceAll(/[\u{2019}'`"\u{00ab}\u{00bb}]/gu, ' ')
+    .replaceAll(/\s+/gu, ' ')
+    .trim();
+  return [
+    'uniquement le fichier',
+    'seulement ce fichier',
+    'uniquement ce fichier',
+    'ne lis aucun autre fichier',
+    'ne parle d aucun autre fichier',
+    'use only the attached file',
+    'only the attached file',
+    'only this file',
+    'only this selection',
+    'do not read any other file',
+  ].some((marker) => normalized.includes(marker));
+}
+
+export function requestedGroundingScope(
+  configured: ChatContextScope,
+  prompt: string,
+): { scope: ChatContextScope; reason: ChatScopeReason } {
+  if (promptRequestsReferencesOnly(prompt)) {
+    return { scope: 'references_only', reason: 'explicit_prompt_restriction' };
+  }
+  return { scope: configured, reason: 'default_setting' };
+}
+
+function isChatContextScope(value: unknown): value is ChatContextScope {
+  return (
+    value === 'automatic' ||
+    value === 'references_preferred' ||
+    value === 'references_only'
+  );
 }
 
 function boundedIdentifier(value: unknown): string | undefined {

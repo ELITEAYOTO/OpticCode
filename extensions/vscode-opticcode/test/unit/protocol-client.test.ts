@@ -48,6 +48,9 @@ function chatRequest(requestId: string): ChatProtocolRequest {
     provider: 'ollama',
     model: 'fixture-model',
     context_mode: 'symbol',
+    context_scope: 'references_preferred',
+    scope_reason: 'default_setting',
+    evidence_mode: 'required',
     references: [],
     history: [],
     budgets: {
@@ -259,6 +262,21 @@ describe('OpticCode protocol client', () => {
     assert.equal(result.events.length, 11);
     assert.equal(result.summary?.references[0]?.path, 'src/main/java/Plugin.java');
     assert.equal(result.summary?.metrics.prompt_tokens, 40);
+    assert.equal(result.clientTiming?.request_id, request.request_id);
+    assert.equal(result.clientTiming?.clock, 'performance.now');
+    assert.ok((result.clientTiming?.first_protocol_event_ms ?? -1) >= 0);
+    assert.ok(
+      (result.clientTiming?.first_content_delta_ms ?? Number.POSITIVE_INFINITY) <=
+        (result.clientTiming?.last_content_delta_ms ?? -1),
+    );
+    assert.ok(
+      (result.clientTiming?.last_content_delta_ms ?? Number.POSITIVE_INFINITY) <=
+        (result.clientTiming?.terminal_received_ms ?? -1),
+    );
+    assert.ok(
+      (result.clientTiming?.terminal_received_ms ?? Number.POSITIVE_INFINITY) <=
+        (result.clientTiming?.process_completed_ms ?? -1),
+    );
   });
 
   it('validates chat request IDs and outer sequences', async () => {
@@ -281,6 +299,20 @@ describe('OpticCode protocol client', () => {
       client().runChatStream(['chat-double-terminal'], chatRequest('chat-double')),
       'terminal_duplicate',
     );
+  });
+
+  it('rejects a late metric after terminal before it can replace current-run state', async () => {
+    const observed: string[] = [];
+    await rejectsCode(
+      client().runChatStream(
+        ['chat-late-metrics'],
+        chatRequest('chat-late-metrics'),
+        (event) => observed.push(event.type),
+      ),
+      'terminal_duplicate',
+    );
+    assert.equal(observed.filter((type) => type === 'metrics').length, 1);
+    assert.equal(observed.at(-1), 'completed');
   });
 
   it('distinguishes chat timeout, confirmed cancellation, and forced kill', async () => {

@@ -1,11 +1,13 @@
 import { spawn, type ChildProcessWithoutNullStreams, type SpawnOptionsWithoutStdio } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
+import { performance } from 'node:perf_hooks';
 
 import { OpticCodeClientError } from './errors';
 import type {
   AssistantProtocolEvent,
   AssistantStreamResult,
   CancellationLike,
+  ChatClientTiming,
   ChatProtocolEvent,
   ChatProtocolRequest,
   ChatStreamResult,
@@ -81,6 +83,7 @@ interface SequencedStreamResult<TEvent extends SequencedProtocolEvent> {
   exitCode: number | null;
   stderr: string;
   cancellationConfirmed: boolean;
+  timing: ChatClientTiming;
 }
 
 interface SequencedStreamOptions<TEvent extends SequencedProtocolEvent> {
@@ -89,6 +92,7 @@ interface SequencedStreamOptions<TEvent extends SequencedProtocolEvent> {
   protocolName: string;
   validate(value: unknown): TEvent;
   inspect?(event: TEvent): void;
+  isContent?(event: TEvent): boolean;
   onEvent?(event: TEvent): void;
   initialInput?: string;
   cancellationInput: string;
@@ -315,6 +319,7 @@ export class OpticCodeProtocolClient {
             response += event.text;
           }
         },
+        isContent: (event) => event.type === 'token_delta',
         ...(onEvent === undefined ? {} : { onEvent }),
         initialInput: `${serialized}\n`,
         cancellationInput: `${control}\n`,
@@ -335,6 +340,7 @@ export class OpticCodeProtocolClient {
       exitCode: stream.exitCode,
       stderr: stream.stderr,
       cancellationConfirmed: stream.cancellationConfirmed,
+      clientTiming: stream.timing,
     };
   }
 
@@ -355,7 +361,9 @@ export class OpticCodeProtocolClient {
       this.options.workingDirectory,
     );
     this.debug(`spawn ${JSON.stringify(stream.arguments)}`);
-    const started = Date.now();
+    const started = performance.now();
+    const elapsed = (): number => Math.max(0, performance.now() - started);
+    const childSpawnStartedMs = elapsed();
     let child: ChildProcessWithoutNullStreams;
     try {
       child = this.spawnAdapter(
@@ -368,6 +376,7 @@ export class OpticCodeProtocolClient {
         cause: String(error),
       });
     }
+    const childSpawnedMs = elapsed();
 
     return await new Promise<SequencedStreamResult<TEvent>>((resolve, reject) => {
       let stdoutBuffer = Buffer.alloc(0);
@@ -383,6 +392,11 @@ export class OpticCodeProtocolClient {
       let forcedTermination = false;
       let forceTimer: NodeJS.Timeout | undefined;
       const events: TEvent[] = [];
+      let requestWrittenMs: number | null = null;
+      let firstProtocolEventMs: number | null = null;
+      let firstContentDeltaMs: number | null = null;
+      let lastContentDeltaMs: number | null = null;
+      let terminalReceivedMs: number | null = null;
 
       const forceTerminate = (): void => {
         if (child.exitCode === null && child.signalCode === null) {
@@ -457,6 +471,8 @@ export class OpticCodeProtocolClient {
           );
           return;
         }
+        const acceptedAtMs = elapsed();
+        firstProtocolEventMs ??= acceptedAtMs;
         if (terminal !== undefined) {
           failParser(
             new OpticCodeClientError('terminal_duplicate', 'Event received after terminal event.'),
@@ -481,6 +497,10 @@ export class OpticCodeProtocolClient {
           );
           return;
         }
+        if (stream.isContent?.(event) === true) {
+          firstContentDeltaMs ??= acceptedAtMs;
+          lastContentDeltaMs = acceptedAtMs;
+        }
         try {
           stream.inspect?.(event);
         } catch (error) {
@@ -496,6 +516,7 @@ export class OpticCodeProtocolClient {
         expectedSequence += 1;
         events.push(event);
         if (isTerminalType(event.type)) {
+          terminalReceivedMs = acceptedAtMs;
           terminal = event;
           if (child.stdin.writable) {
             child.stdin.end();
@@ -622,18 +643,34 @@ export class OpticCodeProtocolClient {
           );
           return;
         }
+        const processCompletedMs = elapsed();
         resolve({
           events,
           terminal,
-          durationMs: Date.now() - started,
+          durationMs: processCompletedMs,
           exitCode,
           stderr,
           cancellationConfirmed: terminal.type === 'cancelled' && cancellationRequested,
+          timing: {
+            schema_version: 1,
+            request_id: stream.requestId,
+            clock: 'performance.now',
+            transport_started_ms: 0,
+            child_spawn_started_ms: childSpawnStartedMs,
+            child_spawned_ms: childSpawnedMs,
+            request_written_ms: requestWrittenMs,
+            first_protocol_event_ms: firstProtocolEventMs,
+            first_content_delta_ms: firstContentDeltaMs,
+            last_content_delta_ms: lastContentDeltaMs,
+            terminal_received_ms: terminalReceivedMs,
+            process_completed_ms: processCompletedMs,
+          },
         });
       });
 
       if (stream.initialInput !== undefined) {
         child.stdin.write(stream.initialInput);
+        requestWrittenMs = elapsed();
       }
       if (cancellationRequested) {
         requestCleanCancellation();
@@ -662,7 +699,7 @@ export class OpticCodeProtocolClient {
       this.options.workingDirectory,
     );
     this.debug(`spawn ${JSON.stringify(fullArguments)}`);
-    const started = Date.now();
+    const started = performance.now();
     let child: ChildProcessWithoutNullStreams;
     try {
       child = this.spawnAdapter(
@@ -746,7 +783,7 @@ export class OpticCodeProtocolClient {
             stderr,
             exitCode,
             signal,
-            durationMs: Date.now() - started,
+            durationMs: Math.max(0, performance.now() - started),
           });
         }
       });

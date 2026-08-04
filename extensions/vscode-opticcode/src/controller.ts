@@ -134,6 +134,9 @@ export class OpticCodeController implements vscode.Disposable {
     });
     this.register('opticcode.refreshStatus', async () => this.refreshStatus(true));
     this.register('opticcode.selectProfile', async () => this.selectProfile());
+    this.register('opticcode.selectChatContextScope', async () =>
+      this.selectChatContextScope(),
+    );
     this.register('opticcode.analyzeJavaProject', async () => this.analyzeJavaProject());
     this.register('opticcode.buildJavaSymbolIndex', async () => this.buildJavaSymbolIndex());
     this.register('opticcode.buildSmartContext', async () => this.buildSmartContext());
@@ -193,6 +196,38 @@ export class OpticCodeController implements vscode.Disposable {
       .update('profile', profile, vscode.ConfigurationTarget.Workspace);
     this.service.invalidate();
     await this.refreshStatus(false);
+  }
+
+  private async selectChatContextScope(): Promise<void> {
+    const selected = await vscode.window.showQuickPick(
+      [
+        {
+          label: 'References preferred',
+          description: 'Prioritize current references and expand only when needed',
+          value: 'referencesPreferred',
+        },
+        {
+          label: 'References only',
+          description: 'Use only references attached to the current request',
+          value: 'referencesOnly',
+        },
+        {
+          label: 'Automatic',
+          description: 'Allow project discovery, RAG, and compatible history',
+          value: 'automatic',
+        },
+      ],
+      {
+        title: 'Select OpticCode Chat Context Scope',
+        placeHolder: 'The Rust runtime remains authoritative and may narrow this scope',
+      },
+    );
+    if (selected === undefined) {
+      return;
+    }
+    await vscode.workspace
+      .getConfiguration('opticcode')
+      .update('chatContextScope', selected.value, vscode.ConfigurationTarget.Workspace);
   }
 
   private async analyzeJavaProject(): Promise<void> {

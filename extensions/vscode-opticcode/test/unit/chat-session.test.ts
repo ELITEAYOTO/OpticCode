@@ -52,4 +52,30 @@ describe('OpticCode chat session metadata', () => {
     });
     assert.equal(store.get('workspace-b', 'same-session'), undefined);
   });
+
+  it('clears conversational context while preserving edit transaction pointers', async () => {
+    const memory = new MemoryMemento();
+    const store = new ChatSessionStore(memory);
+    await store.record({
+      schemaVersion: 1,
+      namespace: 'namespace-a',
+      workspaceId: 'workspace-a',
+      sessionId: 'session-a',
+      repositoryState: 'state-a',
+      recentRunIds: ['run-a'],
+      lastReportPath: 'C:\\storage\\chat.md',
+      lastProposalId: 'proposal-a',
+      lastTransactionId: 'transaction-a',
+      updatedAt: new Date().toISOString(),
+    });
+    const epoch = await store.clearContext();
+    const retained = store.get('workspace-a', 'session-a');
+    assert.equal(epoch, 1);
+    assert.equal(store.contextEpoch(), 1);
+    assert.deepEqual(retained?.recentRunIds, []);
+    assert.equal(retained?.repositoryState, undefined);
+    assert.equal(retained?.lastReportPath, undefined);
+    assert.equal(retained?.lastProposalId, 'proposal-a');
+    assert.equal(retained?.lastTransactionId, 'transaction-a');
+  });
 });
