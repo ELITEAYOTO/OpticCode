@@ -144,4 +144,3 @@ claims et preuves que le LLM, avec `model_calls=0`.
 - Le grounding n'autorise aucune ecriture et ne modifie pas CHAT-EDIT-001.
 
 Gate : `scripts/run-grounding-quality.ps1`.
-
