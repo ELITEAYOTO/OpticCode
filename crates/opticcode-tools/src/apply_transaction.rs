@@ -2993,7 +2993,7 @@ mod tests {
     #[test]
     fn rejects_absolute_parent_reserved_and_windows_prefixed_paths() {
         let fixture = GitFixture::new(&[("file.txt", b"before\n")]);
-        let mut mutations = vec![
+        let mutations = vec![
             FileMutation::create("../escape.txt", b"escape\n".to_vec()),
             FileMutation::create(".opticcode/evil.txt", b"reserved\n".to_vec()),
             FileMutation::replace(
@@ -3003,7 +3003,8 @@ mod tests {
             ),
         ];
         #[cfg(windows)]
-        {
+        let mutations = {
+            let mut mutations = mutations;
             mutations.push(FileMutation::create(
                 r"C:drive-relative.txt",
                 b"prefixed\n".to_vec(),
@@ -3012,7 +3013,8 @@ mod tests {
                 r"\\server\share\outside.txt",
                 b"unc\n".to_vec(),
             ));
-        }
+            mutations
+        };
 
         for mutation in mutations {
             let error = execute_apply_transaction(request(&fixture, vec![mutation]))
