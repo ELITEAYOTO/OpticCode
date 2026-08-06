@@ -211,7 +211,7 @@ impl ProposalStore {
                 matches.push(record);
             }
         }
-        matches.sort_by(|left, right| right.updated_at_unix_ms.cmp(&left.updated_at_unix_ms));
+        matches.sort_by_key(|record| std::cmp::Reverse(record.updated_at_unix_ms));
         if matches.len() > 1 {
             bail!("transaction ID is associated with multiple proposal records");
         }
@@ -427,7 +427,7 @@ fn load_latest_valid_record(
     if candidates.len() > MAX_RECORD_GENERATIONS {
         bail!("proposal record generation limit exceeded");
     }
-    candidates.sort_by(|left, right| right.0.cmp(&left.0));
+    candidates.sort_by_key(|candidate| std::cmp::Reverse(candidate.0));
     for (sequence, path) in candidates {
         let Ok(metadata) = fs::symlink_metadata(&path) else {
             continue;

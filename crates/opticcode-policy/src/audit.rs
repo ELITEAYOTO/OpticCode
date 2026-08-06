@@ -13,6 +13,7 @@ pub const AUDIT_SCHEMA_VERSION: u32 = 1;
 pub const MAX_AUDIT_EVENTS: usize = 2_048;
 pub const MAX_AUDIT_BYTES: u64 = 32 * 1024 * 1024;
 const MAX_AUDIT_RECORD_BYTES: u64 = 64 * 1024;
+#[cfg(windows)]
 const POLICY_STATE_DIRECTORY: &str = "OpticCode";
 const POLICY_DIRECTORY: &str = "policy-v1";
 
