@@ -474,17 +474,32 @@ fn worktree_owner_source_state_and_commondir_are_revalidated() {
 fn process_allowlist_network_shell_and_metacharacters_are_enforced() {
     let fixture = Fixture::new();
     let worktree = ActiveFixture::new(fixture.workspace.path());
-    fs::write(fixture.workspace.path().join("mvnw.cmd"), "@echo off\r\n").unwrap();
-    fs::write(worktree.root.join("mvnw.cmd"), "@echo off\r\n").unwrap();
+    let wrapper_name = if cfg!(windows) { "mvnw.cmd" } else { "mvnw" };
+    let wrapper_contents = if cfg!(windows) {
+        "@echo off\r\n"
+    } else {
+        "#!/bin/sh\n"
+    };
+    let wrapper_launch = if cfg!(windows) {
+        ProcessLaunch::WindowsCommandScript
+    } else {
+        ProcessLaunch::Direct
+    };
+    fs::write(
+        fixture.workspace.path().join(wrapper_name),
+        wrapper_contents,
+    )
+    .unwrap();
+    fs::write(worktree.root.join(wrapper_name), wrapper_contents).unwrap();
     let mut request = fixture.request(
         PolicyAction::RunProcess(RunProcessAction {
-            executable: PathBuf::from("mvnw.cmd"),
+            executable: PathBuf::from(wrapper_name),
             arguments: vec!["--offline".to_string(), "test".to_string()],
             cwd: worktree.root.clone(),
             timeout_ms: 60_000,
             output_limit_bytes: 1024 * 1024,
             network: NetworkIntent::Denied,
-            launch: ProcessLaunch::WindowsCommandScript,
+            launch: wrapper_launch,
             environment_allowlist: vec!["JAVA_HOME".to_string()],
         }),
         PolicyMode::WorktreeEdit,
@@ -493,13 +508,13 @@ fn process_allowlist_network_shell_and_metacharacters_are_enforced() {
     let allowed = fixture.engine.check(&request).unwrap();
     assert!(allowed.report.allowed(), "{:?}", allowed.report.decision);
 
-    fs::write(worktree.root.join("mvnw.cmd"), "@echo malicious\r\n").unwrap();
+    fs::write(worktree.root.join(wrapper_name), "modified wrapper\n").unwrap();
     let drifted_wrapper = fixture.engine.check(&request).unwrap();
     assert_eq!(
         drifted_wrapper.report.decision.rule_id(),
         "process.wrapper_drift"
     );
-    fs::write(worktree.root.join("mvnw.cmd"), "@echo off\r\n").unwrap();
+    fs::write(worktree.root.join(wrapper_name), wrapper_contents).unwrap();
 
     if let PolicyAction::RunProcess(process) = &mut request.action {
         process.arguments = vec!["test".to_string(), "&&".to_string(), "whoami".to_string()];
@@ -530,8 +545,8 @@ fn process_allowlist_network_shell_and_metacharacters_are_enforced() {
     );
 
     if let PolicyAction::RunProcess(process) = &mut request.action {
-        process.executable = PathBuf::from("mvnw.cmd");
-        process.launch = ProcessLaunch::WindowsCommandScript;
+        process.executable = PathBuf::from(wrapper_name);
+        process.launch = wrapper_launch;
         process.network = NetworkIntent::Undeclared;
     }
     let undeclared = fixture.engine.check(&request).unwrap();
