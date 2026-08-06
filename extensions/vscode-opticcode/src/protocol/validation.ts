@@ -34,6 +34,7 @@ export const DISCOVERY_PROTOCOL = 'opticcode.discovery';
 export const ASSISTANT_PROTOCOL = 'opticcode.assistant';
 export const CHAT_PROTOCOL = 'opticcode.chat';
 export const LLM_PROTOCOL = 'opticcode.llm';
+export const POLICY_PROTOCOL = 'opticcode.policy';
 export const SUPPORTED_SCHEMA_VERSION = 1;
 
 export function isRecord(value: unknown): value is JsonObject {
@@ -111,6 +112,7 @@ export function validateVersionReport(value: unknown): VersionReport {
   const report = requireRecord(value, 'version');
   requireProtocol(report, DISCOVERY_PROTOCOL);
   requireString(report.opticcode_version, 'opticcode_version');
+
   const protocols = requireRecord(report.protocols, 'protocols');
   for (const [name, id] of [
     ['assistant', ASSISTANT_PROTOCOL],
@@ -127,9 +129,82 @@ export function validateVersionReport(value: unknown): VersionReport {
       incompatible(`Unsupported ${name} protocol descriptor.`);
     }
   }
+
+  if (protocols.policy !== undefined) {
+    const descriptor = requireRecord(protocols.policy, 'protocols.policy');
+    if (
+      requireString(descriptor.id, 'protocols.policy.id') !== POLICY_PROTOCOL ||
+      requireInteger(descriptor.schema_version, 'protocols.policy.schema_version') !==
+        SUPPORTED_SCHEMA_VERSION
+    ) {
+      incompatible('Unsupported policy protocol descriptor.');
+    }
+  }
+
   requireRecord(report.schemas, 'schemas');
-  requireRecord(report.platform, 'platform');
-  requireRecord(report.build, 'build');
+
+  const platform = requireRecord(report.platform, 'platform');
+  requireString(platform.os, 'platform.os');
+  requireString(platform.architecture, 'platform.architecture');
+  if (platform.target !== undefined) {
+    const target = requireString(platform.target, 'platform.target');
+    if (target.trim().length === 0 || target.length > 256) {
+      incompatible('Invalid build target.');
+    }
+  }
+
+  const build = requireRecord(report.build, 'build');
+  const kind = requireString(build.kind, 'build.kind');
+  if (kind.trim().length === 0 || kind.length > 64) {
+    incompatible('Invalid build kind.');
+  }
+
+  if (build.profile !== undefined) {
+    const profile = requireString(build.profile, 'build.profile');
+    if (profile.trim().length === 0 || profile.length > 64) {
+      incompatible('Invalid build profile.');
+    }
+  }
+
+  let commit: string | null | undefined;
+  if (build.commit !== undefined) {
+    if (build.commit === null) {
+      commit = null;
+    } else {
+      commit = requireString(build.commit, 'build.commit');
+      if (!/^[0-9a-fA-F]{40,64}$/.test(commit)) {
+        incompatible('Invalid build commit.');
+      }
+    }
+  }
+
+  let commitShort: string | null | undefined;
+  if (build.commit_short !== undefined) {
+    if (build.commit_short === null) {
+      commitShort = null;
+    } else {
+      commitShort = requireString(build.commit_short, 'build.commit_short');
+      if (!/^[0-9a-fA-F]{8}$/.test(commitShort)) {
+        incompatible('Invalid short build commit.');
+      }
+    }
+  }
+
+  if (typeof commitShort === 'string') {
+    if (typeof commit !== 'string') {
+      incompatible('Short build commit is present without a full commit.');
+    }
+    if (commitShort.toLowerCase() !== commit.slice(0, 8).toLowerCase()) {
+      incompatible('Short build commit does not match the full commit.');
+    }
+  } else if (typeof commit === 'string' && commitShort === null) {
+    incompatible('Short build commit cannot be null when a full commit is present.');
+  }
+
+  if (build.dirty !== undefined && build.dirty !== null) {
+    requireBoolean(build.dirty, 'build.dirty');
+  }
+
   return report as VersionReport;
 }
 

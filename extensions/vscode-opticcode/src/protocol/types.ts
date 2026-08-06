@@ -14,15 +14,20 @@ export interface VersionReport extends JsonObject {
     chat: ProtocolDescriptor;
     discovery: ProtocolDescriptor;
     llm: ProtocolDescriptor;
+    policy?: ProtocolDescriptor | undefined;
   };
   schemas: Record<string, number>;
   platform: {
     os: string;
     architecture: string;
+    target?: string | undefined;
   };
   build: {
     kind: string;
-    commit?: string | null;
+    profile?: string | undefined;
+    commit?: string | null | undefined;
+    commit_short?: string | null | undefined;
+    dirty?: boolean | null | undefined;
   };
 }
 

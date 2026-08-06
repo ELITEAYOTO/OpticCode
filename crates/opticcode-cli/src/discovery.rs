@@ -47,12 +47,16 @@ pub struct ProtocolVersion {
 pub struct PlatformReport {
     pub os: &'static str,
     pub architecture: &'static str,
+    pub target: &'static str,
 }
 
 #[derive(Debug, Clone, Serialize)]
 pub struct BuildReport {
     pub kind: &'static str,
+    pub profile: &'static str,
     pub commit: Option<&'static str>,
+    pub commit_short: Option<&'static str>,
+    pub dirty: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -228,6 +232,7 @@ pub fn version_report() -> VersionReport {
         platform: PlatformReport {
             os: env::consts::OS,
             architecture: env::consts::ARCH,
+            target: option_env!("OPTICCODE_BUILD_TARGET").unwrap_or("unknown"),
         },
         build: BuildReport {
             kind: if cfg!(debug_assertions) {
@@ -235,7 +240,14 @@ pub fn version_report() -> VersionReport {
             } else {
                 "release"
             },
+            profile: option_env!("OPTICCODE_BUILD_PROFILE").unwrap_or("unknown"),
             commit: option_env!("OPTICCODE_GIT_COMMIT"),
+            commit_short: option_env!("OPTICCODE_GIT_COMMIT_SHORT"),
+            dirty: match option_env!("OPTICCODE_GIT_DIRTY") {
+                Some("true") => Some(true),
+                Some("false") => Some(false),
+                _ => None,
+            },
         },
     }
 }
@@ -744,8 +756,19 @@ fn warning_check(id: &'static str, summary: String) -> DoctorCheck {
 }
 
 pub fn render_version(report: &VersionReport) -> String {
+    let commit = report
+        .build
+        .commit_short
+        .or(report.build.commit)
+        .unwrap_or("unknown");
+    let state = match report.build.dirty {
+        Some(true) => "dirty",
+        Some(false) => "clean",
+        None => "unknown",
+    };
+
     format!(
-        "OpticCode {}\nassistant protocol: {} v{}\nLLM protocol: {} v{}\nplatform: {}/{}\nbuild: {}",
+        "OpticCode {}\nassistant protocol: {} v{}\nLLM protocol: {} v{}\nplatform: {}/{} target={}\nbuild: {} profile={} commit={} state={}",
         report.opticcode_version,
         report.protocols["assistant"].id,
         report.protocols["assistant"].schema_version,
@@ -753,7 +776,11 @@ pub fn render_version(report: &VersionReport) -> String {
         report.protocols["llm"].schema_version,
         report.platform.os,
         report.platform.architecture,
-        report.build.kind
+        report.platform.target,
+        report.build.kind,
+        report.build.profile,
+        commit,
+        state
     )
 }
 

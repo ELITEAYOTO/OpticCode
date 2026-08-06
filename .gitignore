@@ -42,6 +42,7 @@ Desktop.ini
 # Java builds for local benchmark projects
 **/target/
 **/build/
+/benchmarks/eval-gradle-plugin/bin/
 **/.gradle/
 
 # Environment files

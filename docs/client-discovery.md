@@ -1,60 +1,75 @@
-# Client discovery protocol
+Client discovery protocol
 
-`LLM/PROTOCOL-001` exposes three read-only commands for thin clients such as the
-experimental VS Code extension. Their stdout is reserved for one JSON document
-when `--json` is used. Diagnostics from failed checks are represented in the
-document instead of being mixed into stdout.
+LLM/PROTOCOL-001 exposes three read-only commands for thin clients such as theexperimental VS Code extension. Their stdout is reserved for one JSON documentwhen --json is used. Diagnostics from failed checks are represented in thedocument instead of being mixed into stdout.
 
-## Commands
+Commands
 
-```powershell
 target\release\opticcode.exe version --json
 target\release\opticcode.exe capabilities --json
 target\release\opticcode.exe doctor --json --path C:\path\to\project
-```
 
-All three documents use protocol `opticcode.discovery` and schema version `1`.
-A client must reject a different protocol identifier or an unsupported schema
-version before using any payload fields.
+All three documents use protocol opticcode.discovery and schema version 1.A client must reject a different protocol identifier or an unsupported schemaversion before using any payload fields.
 
-`version` reports the OpticCode version, assistant, Chat, LLM and Policy protocol versions,
-the schemas consumed by clients, the target OS/architecture, the build kind,
-and an optional build commit. Set `OPTICCODE_GIT_COMMIT` while compiling when a
-distribution needs the commit embedded in the binary.
+Version and build provenance
 
-`capabilities` is static discovery. It lists commands, providers, context modes,
-machine output formats, streaming/cancellation support, and major feature
-families. It does not contact Ollama.
+version reports the OpticCode version, assistant, Chat, LLM and Policyprotocol versions, schemas consumed by clients, platform information and buildprovenance.
 
-POLICY-001 adds the compatible `policy_runtime` block: schema/version, the
-`read_only`, `worktree_edit`, and `approved_apply` modes, engine/audit/approval/
-CLI availability, plus `chat_read_only: true` and `chat_write: true`. Clients
-still request `read_only`; Rust alone performs scoped internal mode transitions.
+The additive schema-v1 platform/build fields are:
 
-`doctor` performs bounded, read-only checks for the executable, Git, Java,
-Maven, Gradle, the Ollama CLI/provider, the configured model, RAG v2, the active
-profile, workspace Git state, Git worktrees, OpticCode leases, and PolicyEngine
-state. It never
-installs software, downloads a model, starts Ollama, builds a project, creates a
-worktree, or repairs a lease.
+platform.os: Rust target operating system;
 
-## Doctor semantics
+platform.architecture: Rust target architecture;
 
-Each check has a stable `id`, `status`, `required`, and `summary`. Optional
-`version` and `path` fields add display information. Status values are:
+platform.target: Cargo target triple;
 
-- `ok`: the check completed successfully;
-- `warning`: an optional feature needs attention;
-- `unavailable`: an executable was not found;
-- `error`: a check failed or a required service is unusable.
+build.kind: debug or release according to Rust debug assertions;
 
-The report-level `success` is true only when every required check is `ok`.
-Maven, Gradle, the RAG index, and abandoned leases are reported independently so
-a client can render partial readiness without inventing a single generic error.
+build.profile: Cargo build profile;
+
+build.commit: complete Git object identifier when available;
+
+build.commit_short: first eight hexadecimal characters of build.commit;
+
+build.dirty: whether tracked or untracked workspace changes existed whenthe crate was compiled.
+
+The CLI build script discovers Git metadata without invoking a shell. MissingGit, a source archive without repository metadata, or an invalid override neverblocks compilation: commit and dirty fields can be absent. Clients supportingschema version 1 must therefore accept historical reports that omit theadditive fields, while validating them when present.
+
+A release system can override repository discovery with:
+
+$env:OPTICCODE_GIT_COMMIT = "5344d320c5f1dc6a8669040ce1c8b65c7192dd15"
+$env:OPTICCODE_GIT_DIRTY = "false"
+cargo build --release -p opticcode-cli
+
+OPTICCODE_GIT_COMMIT must contain 40 to 64 hexadecimal characters.OPTICCODE_GIT_DIRTY accepts true, false, 1, 0, yes, or no.No build timestamp is embedded, preserving reproducible build behavior.
+
+Without --json, version renders the target, profile, short commit andclean, dirty, or unknown build state for diagnostics.
+
+Capabilities
+
+capabilities is static discovery. It lists commands, providers, context modes,machine output formats, streaming/cancellation support, and major featurefamilies. It does not contact Ollama.
+
+POLICY-001 adds the compatible policy_runtime block: schema/version, theread_only, worktree_edit, and approved_apply modes, engine/audit/approval/CLI availability, plus chat_read_only: true and chat_write: true. Clientsstill request read_only; Rust alone performs scoped internal mode transitions.
+
+Doctor
+
+doctor performs bounded, read-only checks for the executable, Git, Java,Maven, Gradle, the Ollama CLI/provider, the configured model, RAG v2, the activeprofile, workspace Git state, Git worktrees, OpticCode leases, and PolicyEnginestate. It never installs software, downloads a model, starts Ollama, builds aproject, creates a worktree, or repairs a lease.
+
+Doctor semantics
+
+Each check has a stable id, status, required, and summary. Optionalversion and path fields add display information. Status values are:
+
+ok: the check completed successfully;
+
+warning: an optional feature needs attention;
+
+unavailable: an executable was not found;
+
+error: a check failed or a required service is unusable.
+
+The report-level success is true only when every required check is ok.Maven, Gradle, the RAG index, and abandoned leases are reported independently soa client can render partial readiness without inventing a single generic error.
 
 Useful overrides:
 
-```powershell
 target\release\opticcode.exe doctor --json `
   --path C:\path\to\plugin `
   --profile minecraft-java-1.8 `
@@ -62,22 +77,11 @@ target\release\opticcode.exe doctor --json `
   --ollama-url http://localhost:11434 `
   --rag-index C:\path\to\OpticCode\data\index `
   --timeout-ms 5000
-```
 
-The default context mode remains `legacy`; discovery does not change assistant
-behavior or select a mode on behalf of a client.
+The default context mode remains legacy; discovery does not change assistantbehavior or select a mode on behalf of a client.
 
-## Assistant stream completion and cancellation
+Assistant stream completion and cancellation
 
-The additive schema-v1 `completed.summary` field contains bounded IDE metadata:
-the requested and used context modes, warnings, context file paths, estimated and
-actual token counts, timings, and generation speed. Older schema-v1 producers
-may omit this optional field; clients must degrade explicitly instead of
-inventing metrics.
+The additive schema-v1 completed.summary field contains bounded IDE metadata:the requested and used context modes, warnings, context file paths, estimated andactual token counts, timings, and generation speed. Older schema-v1 producersmay omit this optional field; clients must degrade explicitly instead ofinventing metrics.
 
-For `ask --protocol-jsonl` and `plan --protocol-jsonl`, a child-process client can
-write exactly `cancel\n` to stdin. OpticCode forwards that request to the
-provider cancellation token and emits a terminal `cancelled` event when the
-provider confirms it. Unknown or oversized stdin commands do nothing. Killing
-the process remains an unclean interruption and must not be reported as a
-confirmed cancellation.
+For ask --protocol-jsonl and plan --protocol-jsonl, a child-process client canwrite exactly cancel\n to stdin. OpticCode forwards that request to theprovider cancellation token and emits a terminal cancelled event when theprovider confirms it. Unknown or oversized stdin commands do nothing. Killingthe process remains an unclean interruption and must not be reported as aconfirmed cancellation.
