@@ -3,13 +3,17 @@ use std::time::Instant;
 
 use anyhow::{Context, Result};
 use opticcode_edit::{
-    apply_verified_proposal_with_transaction_id, build_edit_generation_prompt,
-    build_format_correction_prompt, canonical_root_hash, edit_plan_output_schema,
+    apply_verified_proposal_with_transaction_id, build_bound_edit_generation_prompt,
+    build_bound_format_correction_prompt, canonical_root_hash, edit_plan_output_schema_for_intent,
     inspect_edit_workspace, new_edit_id, parse_edit_plan_json, rollback_edit_proposal,
-    validate_edit_plan, verify_edit_proposal, ChatEditVerificationReport, EditGenerationInput,
+    validate_edit_intent, validate_edit_plan, validate_edit_plan_against_intent,
+    verify_edit_proposal, BoundEditGenerationInput, ChatEditVerificationReport,
+    EditGenerationInput, EditIntent, EditIntentAllowedExistingTarget, EditIntentConstraints,
+    EditIntentExpectations, EditIntentSelectionMode, EditIntentTarget, EditIntentTargetProvenance,
     EditPlanError, EditPlanExpectations, EditPlanLimits, EditRuntimeOptions, EditStageStatus,
     PolicyDecisionRecord, ProposalFileStatus, ProposalRecord, ProposalState, ProposalStore,
-    TrustedEditFile, TrustedEditLine, ValidatedEditPlan, ALLOWED_EDIT_EXTENSIONS,
+    TrustedEditFile, TrustedEditLine, ValidatedEditIntent, ValidatedEditPlan,
+    ALLOWED_EDIT_EXTENSIONS, DEFAULT_EDIT_INTENT_TTL_SECONDS, EDIT_INTENT_SCHEMA_VERSION,
     MAX_EDIT_FILE_BYTES,
 };
 use opticcode_llm::GenerationResult;
@@ -138,6 +142,11 @@ async fn run_fix(
         trusted_edit_files(&observed.root, &prepared.references).map_err(|error| {
             edit_failure("edit_context", "trusted edit file inventory failed", error)
         })?;
+    let intent =
+        build_runtime_edit_intent(request, &expected, &trusted_files, &prepared.references)
+            .map_err(|error| {
+                edit_failure("edit_intent", "trusted edit intent creation failed", error)
+            })?;
     let user_references = serde_json::to_string(&request.references).map_err(|error| {
         edit_failure(
             "edit_context",
@@ -145,14 +154,17 @@ async fn run_fix(
             error.into(),
         )
     })?;
-    let generation_prompt = build_edit_generation_prompt(EditGenerationInput {
-        task: &request.prompt,
-        policy_summary: EDIT_POLICY_SUMMARY,
-        selected_context: &prepared.prompt,
-        user_references: &user_references,
-        available_files: &available_files,
-        trusted_files: &trusted_files,
-        expected: &expected,
+    let generation_prompt = build_bound_edit_generation_prompt(BoundEditGenerationInput {
+        base: EditGenerationInput {
+            task: &request.prompt,
+            policy_summary: EDIT_POLICY_SUMMARY,
+            selected_context: &prepared.prompt,
+            user_references: &user_references,
+            available_files: &available_files,
+            trusted_files: &trusted_files,
+            expected: &expected,
+        },
+        intent: &intent,
     })
     .map_err(|error| edit_failure("edit_generation", "edit prompt creation failed", error))?;
 
@@ -175,6 +187,7 @@ async fn run_fix(
         request,
         &expected,
         &trusted_files,
+        &intent,
         generation_prompt,
         cancellation,
     )
@@ -192,13 +205,15 @@ async fn run_fix(
 
     let summary = validated.plan.summary.clone();
     let file_count = validated.files.len();
-    let record = store.create(validated).map_err(|error| {
-        edit_failure(
-            "proposal_store",
-            "validated proposal could not be published",
-            error,
-        )
-    })?;
+    let record = store
+        .create_with_intent(validated, &intent)
+        .map_err(|error| {
+            edit_failure(
+                "proposal_store",
+                "validated proposal could not be published",
+                error,
+            )
+        })?;
     let generation_policy = PolicyDecisionRecord {
         stage: "generation_context".to_string(),
         action_kind: initial_policy.action_kind.clone(),
@@ -548,6 +563,7 @@ async fn generate_validated_plan(
     request: &ChatRequest,
     expected: &EditPlanExpectations,
     trusted_files: &[TrustedEditFile],
+    intent: &ValidatedEditIntent,
     prompt: String,
     cancellation: &opticcode_llm::CancellationToken,
 ) -> std::result::Result<(ValidatedEditPlan, GenerationResult, bool), RuntimeFailure> {
@@ -558,7 +574,14 @@ async fn generate_validated_plan(
             error,
         )
     })?;
-    let output_schema = edit_plan_output_schema(expected, trusted_files);
+    let output_schema = edit_plan_output_schema_for_intent(expected, trusted_files, intent)
+        .map_err(|error| {
+            edit_failure(
+                "edit_intent_schema",
+                "intent-bound output schema creation failed",
+                error,
+            )
+        })?;
     let primary = app
         .generate_structured(
             generation_id,
@@ -579,14 +602,18 @@ async fn generate_validated_plan(
             .retriable(true)
         })?;
     match parse_and_validate(&primary.output, expected) {
-        Ok(validated) => Ok((validated, primary, false)),
+        Ok(validated) => {
+            validate_plan_intent_binding(&validated, intent)?;
+            Ok((validated, primary, false))
+        }
         Err(error) if format_correctable(&error) => {
-            let correction_prompt = build_format_correction_prompt(
+            let correction_prompt = build_bound_format_correction_prompt(
                 &primary.output,
                 &error.code,
                 &error.message,
                 expected,
                 trusted_files,
+                intent,
             )
             .map_err(|failure| {
                 edit_failure(
@@ -630,6 +657,7 @@ async fn generate_validated_plan(
                     ),
                 )
             })?;
+            validate_plan_intent_binding(&validated, intent)?;
             Ok((validated, corrected, true))
         }
         Err(error) => Err(RuntimeFailure::new(
@@ -648,6 +676,18 @@ fn parse_and_validate(
     validate_edit_plan(plan, expected)
 }
 
+fn validate_plan_intent_binding(
+    plan: &ValidatedEditPlan,
+    intent: &ValidatedEditIntent,
+) -> std::result::Result<(), RuntimeFailure> {
+    validate_edit_plan_against_intent(plan, intent).map_err(|error| {
+        RuntimeFailure::new(
+            "edit_plan_intent_mismatch",
+            "edit_intent_validation",
+            format!("{}: {}", error.code, error.message),
+        )
+    })
+}
 fn format_correctable(error: &EditPlanError) -> bool {
     matches!(
         error.code.as_str(),
@@ -1052,6 +1092,79 @@ fn approval_request_id(record: &ProposalRecord, operation: &str) -> Result<Strin
     Ok(format!("{operation}-confirmation-{}", &digest[..32]))
 }
 
+fn build_runtime_edit_intent(
+    request: &ChatRequest,
+    expected: &EditPlanExpectations,
+    trusted_files: &[TrustedEditFile],
+    references: &[crate::ChatResolvedReference],
+) -> Result<ValidatedEditIntent> {
+    if trusted_files.is_empty() {
+        anyhow::bail!("edit intent requires at least one resolved, trusted file reference");
+    }
+
+    let mut allowed_existing_targets = Vec::with_capacity(trusted_files.len());
+    let mut targets = Vec::with_capacity(trusted_files.len());
+    for file in trusted_files {
+        let mut reference_ids = references
+            .iter()
+            .filter(|reference| reference.path.as_deref() == Some(file.path.as_str()))
+            .map(|reference| reference.reference_id.clone())
+            .collect::<Vec<_>>();
+        reference_ids.sort();
+        reference_ids.dedup();
+        if reference_ids.is_empty() {
+            anyhow::bail!(
+                "trusted edit file {} has no bound resolved reference identity",
+                file.path
+            );
+        }
+
+        allowed_existing_targets.push(EditIntentAllowedExistingTarget {
+            path: file.path.clone(),
+            content_hash: file.content_hash.clone(),
+            reference_ids: reference_ids.clone(),
+        });
+        targets.push(EditIntentTarget::ExistingFile {
+            path: file.path.clone(),
+            content_hash: file.content_hash.clone(),
+            reference_ids,
+            provenance: EditIntentTargetProvenance::UserReference,
+        });
+    }
+
+    let now = expected.now_unix_ms;
+    let constraints = EditIntentConstraints::modify_only(expected.limits);
+    let expectations = EditIntentExpectations {
+        request_id: expected.request_id.clone(),
+        workspace_id: expected.workspace_id.clone(),
+        workspace_root_hash: expected.workspace_root_hash.clone(),
+        base_head: expected.base_head.clone(),
+        working_tree_digest: expected.working_tree_digest.clone(),
+        now_unix_ms: now,
+        limits: expected.limits,
+        allowed_existing_targets,
+        allowed_create_targets: Vec::new(),
+    };
+    let intent = EditIntent {
+        schema_version: EDIT_INTENT_SCHEMA_VERSION,
+        intent_id: new_edit_id("intent")?,
+        request_id: expected.request_id.clone(),
+        workspace_id: expected.workspace_id.clone(),
+        workspace_root_hash: expected.workspace_root_hash.clone(),
+        base_head: expected.base_head.clone(),
+        working_tree_digest: expected.working_tree_digest.clone(),
+        task: request.prompt.clone(),
+        selection_mode: EditIntentSelectionMode::ExplicitReferences,
+        targets,
+        constraints,
+        created_at_unix_ms: now,
+        expires_at_unix_ms: now
+            .saturating_add(DEFAULT_EDIT_INTENT_TTL_SECONDS.saturating_mul(1_000)),
+    };
+
+    validate_edit_intent(intent, &expectations)
+        .map_err(|error| anyhow::anyhow!("{}: {}", error.code, error.message))
+}
 fn available_edit_files(root: &Path) -> Result<Vec<String>> {
     let report = inspect_workspace(root)?;
     let mut files = report

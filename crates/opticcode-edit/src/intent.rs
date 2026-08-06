@@ -4,7 +4,10 @@ use std::path::{Component, Path};
 
 use serde::{Deserialize, Serialize};
 
-use crate::{EditPlanLimits, ALLOWED_EDIT_EXTENSIONS, MAX_EDIT_IDENTIFIER_BYTES};
+use crate::{
+    EditOperation, EditPlanLimits, ProposalFileStatus, ValidatedEditPlan, ALLOWED_EDIT_EXTENSIONS,
+    MAX_EDIT_IDENTIFIER_BYTES,
+};
 
 pub const EDIT_INTENT_SCHEMA_VERSION: u32 = 1;
 pub const MAX_EDIT_INTENT_TARGETS: usize = 16;
@@ -206,6 +209,178 @@ pub struct ValidatedEditIntent {
     pub canonical_json: String,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ProposalIntentBinding {
+    pub schema_version: u32,
+    pub intent_id: String,
+    pub intent_hash: String,
+    pub binding_hash: String,
+    pub request_id: String,
+    pub workspace_id: String,
+    pub workspace_root_hash: String,
+    pub base_head: String,
+    pub working_tree_digest: String,
+    pub task_hash: String,
+    pub selection_mode: EditIntentSelectionMode,
+    pub targets: Vec<EditIntentTarget>,
+    pub constraints: EditIntentConstraints,
+    pub created_at_unix_ms: u64,
+    pub expires_at_unix_ms: u64,
+}
+
+#[derive(Serialize)]
+struct ProposalIntentBindingPayload<'a> {
+    schema_version: u32,
+    intent_id: &'a str,
+    intent_hash: &'a str,
+    request_id: &'a str,
+    workspace_id: &'a str,
+    workspace_root_hash: &'a str,
+    base_head: &'a str,
+    working_tree_digest: &'a str,
+    task_hash: &'a str,
+    selection_mode: EditIntentSelectionMode,
+    targets: &'a [EditIntentTarget],
+    constraints: &'a EditIntentConstraints,
+    created_at_unix_ms: u64,
+    expires_at_unix_ms: u64,
+}
+
+impl ProposalIntentBinding {
+    pub fn from_validated(validated: &ValidatedEditIntent) -> Result<Self, EditIntentError> {
+        let mut binding = Self {
+            schema_version: EDIT_INTENT_SCHEMA_VERSION,
+            intent_id: validated.intent.intent_id.clone(),
+            intent_hash: validated.intent_hash.clone(),
+            binding_hash: String::new(),
+            request_id: validated.intent.request_id.clone(),
+            workspace_id: validated.intent.workspace_id.clone(),
+            workspace_root_hash: validated.intent.workspace_root_hash.clone(),
+            base_head: validated.intent.base_head.clone(),
+            working_tree_digest: validated.intent.working_tree_digest.clone(),
+            task_hash: blake3::hash(validated.intent.task.as_bytes())
+                .to_hex()
+                .to_string(),
+            selection_mode: validated.intent.selection_mode,
+            targets: validated.intent.targets.clone(),
+            constraints: validated.intent.constraints.clone(),
+            created_at_unix_ms: validated.intent.created_at_unix_ms,
+            expires_at_unix_ms: validated.intent.expires_at_unix_ms,
+        };
+        binding.binding_hash = binding.calculate_binding_hash()?;
+        Ok(binding)
+    }
+
+    pub fn validate(&self) -> Result<(), EditIntentError> {
+        if self.schema_version != EDIT_INTENT_SCHEMA_VERSION {
+            return Err(EditIntentError::new(
+                "intent.binding_schema",
+                "stored intent binding uses an unsupported schema version",
+            ));
+        }
+
+        for (name, value) in [
+            ("intent_id", self.intent_id.as_str()),
+            ("request_id", self.request_id.as_str()),
+            ("workspace_id", self.workspace_id.as_str()),
+        ] {
+            validate_identifier(name, value)?;
+        }
+        for (name, value) in [
+            ("intent_hash", self.intent_hash.as_str()),
+            ("binding_hash", self.binding_hash.as_str()),
+            ("workspace_root_hash", self.workspace_root_hash.as_str()),
+            ("working_tree_digest", self.working_tree_digest.as_str()),
+            ("task_hash", self.task_hash.as_str()),
+        ] {
+            if !is_hash(value) {
+                return Err(EditIntentError::new(
+                    format!("intent.binding_{name}"),
+                    format!("stored intent binding {name} is not a BLAKE3 hash"),
+                ));
+            }
+        }
+        if !is_git_oid(&self.base_head) {
+            return Err(EditIntentError::new(
+                "intent.binding_head",
+                "stored intent binding base_head is not a Git object ID",
+            ));
+        }
+        if self.targets.is_empty() || self.targets.len() > MAX_EDIT_INTENT_TARGETS {
+            return Err(EditIntentError::new(
+                "intent.binding_targets",
+                "stored intent binding target inventory is empty or oversized",
+            ));
+        }
+        if self.expires_at_unix_ms <= self.created_at_unix_ms
+            || self.expires_at_unix_ms
+                > self
+                    .created_at_unix_ms
+                    .saturating_add(DEFAULT_EDIT_INTENT_TTL_SECONDS.saturating_mul(1_000))
+        {
+            return Err(EditIntentError::new(
+                "intent.binding_expiry",
+                "stored intent binding timestamps are inconsistent",
+            ));
+        }
+
+        let operations = validate_constraints(&self.constraints, EditPlanLimits::hard_maxima())?;
+        validate_binding_targets(
+            &self.targets,
+            &operations,
+            &self.constraints.allowed_extensions,
+            self.selection_mode,
+        )?;
+
+        let mut canonical_targets = self.targets.clone();
+        canonicalize_targets(&mut canonical_targets);
+        let mut canonical_constraints = self.constraints.clone();
+        canonicalize_constraints(&mut canonical_constraints);
+        if canonical_targets != self.targets || canonical_constraints != self.constraints {
+            return Err(EditIntentError::new(
+                "intent.binding_canonical",
+                "stored intent binding is not in canonical form",
+            ));
+        }
+
+        let calculated_hash = self.calculate_binding_hash()?;
+        if calculated_hash != self.binding_hash {
+            return Err(EditIntentError::new(
+                "intent.binding_hash",
+                "stored intent binding hash does not match its canonical payload",
+            ));
+        }
+        Ok(())
+    }
+
+    fn calculate_binding_hash(&self) -> Result<String, EditIntentError> {
+        let payload = ProposalIntentBindingPayload {
+            schema_version: self.schema_version,
+            intent_id: &self.intent_id,
+            intent_hash: &self.intent_hash,
+            request_id: &self.request_id,
+            workspace_id: &self.workspace_id,
+            workspace_root_hash: &self.workspace_root_hash,
+            base_head: &self.base_head,
+            working_tree_digest: &self.working_tree_digest,
+            task_hash: &self.task_hash,
+            selection_mode: self.selection_mode,
+            targets: &self.targets,
+            constraints: &self.constraints,
+            created_at_unix_ms: self.created_at_unix_ms,
+            expires_at_unix_ms: self.expires_at_unix_ms,
+        };
+        let bytes = serde_json::to_vec(&payload).map_err(|error| {
+            EditIntentError::new(
+                "intent.binding_serialization",
+                format!("stored intent binding could not be serialized: {error}"),
+            )
+        })?;
+        Ok(blake3::hash(&bytes).to_hex().to_string())
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EditIntentError {
     pub code: String,
@@ -277,6 +452,184 @@ pub fn validate_edit_intent(
         intent_hash,
         canonical_json,
     })
+}
+
+pub fn validate_edit_plan_against_intent(
+    plan: &ValidatedEditPlan,
+    intent: &ValidatedEditIntent,
+) -> Result<(), EditIntentError> {
+    let binding = ProposalIntentBinding::from_validated(intent)?;
+    binding.validate()?;
+    validate_edit_plan_against_authority(
+        plan,
+        &intent.intent.request_id,
+        &intent.intent.workspace_id,
+        &intent.intent.workspace_root_hash,
+        &intent.intent.base_head,
+        &intent.intent.working_tree_digest,
+        &intent.intent.targets,
+        &intent.intent.constraints,
+    )
+}
+
+pub fn validate_edit_plan_against_binding(
+    plan: &ValidatedEditPlan,
+    binding: &ProposalIntentBinding,
+) -> Result<(), EditIntentError> {
+    binding.validate()?;
+    validate_edit_plan_against_authority(
+        plan,
+        &binding.request_id,
+        &binding.workspace_id,
+        &binding.workspace_root_hash,
+        &binding.base_head,
+        &binding.working_tree_digest,
+        &binding.targets,
+        &binding.constraints,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn validate_edit_plan_against_authority(
+    plan: &ValidatedEditPlan,
+    request_id: &str,
+    workspace_id: &str,
+    workspace_root_hash: &str,
+    base_head: &str,
+    working_tree_digest: &str,
+    trusted_targets: &[EditIntentTarget],
+    trusted_constraints: &EditIntentConstraints,
+) -> Result<(), EditIntentError> {
+    for (name, actual, expected) in [
+        ("request_id", plan.plan.request_id.as_str(), request_id),
+        (
+            "workspace_id",
+            plan.plan.workspace_id.as_str(),
+            workspace_id,
+        ),
+        (
+            "workspace_root_hash",
+            plan.plan.workspace_root_hash.as_str(),
+            workspace_root_hash,
+        ),
+        ("base_head", plan.plan.base_head.as_str(), base_head),
+        (
+            "working_tree_digest",
+            plan.plan.working_tree_digest.as_str(),
+            working_tree_digest,
+        ),
+    ] {
+        if actual != expected {
+            return Err(EditIntentError::new(
+                format!("intent.plan_{name}_mismatch"),
+                format!("validated edit plan {name} is not bound to the trusted intent"),
+            ));
+        }
+    }
+
+    if limits_exceed(plan.plan.limits, trusted_constraints.limits) {
+        return Err(EditIntentError::new(
+            "intent.plan_limit_escalation",
+            "validated edit plan raises limits above the trusted intent",
+        ));
+    }
+
+    let allowed_operations = trusted_constraints
+        .allowed_operations
+        .iter()
+        .copied()
+        .collect::<BTreeSet<_>>();
+    let targets = trusted_targets
+        .iter()
+        .map(|target| (target.path(), target))
+        .collect::<BTreeMap<_, _>>();
+
+    for operation in &plan.plan.operations {
+        let path = validate_relative_path(operation.path())?;
+        let target = targets.get(path.as_str()).ok_or_else(|| {
+            EditIntentError::new(
+                "intent.plan_target_not_allowed",
+                format!("edit plan targets `{path}` outside the trusted intent"),
+            )
+        })?;
+
+        match (operation, *target) {
+            (
+                EditOperation::Modify {
+                    expected_file_hash, ..
+                },
+                EditIntentTarget::ExistingFile { content_hash, .. },
+            ) => {
+                if !allowed_operations.contains(&EditIntentOperationKind::ModifyExisting) {
+                    return Err(EditIntentError::new(
+                        "intent.plan_operation_not_allowed",
+                        format!("edit plan modifies `{path}` without modify_existing permission"),
+                    ));
+                }
+                if expected_file_hash != content_hash {
+                    return Err(EditIntentError::new(
+                        "intent.plan_hash_mismatch",
+                        format!("edit plan hash for `{path}` differs from the trusted intent"),
+                    ));
+                }
+            }
+            (
+                EditOperation::Create {
+                    extension,
+                    expected_absent,
+                    ..
+                },
+                EditIntentTarget::ProspectiveFile {
+                    extension: trusted_extension,
+                    ..
+                },
+            ) => {
+                if !allowed_operations.contains(&EditIntentOperationKind::CreateTextFile) {
+                    return Err(EditIntentError::new(
+                        "intent.plan_operation_not_allowed",
+                        format!("edit plan creates `{path}` without create_text_file permission"),
+                    ));
+                }
+                if extension != trusted_extension || !expected_absent {
+                    return Err(EditIntentError::new(
+                        "intent.plan_creation_mismatch",
+                        format!("edit plan creation for `{path}` differs from the trusted intent"),
+                    ));
+                }
+            }
+            (EditOperation::Modify { .. }, EditIntentTarget::ProspectiveFile { .. })
+            | (EditOperation::Create { .. }, EditIntentTarget::ExistingFile { .. }) => {
+                return Err(EditIntentError::new(
+                    "intent.plan_target_kind",
+                    format!("edit plan operation kind does not match target `{path}`"),
+                ));
+            }
+        }
+    }
+
+    for file in &plan.files {
+        let path = validate_relative_path(&file.path)?;
+        let target = targets.get(path.as_str()).ok_or_else(|| {
+            EditIntentError::new(
+                "intent.plan_snapshot_not_allowed",
+                format!("materialized snapshot `{path}` is outside the trusted intent"),
+            )
+        })?;
+        match (file.status, *target) {
+            (ProposalFileStatus::Modified, EditIntentTarget::ExistingFile { content_hash, .. })
+                if file.base_hash.as_deref() == Some(content_hash.as_str()) => {}
+            (ProposalFileStatus::Created, EditIntentTarget::ProspectiveFile { .. })
+                if file.base_hash.is_none() && file.base_content.is_none() => {}
+            _ => {
+                return Err(EditIntentError::new(
+                    "intent.plan_snapshot_mismatch",
+                    format!("materialized snapshot for `{path}` differs from the trusted intent"),
+                ));
+            }
+        }
+    }
+
+    Ok(())
 }
 
 fn validate_envelope(
@@ -479,6 +832,121 @@ struct TrustedTargets {
 struct TrustedExistingTarget {
     content_hash: String,
     reference_ids: BTreeSet<String>,
+}
+
+fn validate_binding_targets(
+    targets: &[EditIntentTarget],
+    operations: &BTreeSet<EditIntentOperationKind>,
+    allowed_extensions: &[String],
+    selection_mode: EditIntentSelectionMode,
+) -> Result<(), EditIntentError> {
+    if targets.is_empty() || targets.len() > MAX_EDIT_INTENT_TARGETS {
+        return Err(EditIntentError::new(
+            "intent.binding_targets",
+            "stored intent binding target inventory is empty or oversized",
+        ));
+    }
+
+    let extensions = allowed_extensions
+        .iter()
+        .map(String::as_str)
+        .collect::<BTreeSet<_>>();
+    let mut seen_paths = BTreeSet::new();
+    let mut has_existing = false;
+    let mut has_prospective = false;
+    let mut has_explicit_reference = false;
+
+    for target in targets {
+        let path = validate_relative_path(target.path())?;
+        if !seen_paths.insert(path.clone()) {
+            return Err(EditIntentError::new(
+                "intent.binding_target_duplicate",
+                format!("stored intent binding target `{path}` is duplicated"),
+            ));
+        }
+        if !operations.contains(&target.operation_kind()) {
+            return Err(EditIntentError::new(
+                "intent.binding_target_operation",
+                format!("stored intent binding target `{path}` has no operation permission"),
+            ));
+        }
+
+        let references = validate_reference_inventory(target.reference_ids())?;
+        has_explicit_reference |= !references.is_empty();
+        let path_extension = extension_for_path(&path)?;
+        if !extensions.contains(path_extension.as_str()) {
+            return Err(EditIntentError::new(
+                "intent.binding_target_extension",
+                format!("stored intent binding target `{path}` uses a disallowed extension"),
+            ));
+        }
+
+        match target {
+            EditIntentTarget::ExistingFile {
+                content_hash,
+                provenance,
+                ..
+            } => {
+                has_existing = true;
+                if !is_hash(content_hash)
+                    || *provenance == EditIntentTargetProvenance::UserRequestedCreation
+                    || (*provenance == EditIntentTargetProvenance::UserReference
+                        && references.is_empty())
+                {
+                    return Err(EditIntentError::new(
+                        "intent.binding_existing_target",
+                        format!("stored existing target `{path}` is inconsistent"),
+                    ));
+                }
+            }
+            EditIntentTarget::ProspectiveFile {
+                extension,
+                provenance,
+                ..
+            } => {
+                has_prospective = true;
+                if extension != &path_extension
+                    || *provenance != EditIntentTargetProvenance::UserRequestedCreation
+                {
+                    return Err(EditIntentError::new(
+                        "intent.binding_prospective_target",
+                        format!("stored prospective target `{path}` is inconsistent"),
+                    ));
+                }
+            }
+        }
+    }
+
+    if operations.contains(&EditIntentOperationKind::ModifyExisting) != has_existing
+        || operations.contains(&EditIntentOperationKind::CreateTextFile) != has_prospective
+    {
+        return Err(EditIntentError::new(
+            "intent.binding_operation_targets",
+            "stored intent binding operations do not match their target kinds",
+        ));
+    }
+
+    match selection_mode {
+        EditIntentSelectionMode::ExplicitReferences
+            if !targets
+                .iter()
+                .all(|target| !target.reference_ids().is_empty()) =>
+        {
+            return Err(EditIntentError::new(
+                "intent.binding_selection_mode",
+                "explicit_references binding requires reference IDs on every target",
+            ));
+        }
+        EditIntentSelectionMode::Hybrid if !has_explicit_reference => {
+            return Err(EditIntentError::new(
+                "intent.binding_selection_mode",
+                "hybrid binding requires at least one explicit reference",
+            ));
+        }
+        _ => {}
+    }
+
+    Ok(())
 }
 
 fn validate_trusted_targets(
@@ -755,17 +1223,25 @@ fn ensure_reference_subset(
 }
 
 fn canonicalize_intent(mut intent: EditIntent) -> EditIntent {
-    for target in &mut intent.targets {
+    canonicalize_targets(&mut intent.targets);
+    canonicalize_constraints(&mut intent.constraints);
+    intent
+}
+
+fn canonicalize_targets(targets: &mut [EditIntentTarget]) {
+    for target in targets.iter_mut() {
         target.reference_ids_mut().sort();
     }
-    intent.targets.sort_by(|left, right| {
+    targets.sort_by(|left, right| {
         left.path()
             .cmp(right.path())
             .then_with(|| left.sort_rank().cmp(&right.sort_rank()))
     });
-    intent.constraints.allowed_operations.sort();
-    intent.constraints.allowed_extensions.sort();
-    intent
+}
+
+fn canonicalize_constraints(constraints: &mut EditIntentConstraints) {
+    constraints.allowed_operations.sort();
+    constraints.allowed_extensions.sort();
 }
 
 fn validate_identifier(name: &str, value: &str) -> Result<(), EditIntentError> {
