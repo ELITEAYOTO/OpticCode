@@ -573,6 +573,14 @@ impl WorkspaceTransactionLock {
     }
 }
 
+impl Drop for WorkspaceTransactionLock {
+    fn drop(&mut self) {
+        // Release explicitly before closing the handle so a following apply,
+        // rollback, or recovery in the same process can acquire it immediately.
+        let _ = self._file.unlock();
+    }
+}
+
 impl PreparedTransaction {
     #[allow(clippy::too_many_arguments)]
     fn result(
