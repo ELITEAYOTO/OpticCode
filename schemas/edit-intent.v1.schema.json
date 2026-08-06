@@ -1,0 +1,309 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://opticcode.dev/schemas/edit-intent.v1.schema.json",
+  "title": "OpticCode Edit Intent v1",
+  "description": "Trusted, bounded edit intent created by the OpticCode runtime before untrusted edit-plan generation.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "intent_id",
+    "request_id",
+    "workspace_id",
+    "workspace_root_hash",
+    "base_head",
+    "working_tree_digest",
+    "task",
+    "selection_mode",
+    "targets",
+    "constraints",
+    "created_at_unix_ms",
+    "expires_at_unix_ms"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "intent_id": {
+      "$ref": "#/$defs/identifier"
+    },
+    "request_id": {
+      "$ref": "#/$defs/identifier"
+    },
+    "workspace_id": {
+      "$ref": "#/$defs/identifier"
+    },
+    "workspace_root_hash": {
+      "$ref": "#/$defs/blake3"
+    },
+    "base_head": {
+      "$ref": "#/$defs/git_oid"
+    },
+    "working_tree_digest": {
+      "$ref": "#/$defs/blake3"
+    },
+    "task": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 65536
+    },
+    "selection_mode": {
+      "enum": [
+        "explicit_references",
+        "resolved_context",
+        "hybrid"
+      ]
+    },
+    "targets": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 16,
+      "items": {
+        "oneOf": [
+          {
+            "$ref": "#/$defs/existing_target"
+          },
+          {
+            "$ref": "#/$defs/prospective_target"
+          }
+        ]
+      }
+    },
+    "constraints": {
+      "$ref": "#/$defs/constraints"
+    },
+    "created_at_unix_ms": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "expires_at_unix_ms": {
+      "type": "integer",
+      "minimum": 1
+    }
+  },
+  "$defs": {
+    "identifier": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 160,
+      "pattern": "^[^\\u0000-\\u001F\\u007F]+$"
+    },
+    "relative_path": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4096,
+      "pattern": "^(?!/)(?!.*\\\\)(?!.*(^|/)\\.\\.?(/|$))(?!.*(^|/)(?:\\.git|\\.opticcode)(?:/|$))(?!.*:).+$"
+    },
+    "blake3": {
+      "type": "string",
+      "pattern": "^[0-9a-fA-F]{64}$"
+    },
+    "git_oid": {
+      "type": "string",
+      "pattern": "^(?:[0-9a-fA-F]{40}|[0-9a-fA-F]{64})$"
+    },
+    "reference_ids": {
+      "type": "array",
+      "maxItems": 32,
+      "uniqueItems": true,
+      "items": {
+        "$ref": "#/$defs/identifier"
+      }
+    },
+    "existing_target": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "path",
+        "content_hash",
+        "reference_ids",
+        "provenance"
+      ],
+      "properties": {
+        "kind": {
+          "const": "existing_file"
+        },
+        "path": {
+          "$ref": "#/$defs/relative_path"
+        },
+        "content_hash": {
+          "$ref": "#/$defs/blake3"
+        },
+        "reference_ids": {
+          "$ref": "#/$defs/reference_ids"
+        },
+        "provenance": {
+          "enum": [
+            "user_reference",
+            "resolved_reference",
+            "context_manifest"
+          ]
+        }
+      }
+    },
+    "prospective_target": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "path",
+        "extension",
+        "reference_ids",
+        "provenance"
+      ],
+      "properties": {
+        "kind": {
+          "const": "prospective_file"
+        },
+        "path": {
+          "$ref": "#/$defs/relative_path"
+        },
+        "extension": {
+          "enum": [
+            "java",
+            "xml",
+            "yml",
+            "yaml",
+            "json",
+            "toml",
+            "properties",
+            "gradle",
+            "md",
+            "txt"
+          ]
+        },
+        "reference_ids": {
+          "$ref": "#/$defs/reference_ids"
+        },
+        "provenance": {
+          "const": "user_requested_creation"
+        }
+      }
+    },
+    "constraints": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "allowed_operations",
+        "allowed_extensions",
+        "limits",
+        "offset_encoding",
+        "require_clean_worktree",
+        "require_offline_verification",
+        "require_native_confirmation"
+      ],
+      "properties": {
+        "allowed_operations": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 2,
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "modify_existing",
+              "create_text_file"
+            ]
+          }
+        },
+        "allowed_extensions": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 10,
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "java",
+              "xml",
+              "yml",
+              "yaml",
+              "json",
+              "toml",
+              "properties",
+              "gradle",
+              "md",
+              "txt"
+            ]
+          }
+        },
+        "limits": {
+          "$ref": "#/$defs/limits"
+        },
+        "offset_encoding": {
+          "const": "utf8_bytes"
+        },
+        "require_clean_worktree": {
+          "const": true
+        },
+        "require_offline_verification": {
+          "const": true
+        },
+        "require_native_confirmation": {
+          "const": true
+        }
+      }
+    },
+    "limits": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "max_files",
+        "max_created_files",
+        "max_file_bytes",
+        "max_proposal_bytes",
+        "max_hunks",
+        "max_added_lines",
+        "max_deleted_lines",
+        "max_changed_lines",
+        "global_timeout_seconds"
+      ],
+      "properties": {
+        "max_files": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 5
+        },
+        "max_created_files": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "max_file_bytes": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 524288
+        },
+        "max_proposal_bytes": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 2097152
+        },
+        "max_hunks": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 64
+        },
+        "max_added_lines": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1500
+        },
+        "max_deleted_lines": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1500
+        },
+        "max_changed_lines": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 2000
+        },
+        "global_timeout_seconds": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 900
+        }
+      }
+    }
+  }
+}
