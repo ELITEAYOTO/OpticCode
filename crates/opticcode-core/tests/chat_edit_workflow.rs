@@ -164,11 +164,10 @@ impl LlmProvider for EditPlanProvider {
 
 #[tokio::test]
 async fn chat_fix_apply_and_rollback_restores_the_original_fixture() {
-    if !Command::new("where.exe")
-        .arg("mvn")
-        .output()
-        .is_ok_and(|output| output.status.success())
-    {
+    if !real_maven_integration_enabled() {
+        eprintln!(
+            "skipping real chat edit Maven workflow because explicit integration is disabled or mvn is unavailable"
+        );
         return;
     }
     let fixture = tempfile::tempdir().unwrap();
@@ -391,6 +390,17 @@ fn request(root: &Path, command: ChatCommand, prompt: &str) -> ChatRequest {
         expected_protocols: ChatExpectedProtocols::default(),
         edit: None,
     }
+}
+
+fn real_maven_integration_enabled() -> bool {
+    std::env::var("OPTICCODE_RUN_REAL_INTEGRATION").as_deref() == Ok("1") && maven_available()
+}
+
+fn maven_available() -> bool {
+    Command::new(if cfg!(windows) { "where.exe" } else { "which" })
+        .arg(if cfg!(windows) { "mvn.cmd" } else { "mvn" })
+        .output()
+        .is_ok_and(|output| output.status.success())
 }
 
 fn initialize_fixture(root: &Path) {
