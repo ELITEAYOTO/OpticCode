@@ -1,7 +1,10 @@
 use std::collections::BTreeMap;
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
+#[cfg(windows)]
+use std::path::PathBuf;
 use std::process::{Command, Output};
+#[cfg(windows)]
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde_json::Value;
@@ -223,10 +226,12 @@ fn snapshot_tree(root: &Path) -> BTreeMap<String, Vec<u8>> {
     files
 }
 
+#[cfg(windows)]
 struct TemporaryFixture {
     root: PathBuf,
 }
 
+#[cfg(windows)]
 impl TemporaryFixture {
     fn new() -> Self {
         let stamp = SystemTime::now()
@@ -242,6 +247,7 @@ impl TemporaryFixture {
     }
 }
 
+#[cfg(windows)]
 impl Drop for TemporaryFixture {
     fn drop(&mut self) {
         if self.root.starts_with(std::env::temp_dir()) {
