@@ -3644,9 +3644,18 @@ mod tests {
             .any(|error| error.contains("transaction directory")));
         let run_recovery = recover_apply_transaction(&fixture.root, &transaction_id)
             .expect_err("reparse transaction directory must refuse recovery");
-        assert_eq!(
-            apply_transaction_error_kind(&run_recovery),
-            Some(ApplyTransactionErrorKind::InvalidTransaction)
+        // Windows junctions reach persisted-journal validation, while Unix
+        // symlinks may be rejected one layer earlier as a precondition.
+        // Both classifications must fail closed before any recovery write.
+        assert!(
+            matches!(
+                apply_transaction_error_kind(&run_recovery),
+                Some(
+                    ApplyTransactionErrorKind::InvalidTransaction
+                        | ApplyTransactionErrorKind::Precondition
+                )
+            ),
+            "unexpected linked transaction-directory recovery error: {run_recovery:#}"
         );
         remove_directory_link(&run_dir).unwrap();
         fs::rename(&parked_run, &run_dir).unwrap();
