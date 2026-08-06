@@ -15,8 +15,10 @@ use opticcode_tools::process_runner::CancellationToken;
 
 #[test]
 fn verified_edit_applies_and_rolls_back_with_exact_native_approvals() {
-    if !maven_available() {
-        eprintln!("skipping real offline Maven edit test because mvn is unavailable");
+    if !real_maven_integration_enabled() {
+        eprintln!(
+            "skipping real offline Maven edit test because explicit integration is disabled or mvn is unavailable"
+        );
         return;
     }
     let workspace = tempfile::tempdir().unwrap();
@@ -193,6 +195,10 @@ fn initialize_project(root: &Path) {
             "fixture",
         ],
     );
+}
+
+fn real_maven_integration_enabled() -> bool {
+    std::env::var("OPTICCODE_RUN_REAL_INTEGRATION").as_deref() == Ok("1") && maven_available()
 }
 
 fn maven_available() -> bool {

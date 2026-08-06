@@ -2,6 +2,7 @@ use std::io::{Read, Write};
 use std::net::TcpListener;
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
+use std::sync::mpsc;
 use std::thread;
 use std::time::Duration;
 
@@ -196,7 +197,7 @@ fn protocol_jsonl_streams_ordered_versioned_events() {
 
 #[test]
 fn protocol_stdin_cancel_is_confirmed_by_one_terminal_event() {
-    let url = spawn_mock_ollama_slow_streaming();
+    let (url, generation_started) = spawn_mock_ollama_slow_streaming();
     let mut child = Command::new(binary())
         .current_dir(workspace())
         .args([
@@ -219,7 +220,9 @@ fn protocol_stdin_cancel_is_confirmed_by_one_terminal_event() {
         .stderr(Stdio::piped())
         .spawn()
         .unwrap();
-    thread::sleep(Duration::from_millis(250));
+    generation_started
+        .recv_timeout(Duration::from_secs(5))
+        .expect("mock generation did not start before cancellation");
     child.stdin.take().unwrap().write_all(b"cancel\n").unwrap();
     let output = child.wait_with_output().unwrap();
 
@@ -414,9 +417,10 @@ fn spawn_mock_ollama_streaming() -> String {
     format!("http://{address}")
 }
 
-fn spawn_mock_ollama_slow_streaming() -> String {
+fn spawn_mock_ollama_slow_streaming() -> (String, mpsc::Receiver<()>) {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let address = listener.local_addr().unwrap();
+    let (generation_started_tx, generation_started_rx) = mpsc::channel();
     thread::spawn(move || {
         let (mut tags_stream, _) = listener.accept().unwrap();
         read_http_request(&mut tags_stream);
@@ -438,9 +442,10 @@ fn spawn_mock_ollama_slow_streaming() -> String {
         generation_stream.write_all(first).unwrap();
         generation_stream.write_all(b"\r\n").unwrap();
         generation_stream.flush().unwrap();
+        generation_started_tx.send(()).unwrap();
         thread::sleep(Duration::from_secs(5));
     });
-    format!("http://{address}")
+    (format!("http://{address}"), generation_started_rx)
 }
 
 fn write_json_response(stream: &mut std::net::TcpStream, body: &str) {

@@ -35,9 +35,27 @@ if ($LASTEXITCODE -ne 0) {
     throw "Rust Clippy failed."
 }
 
-cargo test --workspace
-if ($LASTEXITCODE -ne 0) {
-    throw "Rust tests failed."
+$previousRealIntegration = $env:OPTICCODE_RUN_REAL_INTEGRATION
+try {
+    if ($SkipRealIntegration) {
+        Remove-Item Env:OPTICCODE_RUN_REAL_INTEGRATION -ErrorAction SilentlyContinue
+    }
+    else {
+        $env:OPTICCODE_RUN_REAL_INTEGRATION = "1"
+    }
+
+    cargo test --workspace
+    if ($LASTEXITCODE -ne 0) {
+        throw "Rust tests failed."
+    }
+}
+finally {
+    if ($null -eq $previousRealIntegration) {
+        Remove-Item Env:OPTICCODE_RUN_REAL_INTEGRATION -ErrorAction SilentlyContinue
+    }
+    else {
+        $env:OPTICCODE_RUN_REAL_INTEGRATION = $previousRealIntegration
+    }
 }
 
 cargo build --workspace --release

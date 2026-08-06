@@ -67,8 +67,10 @@ fn request(request_id: &str, command: &str, references: Value) -> Value {
 }
 
 fn run_chat(value: &Value) -> Output {
+    let policy_state = tempfile::tempdir().expect("create isolated policy state");
     let mut child = Command::new(env!("CARGO_BIN_EXE_opticcode"))
         .current_dir(workspace())
+        .env("OPTICCODE_POLICY_STATE_DIR", policy_state.path())
         .args([
             "chat",
             "--protocol-jsonl",
