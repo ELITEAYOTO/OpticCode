@@ -303,6 +303,7 @@ pub fn run_process_with_cancellation(
                 }
             }
         }
+        #[cfg(windows)]
         drop(tree);
         Some(
             child
@@ -310,6 +311,7 @@ pub fn run_process_with_cancellation(
                 .with_context(|| format!("failed to wait for terminated process {process_id}"))?,
         )
     } else {
+        #[cfg(windows)]
         drop(tree);
         exit_status
     };

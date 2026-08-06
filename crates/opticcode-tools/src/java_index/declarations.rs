@@ -50,7 +50,7 @@ pub(super) fn build_declarations(
         }
     }
 
-    files.sort_by(|left, right| normalized_path(&left.path).cmp(&normalized_path(&right.path)));
+    files.sort_by_cached_key(|file| normalized_path(&file.path));
     symbols.sort_by(|left, right| {
         left.id
             .cmp(&right.id)
