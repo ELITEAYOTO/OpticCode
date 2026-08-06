@@ -23,6 +23,8 @@ import type {
   ContextMode,
   DoctorCheck,
   DoctorReport,
+  EditIntentSelectionMode,
+  EditRuntimeCapabilities,
   EvidenceValidationReport,
   GenerationResult,
   JsonObject,
@@ -92,6 +94,66 @@ function requireStringArray(value: unknown, field: string): string[] {
   return requireArray(value, field).map((entry, index) =>
     requireString(entry, `${field}[${index}]`),
   );
+}
+
+function requireUniqueStringArray(value: unknown, field: string): string[] {
+  const values = requireStringArray(value, field);
+  if (new Set(values).size !== values.length) {
+    incompatible(`${field} must not contain duplicates.`);
+  }
+  return values;
+}
+
+function requireBoundedInteger(
+  value: unknown,
+  field: string,
+  minimum: number,
+  maximum: number,
+): number {
+  const integer = requireInteger(value, field);
+  if (integer < minimum || integer > maximum) {
+    incompatible(`Expected ${field} to be between ${minimum} and ${maximum}.`);
+  }
+  return integer;
+}
+
+function requireBoundedIdentifier(value: unknown, field: string): string {
+  const identifier = requireString(value, field);
+  if (
+    identifier.length === 0 ||
+    identifier.length > 160 ||
+    !/^[A-Za-z0-9_.:-]+$/.test(identifier)
+  ) {
+    incompatible(`Invalid bounded identifier at ${field}.`);
+  }
+  return identifier;
+}
+
+function requireBlake3(value: unknown, field: string): string {
+  const hash = requireString(value, field);
+  if (!/^[0-9a-fA-F]{64}$/.test(hash)) {
+    incompatible(`Expected a 64-character BLAKE3 hash at ${field}.`);
+  }
+  return hash;
+}
+
+function requireEditIntentSchema(value: unknown, field: string): number {
+  const version = requireInteger(value, field);
+  if (version !== 1) {
+    incompatible(`Unsupported edit intent schema ${version}.`);
+  }
+  return version;
+}
+
+function editIntentSelectionMode(
+  value: unknown,
+  field: string,
+): EditIntentSelectionMode {
+  const mode = requireString(value, field);
+  if (!['explicit_references', 'resolved_context', 'hybrid'].includes(mode)) {
+    incompatible(`Unknown edit intent selection mode ${mode}.`);
+  }
+  return mode as EditIntentSelectionMode;
 }
 
 function requireProtocol(
@@ -208,6 +270,150 @@ export function validateVersionReport(value: unknown): VersionReport {
   return report as VersionReport;
 }
 
+function validateEditRuntimeCapabilities(value: unknown): EditRuntimeCapabilities {
+  const runtime = requireRecord(value, 'edit_runtime');
+  const intentSchema = requireInteger(
+    runtime.intent_schema_version,
+    'edit_runtime.intent_schema_version',
+  );
+  const planSchema = requireInteger(
+    runtime.plan_schema_version,
+    'edit_runtime.plan_schema_version',
+  );
+  const storeSchema = requireInteger(
+    runtime.proposal_store_schema_version,
+    'edit_runtime.proposal_store_schema_version',
+  );
+  if (intentSchema !== 1 || planSchema !== 1 || storeSchema !== 1) {
+    incompatible('Unsupported edit runtime schema inventory.');
+  }
+  if (requireString(runtime.hash_algorithm, 'edit_runtime.hash_algorithm') !== 'blake3') {
+    incompatible('Unsupported edit runtime hash algorithm.');
+  }
+  if (
+    requireString(runtime.task_persistence, 'edit_runtime.task_persistence') !==
+    'hash_only'
+  ) {
+    incompatible('Edit runtime must persist only a task hash.');
+  }
+  if (
+    requireString(runtime.offset_encoding, 'edit_runtime.offset_encoding') !==
+    'utf8_bytes'
+  ) {
+    incompatible('Unsupported edit runtime offset encoding.');
+  }
+
+  const selectionModes = requireUniqueStringArray(
+    runtime.selection_modes,
+    'edit_runtime.selection_modes',
+  );
+  if (
+    selectionModes.length === 0 ||
+    selectionModes.some(
+      (mode) => !['explicit_references', 'resolved_context', 'hybrid'].includes(mode),
+    ) ||
+    !selectionModes.includes('explicit_references')
+  ) {
+    incompatible('Edit runtime does not advertise a valid selection mode inventory.');
+  }
+
+  const operations = requireUniqueStringArray(
+    runtime.operations,
+    'edit_runtime.operations',
+  );
+  if (
+    operations.length === 0 ||
+    operations.some(
+      (operation) => !['modify_existing', 'create_text_file'].includes(operation),
+    ) ||
+    !operations.includes('modify_existing')
+  ) {
+    incompatible('Edit runtime does not advertise a valid operation inventory.');
+  }
+
+  const validations = requireUniqueStringArray(
+    runtime.validations,
+    'edit_runtime.validations',
+  );
+  if (
+    validations.some(
+      (validation) =>
+        !['reparse_java', 'build_offline', 'test_offline'].includes(validation),
+    ) ||
+    !validations.includes('reparse_java') ||
+    !validations.includes('build_offline')
+  ) {
+    incompatible('Edit runtime does not advertise the mandatory offline validations.');
+  }
+
+  const maxIntentTargets = requireBoundedInteger(
+    runtime.max_intent_targets,
+    'edit_runtime.max_intent_targets',
+    1,
+    16,
+  );
+  const maxFiles = requireBoundedInteger(
+    runtime.max_files,
+    'edit_runtime.max_files',
+    1,
+    5,
+  );
+  const maxCreatedFiles = requireBoundedInteger(
+    runtime.max_created_files,
+    'edit_runtime.max_created_files',
+    0,
+    1,
+  );
+  if (maxFiles > maxIntentTargets) {
+    incompatible('edit_runtime.max_files exceeds max_intent_targets.');
+  }
+  if (!operations.includes('create_text_file') && maxCreatedFiles !== 0) {
+    incompatible(
+      'edit_runtime.max_created_files must be zero when creation is disabled.',
+    );
+  }
+  if (operations.includes('create_text_file') && maxCreatedFiles === 0) {
+    incompatible(
+      'edit_runtime.max_created_files must be positive when creation is enabled.',
+    );
+  }
+
+  requireBoundedInteger(
+    runtime.max_file_bytes,
+    'edit_runtime.max_file_bytes',
+    1,
+    524288,
+  );
+  requireBoundedInteger(runtime.max_hunks, 'edit_runtime.max_hunks', 1, 64);
+  requireBoundedInteger(
+    runtime.max_changed_lines,
+    'edit_runtime.max_changed_lines',
+    1,
+    2000,
+  );
+  requireBoundedInteger(
+    runtime.global_timeout_seconds,
+    'edit_runtime.global_timeout_seconds',
+    1,
+    900,
+  );
+
+  for (const field of [
+    'clean_worktree_required',
+    'offline_verification',
+    'worktree_verification',
+    'native_confirmation',
+    'transactional_apply',
+    'rollback',
+  ]) {
+    if (!requireBoolean(runtime[field], `edit_runtime.${field}`)) {
+      incompatible(`Required secure edit runtime capability ${field} is disabled.`);
+    }
+  }
+
+  return runtime as unknown as EditRuntimeCapabilities;
+}
+
 export function validateCapabilitiesReport(value: unknown): CapabilitiesReport {
   const report = requireRecord(value, 'capabilities');
   requireProtocol(report, DISCOVERY_PROTOCOL);
@@ -246,6 +452,14 @@ export function validateCapabilitiesReport(value: unknown): CapabilitiesReport {
     }
   } else if (features.policy === true) {
     incompatible('Policy feature is enabled without policy_runtime capabilities.');
+  }
+  if (report.edit_runtime !== undefined) {
+    if (features.verified_edits !== true) {
+      incompatible(
+        'Edit runtime is advertised without the matching verified_edits feature.',
+      );
+    }
+    validateEditRuntimeCapabilities(report.edit_runtime);
   }
   return report as CapabilitiesReport;
 }
@@ -889,6 +1103,26 @@ export function validateChatEvent(
       requireInteger(event.facts, 'facts');
       requireInteger(event.model_calls, 'model_calls');
       break;
+    case 'edit_intent_started':
+      requireBoundedIdentifier(event.intent_id, 'intent_id');
+      requireEditIntentSchema(
+        event.intent_schema_version,
+        'intent_schema_version',
+      );
+      break;
+    case 'edit_intent_ready':
+      requireBoundedIdentifier(event.intent_id, 'intent_id');
+      requireEditIntentSchema(
+        event.intent_schema_version,
+        'intent_schema_version',
+      );
+      requireBlake3(event.intent_hash, 'intent_hash');
+      editIntentSelectionMode(event.selection_mode, 'selection_mode');
+      requireBoundedInteger(event.target_count, 'target_count', 1, 16);
+      if (requireInteger(event.expires_at_unix_ms, 'expires_at_unix_ms') === 0) {
+        incompatible('Edit intent expiry must be positive.');
+      }
+      break;
     case 'edit_plan_started':
       requireString(event.plan_id, 'plan_id');
       break;
@@ -909,11 +1143,29 @@ export function validateChatEvent(
         requireString(event.audit_event_id, 'audit_event_id');
       }
       break;
-    case 'proposal_stored':
+    case 'proposal_stored': {
       requireString(event.proposal_id, 'proposal_id');
       requireString(event.state, 'state');
       requireInteger(event.expires_at_unix_ms, 'expires_at_unix_ms');
+      const intentFields = [
+        event.intent_id,
+        event.intent_schema_version,
+        event.intent_hash,
+      ];
+      const present = intentFields.filter((field) => field !== undefined).length;
+      if (present !== 0 && present !== intentFields.length) {
+        incompatible('Stored proposal event has an incomplete intent binding.');
+      }
+      if (present === intentFields.length) {
+        requireBoundedIdentifier(event.intent_id, 'intent_id');
+        requireEditIntentSchema(
+          event.intent_schema_version,
+          'intent_schema_version',
+        );
+        requireBlake3(event.intent_hash, 'intent_hash');
+      }
       break;
+    }
     case 'verification_started':
       requireString(event.proposal_id, 'proposal_id');
       break;

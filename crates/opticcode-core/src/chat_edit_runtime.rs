@@ -142,11 +142,35 @@ async fn run_fix(
         trusted_edit_files(&observed.root, &prepared.references).map_err(|error| {
             edit_failure("edit_context", "trusted edit file inventory failed", error)
         })?;
-    let intent =
-        build_runtime_edit_intent(request, &expected, &trusted_files, &prepared.references)
-            .map_err(|error| {
-                edit_failure("edit_intent", "trusted edit intent creation failed", error)
-            })?;
+    let intent_id = new_edit_id("intent")
+        .map_err(|error| edit_failure("edit_intent", "intent ID creation failed", error))?;
+    emitter
+        .send(ChatProtocolEventPayload::EditIntentStarted {
+            intent_id: intent_id.clone(),
+            intent_schema_version: EDIT_INTENT_SCHEMA_VERSION,
+        })
+        .await
+        .map_err(event_failure)?;
+    let intent = build_runtime_edit_intent(
+        request,
+        &expected,
+        &trusted_files,
+        &prepared.references,
+        intent_id,
+    )
+    .map_err(|error| edit_failure("edit_intent", "trusted edit intent creation failed", error))?;
+    emitter
+        .send(ChatProtocolEventPayload::EditIntentReady {
+            intent_id: intent.intent.intent_id.clone(),
+            intent_schema_version: intent.intent.schema_version,
+            intent_hash: intent.intent_hash.clone(),
+            selection_mode: edit_intent_selection_mode_name(intent.intent.selection_mode)
+                .to_string(),
+            target_count: intent.intent.targets.len(),
+            expires_at_unix_ms: intent.intent.expires_at_unix_ms,
+        })
+        .await
+        .map_err(event_failure)?;
     let user_references = serde_json::to_string(&request.references).map_err(|error| {
         edit_failure(
             "edit_context",
@@ -240,11 +264,21 @@ async fn run_fix(
         })
         .await
         .map_err(event_failure)?;
+    let stored_intent = record.intent.as_ref().ok_or_else(|| {
+        RuntimeFailure::new(
+            "proposal_intent_missing",
+            "proposal_store",
+            "intent-bound proposal was stored without its trusted intent binding",
+        )
+    })?;
     emitter
         .send(ChatProtocolEventPayload::ProposalStored {
             proposal_id: record.proposal_id.clone(),
             state: state_name(record.state),
             expires_at_unix_ms: record.expires_at_unix_ms,
+            intent_id: stored_intent.intent_id.clone(),
+            intent_schema_version: stored_intent.schema_version,
+            intent_hash: stored_intent.intent_hash.clone(),
         })
         .await
         .map_err(event_failure)?;
@@ -1092,11 +1126,20 @@ fn approval_request_id(record: &ProposalRecord, operation: &str) -> Result<Strin
     Ok(format!("{operation}-confirmation-{}", &digest[..32]))
 }
 
+fn edit_intent_selection_mode_name(mode: EditIntentSelectionMode) -> &'static str {
+    match mode {
+        EditIntentSelectionMode::ExplicitReferences => "explicit_references",
+        EditIntentSelectionMode::ResolvedContext => "resolved_context",
+        EditIntentSelectionMode::Hybrid => "hybrid",
+    }
+}
+
 fn build_runtime_edit_intent(
     request: &ChatRequest,
     expected: &EditPlanExpectations,
     trusted_files: &[TrustedEditFile],
     references: &[crate::ChatResolvedReference],
+    intent_id: String,
 ) -> Result<ValidatedEditIntent> {
     if trusted_files.is_empty() {
         anyhow::bail!("edit intent requires at least one resolved, trusted file reference");
@@ -1147,7 +1190,7 @@ fn build_runtime_edit_intent(
     };
     let intent = EditIntent {
         schema_version: EDIT_INTENT_SCHEMA_VERSION,
-        intent_id: new_edit_id("intent")?,
+        intent_id,
         request_id: expected.request_id.clone(),
         workspace_id: expected.workspace_id.clone(),
         workspace_root_hash: expected.workspace_root_hash.clone(),

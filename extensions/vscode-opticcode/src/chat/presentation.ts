@@ -140,6 +140,15 @@ export class ChatEventPresenter {
             text: `DocumentFacts inspected ${event.facts} fact(s) with ${event.model_calls} model call(s).`,
           },
         ];
+      case 'edit_intent_started':
+        return [{ kind: 'progress', text: 'Preparing the trusted edit intent...' }];
+      case 'edit_intent_ready':
+        return [
+          {
+            kind: 'progress',
+            text: `Trusted edit intent ready: ${event.target_count} target(s), ${event.selection_mode}.`,
+          },
+        ];
       case 'edit_plan_started':
         return [{ kind: 'progress', text: 'Generating a bounded structured edit plan...' }];
       case 'edit_plan_ready':

@@ -84,6 +84,26 @@ After validation, OpticCode sorts:
 The canonical JSON is hashed with BLAKE3. The resulting `intent_hash` is stable for
 semantically identical intents whose input array order differs.
 
+## Discovery and chat events
+
+The discovery report advertises an `edit_runtime` capability object. It describes the exact
+schema versions, enabled selection modes and operations, validation stages, hard limits, hash
+algorithm, and confirmation requirements implemented by the running binary. Clients must not infer
+write capabilities from a single boolean.
+
+The Chat protocol emits this ordered intent lifecycle before model generation:
+
+1. `edit_intent_started`
+2. `edit_intent_ready`
+3. `edit_plan_started`
+4. `edit_plan_ready`
+5. `proposal_stored`
+
+`edit_intent_ready` exposes only bounded metadata: the intent identity, schema version, BLAKE3
+hash, selection mode, target count, and expiry. `proposal_stored` repeats the intent identity and
+hash so clients can bind review artifacts to the persisted authority without receiving task text
+or source content.
+
 ## Versioning
 
 - Protocol schema: `1`
