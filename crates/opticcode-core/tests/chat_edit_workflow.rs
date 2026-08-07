@@ -90,6 +90,11 @@ impl LlmProvider for EditPlanProvider {
             opticcode_llm::GenerationOutputFormat::Json
         );
         assert!(request.options.output_schema.is_some());
+        let output_schema = request.options.output_schema.as_ref().unwrap();
+        assert_eq!(
+            output_schema["properties"]["limits"]["const"]["max_created_files"].as_u64(),
+            Some(0)
+        );
         let mut plan = EditPlan::new_empty();
         plan.plan_id = prompt_value(&request.prompt, "plan_id");
         plan.request_id = prompt_value(&request.prompt, "request_id");
@@ -125,7 +130,10 @@ impl LlmProvider for EditPlanProvider {
         ];
         plan.risks = vec!["Fixture-only behavioral text change.".to_string()];
         plan.limitations = Vec::new();
-        plan.limits = EditPlanLimits::default();
+        plan.limits = EditPlanLimits {
+            max_created_files: 0,
+            ..EditPlanLimits::default()
+        };
         plan.expires_at_unix_ms = prompt_value(&request.prompt, "expires_at_unix_ms")
             .parse()
             .unwrap();
