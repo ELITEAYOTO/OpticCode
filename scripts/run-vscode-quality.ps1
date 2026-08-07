@@ -1,10 +1,18 @@
 param(
     [switch]$WithLlm,
+    [switch]$WithEditLlm,
     [switch]$WithExtensionHost,
     [switch]$SkipRealIntegration
 )
 
 $ErrorActionPreference = "Stop"
+
+if ($WithEditLlm -and -not $WithLlm) {
+    throw "-WithEditLlm requires -WithLlm so Ask/Plan and /fix use the same real provider gate."
+}
+if ($WithEditLlm -and $SkipRealIntegration) {
+    throw "-WithEditLlm cannot be combined with -SkipRealIntegration."
+}
 $repoRoot = Split-Path -Parent $PSScriptRoot
 $extensionRoot = Join-Path $repoRoot "extensions\vscode-opticcode"
 $artifact = Join-Path $repoRoot "artifacts\opticcode-vscode-0.2.1.vsix"
@@ -99,6 +107,13 @@ try {
         }
     }
 
+    if ($WithEditLlm) {
+        npm run test:edit
+        if ($LASTEXITCODE -ne 0) {
+            throw "Real /fix edit smoke failed."
+        }
+    }
+
     if ($WithExtensionHost) {
         npm run test:vscode
         if ($LASTEXITCODE -ne 0) {
@@ -175,4 +190,5 @@ Write-Host "VSIX: $artifact"
 Write-Host "VSIX SHA-256: $((Get-FileHash -LiteralPath $artifact -Algorithm SHA256).Hash)"
 Write-Host "Real integration executed: $(-not $SkipRealIntegration)"
 Write-Host "Real LLM smoke executed: $WithLlm"
+Write-Host "Real edit LLM smoke executed: $WithEditLlm"
 Write-Host "Extension Development Host executed: $WithExtensionHost"

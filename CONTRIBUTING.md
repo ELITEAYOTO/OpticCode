@@ -137,6 +137,24 @@ powershell -ExecutionPolicy Bypass `
   -WithLlm
 ```
 
+Edit-runtime or structured-generation changes should additionally run the real
+bounded `/fix` smoke:
+
+```powershell
+powershell -ExecutionPolicy Bypass `
+  -File .\scripts\run-vscode-quality.ps1 `
+  -WithLlm `
+  -WithEditLlm
+```
+
+The real edit smoke creates its own temporary Git/Maven workspace, sends one
+explicit file reference to the configured local model, requires an
+intent-bound verified diff, and confirms that no Apply or Rollback transaction
+touches the original fixture. It requires the release `opticcode` binary,
+Maven, Ollama, and the configured model. `OPTICCODE_MODEL`,
+`OPTICCODE_OLLAMA_URL`, `OPTICCODE_EXE`, and `OPTICCODE_REPO_ROOT` may be used
+to override the local smoke configuration.
+
 Before committing:
 
 ```powershell
