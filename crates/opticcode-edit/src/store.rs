@@ -9,10 +9,11 @@ use anyhow::{bail, Context, Result};
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    unix_millis, ChatEditApplyReport, ChatEditRollbackReport, ChatEditVerificationReport, EditPlan,
-    PolicyDecisionRecord, ProposalFileSnapshot, ProposalState, ProposalTransition,
-    ValidatedEditPlan, VerifiedDiff, DEFAULT_TRANSACTION_REPORT_TTL_SECONDS,
-    PROPOSAL_STORE_SCHEMA_VERSION,
+    unix_millis, validate_edit_plan_against_binding, validate_edit_plan_against_intent,
+    ChatEditApplyReport, ChatEditRollbackReport, ChatEditVerificationReport, EditPlan,
+    PolicyDecisionRecord, ProposalFileSnapshot, ProposalIntentBinding, ProposalState,
+    ProposalTransition, ValidatedEditIntent, ValidatedEditPlan, VerifiedDiff,
+    DEFAULT_TRANSACTION_REPORT_TTL_SECONDS, PROPOSAL_STORE_SCHEMA_VERSION,
 };
 
 const STORE_DIRECTORY: &str = "proposals-v1";
@@ -37,6 +38,8 @@ pub struct ProposalRecord {
     pub updated_at_unix_ms: u64,
     pub expires_at_unix_ms: u64,
     pub transaction_report_expires_at_unix_ms: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub intent: Option<ProposalIntentBinding>,
     pub plan: EditPlan,
     pub files: Vec<ProposalFileSnapshot>,
     pub transitions: Vec<ProposalTransition>,
@@ -98,6 +101,25 @@ impl ProposalStore {
     }
 
     pub fn create(&self, validated: ValidatedEditPlan) -> Result<ProposalRecord> {
+        self.create_record(validated, None)
+    }
+
+    pub fn create_with_intent(
+        &self,
+        validated: ValidatedEditPlan,
+        intent: &ValidatedEditIntent,
+    ) -> Result<ProposalRecord> {
+        validate_edit_plan_against_intent(&validated, intent).map_err(anyhow::Error::new)?;
+        let binding = ProposalIntentBinding::from_validated(intent).map_err(anyhow::Error::new)?;
+        binding.validate().map_err(anyhow::Error::new)?;
+        self.create_record(validated, Some(binding))
+    }
+
+    fn create_record(
+        &self,
+        validated: ValidatedEditPlan,
+        intent: Option<ProposalIntentBinding>,
+    ) -> Result<ProposalRecord> {
         let _lock = StoreLock::acquire(&self.workspace_dir)?;
         let now = unix_millis();
         let proposal_id = validated.plan.plan_id.clone();
@@ -141,6 +163,7 @@ impl ProposalStore {
             expires_at_unix_ms: validated.plan.expires_at_unix_ms,
             transaction_report_expires_at_unix_ms: now
                 .saturating_add(DEFAULT_TRANSACTION_REPORT_TTL_SECONDS.saturating_mul(1_000)),
+            intent,
             plan: validated.plan,
             files: validated.files,
             transitions,
@@ -466,6 +489,30 @@ fn validate_record(record: &ProposalRecord, proposal_id: &str, workspace_hash: &
         || record.transitions.last().map(|item| item.state) != Some(record.state)
     {
         bail!("proposal record identity, state, or timestamps are inconsistent");
+    }
+    if let Some(binding) = &record.intent {
+        binding.validate().map_err(anyhow::Error::new)?;
+        if binding.request_id != record.plan.request_id
+            || binding.workspace_id != record.workspace_id
+            || binding.workspace_root_hash != record.workspace_root_hash
+            || binding.base_head != record.plan.base_head
+            || binding.working_tree_digest != record.plan.working_tree_digest
+        {
+            bail!("proposal record intent binding does not match its persisted plan");
+        }
+        let total_snapshot_bytes = record.files.iter().fold(0usize, |total, file| {
+            total
+                .saturating_add(file.base_content.as_ref().map_or(0, String::len))
+                .saturating_add(file.proposed_content.len())
+        });
+        let persisted_plan = ValidatedEditPlan {
+            plan: record.plan.clone(),
+            files: record.files.clone(),
+            estimated_added_lines: 0,
+            estimated_deleted_lines: 0,
+            total_snapshot_bytes,
+        };
+        validate_edit_plan_against_binding(&persisted_plan, binding).map_err(anyhow::Error::new)?;
     }
     for (index, transition) in record.transitions.iter().enumerate() {
         if transition.sequence as usize != index {

@@ -2,7 +2,8 @@ use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    EditPlanExpectations, EditPlanLimits, LineEnding, ALLOWED_EDIT_EXTENSIONS, MAX_EDIT_FILE_BYTES,
+    EditIntentOperationKind, EditIntentTarget, EditPlanExpectations, EditPlanLimits, LineEnding,
+    ProposalIntentBinding, ValidatedEditIntent, ALLOWED_EDIT_EXTENSIONS, MAX_EDIT_FILE_BYTES,
     MAX_EDIT_PROPOSAL_BYTES,
 };
 
@@ -35,6 +36,11 @@ pub struct EditGenerationInput<'a> {
     pub expected: &'a EditPlanExpectations,
 }
 
+#[derive(Debug, Clone)]
+pub struct BoundEditGenerationInput<'a> {
+    pub base: EditGenerationInput<'a>,
+    pub intent: &'a ValidatedEditIntent,
+}
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct EditGenerationAttempts {
@@ -110,6 +116,12 @@ pub fn build_edit_generation_prompt(input: EditGenerationInput<'_>) -> Result<St
     Ok(prompt)
 }
 
+pub fn build_bound_edit_generation_prompt(input: BoundEditGenerationInput<'_>) -> Result<String> {
+    let expected = input.base.expected;
+    validate_generation_intent_binding(expected, input.intent)?;
+    let prompt = build_edit_generation_prompt(input.base)?;
+    bind_prompt_to_intent(prompt, expected, input.intent)
+}
 pub fn build_format_correction_prompt(
     invalid_output: &str,
     error_code: &str,
@@ -139,6 +151,24 @@ pub fn build_format_correction_prompt(
     ))
 }
 
+pub fn build_bound_format_correction_prompt(
+    invalid_output: &str,
+    error_code: &str,
+    error_message: &str,
+    expected: &EditPlanExpectations,
+    trusted_files: &[TrustedEditFile],
+    intent: &ValidatedEditIntent,
+) -> Result<String> {
+    validate_generation_intent_binding(expected, intent)?;
+    let prompt = build_format_correction_prompt(
+        invalid_output,
+        error_code,
+        error_message,
+        expected,
+        trusted_files,
+    )?;
+    bind_prompt_to_intent(prompt, expected, intent)
+}
 pub fn edit_plan_output_schema(
     expected: &EditPlanExpectations,
     trusted_files: &[TrustedEditFile],
@@ -225,6 +255,68 @@ pub fn edit_plan_output_schema(
     })
 }
 
+pub fn edit_plan_output_schema_for_intent(
+    expected: &EditPlanExpectations,
+    trusted_files: &[TrustedEditFile],
+    intent: &ValidatedEditIntent,
+) -> Result<serde_json::Value> {
+    validate_generation_intent_binding(expected, intent)?;
+
+    let allowed_operations = intent
+        .intent
+        .constraints
+        .allowed_operations
+        .iter()
+        .copied()
+        .collect::<std::collections::BTreeSet<_>>();
+    let mut operation_variants = Vec::new();
+
+    for target in &intent.intent.targets {
+        match target {
+            EditIntentTarget::ExistingFile {
+                path, content_hash, ..
+            } => {
+                if !allowed_operations.contains(&EditIntentOperationKind::ModifyExisting) {
+                    anyhow::bail!(
+                        "validated intent contains an existing target without modify permission"
+                    );
+                }
+                let trusted = trusted_files
+                    .iter()
+                    .find(|file| file.path == *path)
+                    .with_context(|| {
+                        format!("validated intent target {path} has no trusted file snapshot")
+                    })?;
+                if trusted.content_hash != *content_hash {
+                    anyhow::bail!(
+                        "validated intent target {path} does not match its trusted file hash"
+                    );
+                }
+                operation_variants.push(modify_operation_schema(trusted));
+            }
+            EditIntentTarget::ProspectiveFile {
+                path, extension, ..
+            } => {
+                if !allowed_operations.contains(&EditIntentOperationKind::CreateTextFile) {
+                    anyhow::bail!(
+                        "validated intent contains a prospective target without create permission"
+                    );
+                }
+                operation_variants.push(create_operation_schema_for_target(path, extension));
+            }
+        }
+    }
+
+    if operation_variants.is_empty() {
+        anyhow::bail!("validated edit intent exposes no generation operation");
+    }
+
+    let mut schema = edit_plan_output_schema(expected, trusted_files);
+    schema["properties"]["operations"]["items"]["oneOf"] =
+        serde_json::Value::Array(operation_variants);
+    schema["properties"]["limits"] = serde_json::json!({"const": intent.intent.constraints.limits});
+    Ok(schema)
+}
 fn modify_operation_schema(file: &TrustedEditFile) -> serde_json::Value {
     serde_json::json!({
         "type": "object",
@@ -286,6 +378,31 @@ fn create_operation_schema() -> serde_json::Value {
     })
 }
 
+fn create_operation_schema_for_target(path: &str, extension: &str) -> serde_json::Value {
+    serde_json::json!({
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+            "type", "path", "extension", "encoding", "line_ending", "content", "reason",
+            "provenance", "expected_absent", "declared_size"
+        ],
+        "properties": {
+            "type": {"const": "create"},
+            "path": {"const": path},
+            "extension": {"const": extension},
+            "encoding": {"const": "utf8"},
+            "line_ending": {"enum": ["none", "lf", "crlf"]},
+            "content": {"type": "string"},
+            "reason": {"type": "string"},
+            "provenance": {
+                "type": "array",
+                "items": {"type": "string"}
+            },
+            "expected_absent": {"const": true},
+            "declared_size": {"type": "integer"}
+        }
+    })
+}
 pub fn new_edit_id(prefix: &str) -> Result<String> {
     if prefix.is_empty()
         || prefix.len() > 32
@@ -305,7 +422,13 @@ pub fn new_edit_id(prefix: &str) -> Result<String> {
 }
 
 fn edit_plan_contract_json(expected: &EditPlanExpectations) -> Result<String> {
-    let limits: EditPlanLimits = expected.limits;
+    edit_plan_contract_json_with_limits(expected, expected.limits)
+}
+
+fn edit_plan_contract_json_with_limits(
+    expected: &EditPlanExpectations,
+    limits: EditPlanLimits,
+) -> Result<String> {
     let value = serde_json::json!({
         "schema_version": crate::EDIT_PLAN_SCHEMA_VERSION,
         "plan_id": expected.plan_id,
@@ -359,6 +482,84 @@ fn render_trusted_files(files: &[TrustedEditFile]) -> Result<String> {
     Ok(rendered)
 }
 
+fn validate_generation_intent_binding(
+    expected: &EditPlanExpectations,
+    intent: &ValidatedEditIntent,
+) -> Result<()> {
+    let binding = ProposalIntentBinding::from_validated(intent).map_err(anyhow::Error::new)?;
+    binding.validate().map_err(anyhow::Error::new)?;
+
+    for (name, actual, trusted) in [
+        (
+            "request_id",
+            expected.request_id.as_str(),
+            intent.intent.request_id.as_str(),
+        ),
+        (
+            "workspace_id",
+            expected.workspace_id.as_str(),
+            intent.intent.workspace_id.as_str(),
+        ),
+        (
+            "workspace_root_hash",
+            expected.workspace_root_hash.as_str(),
+            intent.intent.workspace_root_hash.as_str(),
+        ),
+        (
+            "base_head",
+            expected.base_head.as_str(),
+            intent.intent.base_head.as_str(),
+        ),
+        (
+            "working_tree_digest",
+            expected.working_tree_digest.as_str(),
+            intent.intent.working_tree_digest.as_str(),
+        ),
+    ] {
+        if actual != trusted {
+            anyhow::bail!(
+                "validated edit intent {name} is not bound to the generation expectations"
+            );
+        }
+    }
+    Ok(())
+}
+
+fn bind_prompt_to_intent(
+    mut prompt: String,
+    expected: &EditPlanExpectations,
+    intent: &ValidatedEditIntent,
+) -> Result<String> {
+    let legacy_contract = edit_plan_contract_json(expected)?;
+    let bound_contract =
+        edit_plan_contract_json_with_limits(expected, intent.intent.constraints.limits)?;
+    if !prompt.contains(&legacy_contract) {
+        anyhow::bail!("structured edit prompt is missing its EditPlan contract marker");
+    }
+    prompt = prompt.replacen(&legacy_contract, &bound_contract, 1);
+
+    let marker = "[TRUSTED_FILE_SNAPSHOTS]";
+    if !prompt.contains(marker) {
+        anyhow::bail!("structured edit prompt is missing its trusted snapshot marker");
+    }
+    let section = format!(
+        concat!(
+            "[VALIDATED_EDIT_INTENT]\n",
+            "intent_hash={}\n",
+            "{}\n",
+            "This validated intent is authoritative. AVAILABLE_FILES is discovery only, ",
+            "never authorization. Emit operations only for exact intent targets and kinds.\n\n",
+            "{}"
+        ),
+        intent.intent_hash, intent.canonical_json, marker
+    );
+    prompt = prompt.replacen(marker, &section, 1);
+
+    if prompt.len() > 4 * 1024 * 1024 {
+        anyhow::bail!("intent-bound edit prompt exceeds its 4 MiB runtime bound");
+    }
+    Ok(prompt)
+}
 fn valid_line_anchors(file: &TrustedEditFile) -> bool {
     if file.bytes == 0 {
         return file.line_anchors.is_empty();

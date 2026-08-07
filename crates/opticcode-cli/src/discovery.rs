@@ -9,6 +9,11 @@ use opticcode_core::{
     ASSISTANT_PROTOCOL_SCHEMA_VERSION, ASSISTANT_RUN_SCHEMA_VERSION, CHAT_PROTOCOL_ID,
     CHAT_PROTOCOL_SCHEMA_VERSION,
 };
+use opticcode_edit::{
+    EDIT_INTENT_SCHEMA_VERSION, EDIT_PLAN_SCHEMA_VERSION, MAX_EDIT_CHANGED_LINES, MAX_EDIT_FILES,
+    MAX_EDIT_FILE_BYTES, MAX_EDIT_GLOBAL_TIMEOUT_SECONDS, MAX_EDIT_HUNKS, MAX_EDIT_INTENT_TARGETS,
+    PROPOSAL_STORE_SCHEMA_VERSION,
+};
 use opticcode_llm::{
     HealthRequest, LlmProvider, OllamaProvider, ProviderCapabilities, LLM_PROTOCOL_ID,
     LLM_PROTOCOL_SCHEMA_VERSION,
@@ -110,6 +115,32 @@ pub struct PolicyCapabilities {
 }
 
 #[derive(Debug, Clone, Serialize)]
+pub struct EditRuntimeCapabilities {
+    pub intent_schema_version: u32,
+    pub plan_schema_version: u32,
+    pub proposal_store_schema_version: u32,
+    pub hash_algorithm: &'static str,
+    pub task_persistence: &'static str,
+    pub offset_encoding: &'static str,
+    pub selection_modes: Vec<&'static str>,
+    pub operations: Vec<&'static str>,
+    pub validations: Vec<&'static str>,
+    pub max_intent_targets: usize,
+    pub max_files: usize,
+    pub max_created_files: usize,
+    pub max_file_bytes: usize,
+    pub max_hunks: usize,
+    pub max_changed_lines: usize,
+    pub global_timeout_seconds: u64,
+    pub clean_worktree_required: bool,
+    pub offline_verification: bool,
+    pub worktree_verification: bool,
+    pub native_confirmation: bool,
+    pub transactional_apply: bool,
+    pub rollback: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
 pub struct CapabilitiesReport {
     pub schema_version: u32,
     pub protocol: &'static str,
@@ -119,6 +150,7 @@ pub struct CapabilitiesReport {
     pub machine_output: MachineOutputCapabilities,
     pub features: FeatureCapabilities,
     pub policy_runtime: PolicyCapabilities,
+    pub edit_runtime: EditRuntimeCapabilities,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
@@ -214,6 +246,8 @@ pub fn version_report() -> VersionReport {
             ("capabilities", DISCOVERY_SCHEMA_VERSION),
             ("chat", CHAT_PROTOCOL_SCHEMA_VERSION),
             ("doctor", DISCOVERY_SCHEMA_VERSION),
+            ("edit_intent", EDIT_INTENT_SCHEMA_VERSION),
+            ("edit_plan", EDIT_PLAN_SCHEMA_VERSION),
             ("evaluation", EVAL_SCHEMA_VERSION),
             ("java_context", JAVA_CONTEXT_SCHEMA_VERSION),
             ("java_edit_worktree", JAVA_EDIT_WORKTREE_SCHEMA_VERSION),
@@ -221,6 +255,7 @@ pub fn version_report() -> VersionReport {
             ("java_index", JAVA_INDEX_SCHEMA_VERSION),
             ("java_syntax", JAVA_SYNTAX_SCHEMA_VERSION),
             ("policy", POLICY_SCHEMA_VERSION),
+            ("proposal_store", PROPOSAL_STORE_SCHEMA_VERSION),
             ("rag_index", RAG_INDEX_SCHEMA_VERSION),
             ("version", DISCOVERY_SCHEMA_VERSION),
             ("worktree_lease", WORKTREE_LEASE_SCHEMA_VERSION),
@@ -322,6 +357,30 @@ pub fn capabilities_report() -> CapabilitiesReport {
             cli: true,
             chat_read_only: true,
             chat_write: true,
+        },
+        edit_runtime: EditRuntimeCapabilities {
+            intent_schema_version: EDIT_INTENT_SCHEMA_VERSION,
+            plan_schema_version: EDIT_PLAN_SCHEMA_VERSION,
+            proposal_store_schema_version: PROPOSAL_STORE_SCHEMA_VERSION,
+            hash_algorithm: "blake3",
+            task_persistence: "hash_only",
+            offset_encoding: "utf8_bytes",
+            selection_modes: vec!["explicit_references"],
+            operations: vec!["modify_existing"],
+            validations: vec!["reparse_java", "build_offline", "test_offline"],
+            max_intent_targets: MAX_EDIT_INTENT_TARGETS,
+            max_files: MAX_EDIT_FILES,
+            max_created_files: 0,
+            max_file_bytes: MAX_EDIT_FILE_BYTES,
+            max_hunks: MAX_EDIT_HUNKS,
+            max_changed_lines: MAX_EDIT_CHANGED_LINES,
+            global_timeout_seconds: MAX_EDIT_GLOBAL_TIMEOUT_SECONDS,
+            clean_worktree_required: true,
+            offline_verification: true,
+            worktree_verification: true,
+            native_confirmation: true,
+            transactional_apply: true,
+            rollback: true,
         },
     }
 }
@@ -845,5 +904,10 @@ mod tests {
         assert!(report.machine_output.ndjson);
         assert!(report.providers[0].capabilities.streaming);
         assert!(report.features.verified_edits);
+        assert_eq!(report.edit_runtime.intent_schema_version, 1);
+        assert_eq!(report.edit_runtime.operations, ["modify_existing"]);
+        assert_eq!(report.edit_runtime.max_created_files, 0);
+        assert_eq!(report.edit_runtime.task_persistence, "hash_only");
+        assert!(report.edit_runtime.native_confirmation);
     }
 }

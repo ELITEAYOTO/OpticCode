@@ -17,6 +17,7 @@ serde.workspace = true
 serde_json.workspace = true
 tokio.workspace = true
 opticcode-core.workspace = true
+opticcode-edit.workspace = true
 opticcode-llm.workspace = true
 opticcode-policy.workspace = true
 opticcode-tools.workspace = true

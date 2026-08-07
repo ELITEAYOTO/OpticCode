@@ -31,6 +31,40 @@ export interface VersionReport extends JsonObject {
   };
 }
 
+export type EditIntentSelectionMode =
+  | 'explicit_references'
+  | 'resolved_context'
+  | 'hybrid';
+
+export type EditIntentOperation = 'modify_existing' | 'create_text_file';
+
+export type EditValidationKind = 'reparse_java' | 'build_offline' | 'test_offline';
+
+export interface EditRuntimeCapabilities {
+  intent_schema_version: number;
+  plan_schema_version: number;
+  proposal_store_schema_version: number;
+  hash_algorithm: 'blake3';
+  task_persistence: 'hash_only';
+  offset_encoding: 'utf8_bytes';
+  selection_modes: EditIntentSelectionMode[];
+  operations: EditIntentOperation[];
+  validations: EditValidationKind[];
+  max_intent_targets: number;
+  max_files: number;
+  max_created_files: number;
+  max_file_bytes: number;
+  max_hunks: number;
+  max_changed_lines: number;
+  global_timeout_seconds: number;
+  clean_worktree_required: boolean;
+  offline_verification: boolean;
+  worktree_verification: boolean;
+  native_confirmation: boolean;
+  transactional_apply: boolean;
+  rollback: boolean;
+}
+
 export interface CapabilitiesReport extends JsonObject {
   schema_version: number;
   protocol: string;
@@ -67,6 +101,7 @@ export interface CapabilitiesReport extends JsonObject {
     chat_read_only: boolean;
     chat_write: boolean;
   };
+  edit_runtime?: EditRuntimeCapabilities | undefined;
 }
 
 export type DoctorStatus = 'ok' | 'warning' | 'error' | 'unavailable';
@@ -514,6 +549,20 @@ export type ChatProtocolEvent = ChatEventBase &
         model_calls: number;
       }
     | { type: 'timing_metrics'; metrics: ChatMetrics }
+    | {
+        type: 'edit_intent_started';
+        intent_id: string;
+        intent_schema_version: number;
+      }
+    | {
+        type: 'edit_intent_ready';
+        intent_id: string;
+        intent_schema_version: number;
+        intent_hash: string;
+        selection_mode: EditIntentSelectionMode;
+        target_count: number;
+        expires_at_unix_ms: number;
+      }
     | { type: 'edit_plan_started'; plan_id: string }
     | { type: 'edit_plan_ready'; plan_id: string; summary: string; file_count: number }
     | {
@@ -530,6 +579,9 @@ export type ChatProtocolEvent = ChatEventBase &
         proposal_id: string;
         state: string;
         expires_at_unix_ms: number;
+        intent_id?: string | undefined;
+        intent_schema_version?: number | undefined;
+        intent_hash?: string | undefined;
       }
     | { type: 'verification_started'; proposal_id: string }
     | { type: 'worktree_created'; proposal_id: string; run_id: string }

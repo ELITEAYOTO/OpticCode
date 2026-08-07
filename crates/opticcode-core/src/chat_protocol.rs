@@ -3,6 +3,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use anyhow::{bail, Context, Result};
+use opticcode_edit::{EDIT_INTENT_SCHEMA_VERSION, MAX_EDIT_INTENT_TARGETS};
 use opticcode_llm::{CancellationToken, ProviderId};
 use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc;
@@ -682,6 +683,18 @@ pub enum ChatProtocolEventPayload {
     TimingMetrics {
         metrics: ChatMetrics,
     },
+    EditIntentStarted {
+        intent_id: String,
+        intent_schema_version: u32,
+    },
+    EditIntentReady {
+        intent_id: String,
+        intent_schema_version: u32,
+        intent_hash: String,
+        selection_mode: String,
+        target_count: usize,
+        expires_at_unix_ms: u64,
+    },
     EditPlanStarted {
         plan_id: String,
     },
@@ -704,6 +717,12 @@ pub enum ChatProtocolEventPayload {
         proposal_id: String,
         state: String,
         expires_at_unix_ms: u64,
+        #[serde(default)]
+        intent_id: String,
+        #[serde(default)]
+        intent_schema_version: u32,
+        #[serde(default)]
+        intent_hash: String,
     },
     VerificationStarted {
         proposal_id: String,
@@ -810,6 +829,52 @@ impl ChatProtocolEventPayload {
         if text.is_some_and(|value| value.len() > MAX_CHAT_EVENT_TEXT_BYTES) {
             bail!("chat event text exceeds its bounded payload limit");
         }
+        match self {
+            Self::EditIntentStarted {
+                intent_id,
+                intent_schema_version,
+            } => {
+                if *intent_schema_version != EDIT_INTENT_SCHEMA_VERSION
+                    || !valid_edit_event_identifier(intent_id)
+                {
+                    bail!("chat edit intent started event has an invalid identity or schema");
+                }
+            }
+            Self::EditIntentReady {
+                intent_id,
+                intent_schema_version,
+                intent_hash,
+                selection_mode,
+                target_count,
+                expires_at_unix_ms,
+            } => {
+                if *intent_schema_version != EDIT_INTENT_SCHEMA_VERSION
+                    || !valid_edit_event_identifier(intent_id)
+                    || !valid_blake3_hash(intent_hash)
+                    || !matches!(
+                        selection_mode.as_str(),
+                        "explicit_references" | "resolved_context" | "hybrid"
+                    )
+                    || *target_count == 0
+                    || *target_count > MAX_EDIT_INTENT_TARGETS
+                    || *expires_at_unix_ms == 0
+                {
+                    bail!("chat edit intent ready event exceeds its trusted protocol contract");
+                }
+            }
+            Self::ProposalStored {
+                intent_id,
+                intent_schema_version,
+                intent_hash,
+                ..
+            } if *intent_schema_version != EDIT_INTENT_SCHEMA_VERSION
+                || !valid_edit_event_identifier(intent_id)
+                || !valid_blake3_hash(intent_hash) =>
+            {
+                bail!("stored proposal event has an invalid edit intent binding");
+            }
+            _ => {}
+        }
         if let Self::TaskComplianceFailed { errors }
         | Self::InternalContextLeakDetected { markers: errors } = self
         {
@@ -848,6 +913,18 @@ impl ChatProtocolEventPayload {
         }
         Ok(())
     }
+}
+
+fn valid_edit_event_identifier(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= 160
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || b"-_.:".contains(&byte))
+}
+
+fn valid_blake3_hash(value: &str) -> bool {
+    value.len() == 64 && value.bytes().all(|byte| byte.is_ascii_hexdigit())
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -1223,6 +1300,33 @@ mod tests {
         assert!(validate_chat_request_id("../escape").is_err());
         assert!(ChatProtocolEventPayload::TokenDelta {
             text: "x".repeat(MAX_CHAT_EVENT_TEXT_BYTES + 1),
+        }
+        .validate_bounds()
+        .is_err());
+    }
+
+    #[test]
+    fn edit_intent_events_are_versioned_bounded_and_machine_readable() {
+        let ready = ChatProtocolEventPayload::EditIntentReady {
+            intent_id: "intent-0123456789abcdef".to_string(),
+            intent_schema_version: EDIT_INTENT_SCHEMA_VERSION,
+            intent_hash: "a".repeat(64),
+            selection_mode: "explicit_references".to_string(),
+            target_count: 2,
+            expires_at_unix_ms: 1_800_000_900_000,
+        };
+        assert!(ready.validate_bounds().is_ok());
+        let encoded = serde_json::to_value(&ready).unwrap();
+        assert_eq!(encoded["type"], "edit_intent_ready");
+        assert_eq!(encoded["intent_schema_version"], 1);
+
+        assert!(ChatProtocolEventPayload::EditIntentReady {
+            intent_id: "intent-0123456789abcdef".to_string(),
+            intent_schema_version: EDIT_INTENT_SCHEMA_VERSION,
+            intent_hash: "not-a-hash".to_string(),
+            selection_mode: "explicit_references".to_string(),
+            target_count: MAX_EDIT_INTENT_TARGETS + 1,
+            expires_at_unix_ms: 1,
         }
         .validate_bounds()
         .is_err());
