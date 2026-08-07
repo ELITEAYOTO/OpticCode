@@ -39,6 +39,7 @@
     "test": "npm run compile && node --test out/test/unit/*.test.js",
     "test:integration": "npm run compile && node --test out/test/integration/*.test.js",
     "test:assistant": "npm run compile && node scripts/real-assistant-smoke.mjs",
+    "test:edit": "npm run compile && node scripts/real-edit-smoke.mjs",
     "test:vscode": "npm run compile && node scripts/run-vscode-test.mjs",
     "test:prompt-lab": "npm run compile && node scripts/run-prompt-lab.mjs",
     "package": "npm run compile && vsce package --out ../../artifacts/opticcode-vscode-0.2.1.vsix"
